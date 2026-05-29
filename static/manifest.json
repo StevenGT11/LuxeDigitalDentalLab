@@ -1,0 +1,11 @@
+{
+	"name": "Luxe Digital Dental Lab",
+	"short_name": "Luxe Lab",
+	"description": "Gestión de casos de laboratorio dental",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#ffffff",
+	"theme_color": "#0284c7",
+	"lang": "es",
+	"scope": "/"
+}

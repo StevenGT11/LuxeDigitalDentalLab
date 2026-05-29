@@ -1,0 +1,25 @@
+[
+  { "value": "", "label": "Ninguno (Opcional)" },
+  { "value": "extraction", "label": "Extraction" },
+  { "value": "protesis_removal", "label": "Protesis Removal" },
+  { "value": "filling", "label": "Filling" },
+  { "value": "inlay", "label": "Inlay" },
+  { "value": "inlay_preparation", "label": "Inlay Preparation" },
+  { "value": "onlay", "label": "Onlay" },
+  { "value": "onlay_preparation", "label": "Onlay Preparation" },
+  { "value": "bar", "label": "Bar" },
+  { "value": "denture", "label": "Denture" },
+  { "value": "root_canal_treatment", "label": "Root Canal Treatment" },
+  { "value": "post", "label": "Post" },
+  { "value": "parapulpal_pin", "label": "Parapulpal Pin" },
+  { "value": "preci_vertix", "label": "Preci-vertix" },
+  { "value": "implant", "label": "Implante" },
+  { "value": "abutment_only", "label": "Abutment" },
+  { "value": "implant_abutment", "label": "Implante + abutment" },
+  { "value": "crown", "label": "Crown" },
+  { "value": "temporary_crown", "label": "Temporary Crown" },
+  { "value": "veneer", "label": "Veneer" },
+  { "value": "bridge", "label": "Bridge" },
+  { "value": "temporary_bridge", "label": "Temporary Bridge" }
+]
+

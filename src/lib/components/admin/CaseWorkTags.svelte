@@ -1,0 +1,92 @@
+<script lang="ts">
+	import {
+		getMaterialLabel,
+		getTipoTrabajoLabel
+	} from '$lib/lab/constants';
+	import type { CaseItem } from '$lib/lab/types';
+	import { getAnatomyLabel } from '$lib/lab/teeth';
+	import { getMaterialColor, getTipoColor } from '$lib/lab/visual';
+	import VitaColorChip from './VitaColorChip.svelte';
+
+	interface Props {
+		items: CaseItem[];
+		/** Fallback cuando el caso no tiene items[] */
+		fallback?: {
+			tipo_trabajo: string;
+			material: string | null;
+			color: string | null;
+			piezas: number;
+		};
+	}
+
+	let { items, fallback }: Props = $props();
+
+	const rows = $derived(
+		items.length > 0
+			? items
+			: fallback
+				? [
+						{
+							id: 'legacy',
+							case_id: '',
+							numero_pieza: null,
+							piezas_dentales: [],
+							tipo_pieza: null,
+							tipo_trabajo: fallback.tipo_trabajo,
+							material: fallback.material,
+							color: fallback.color,
+							piezas: fallback.piezas,
+							descripcion: null,
+							incluye_diseno: true,
+							incluye_fresado: true,
+							unit_price: 0,
+							subtotal: 0
+						}
+					]
+				: []
+	);
+</script>
+
+<ul class="case-work-tags">
+	{#each rows as item}
+		<li class="case-work-tags__item">
+			{#if item.numero_pieza || item.piezas_dentales?.length}
+				<span class="work-tag work-tag--pieza" title="Dientes FDI">
+					#{item.numero_pieza ?? item.piezas_dentales.join(', ')}
+				</span>
+			{/if}
+			{#if item.tipo_pieza}
+				<span class="work-tag work-tag--anatomy work-tag--anatomy-{item.tipo_pieza}">
+					{getAnatomyLabel(item.tipo_pieza)}
+				</span>
+			{/if}
+			<span
+				class="work-tag work-tag--tipo"
+				style="--tag-color: {getTipoColor(item.tipo_trabajo)}"
+			>
+				{getTipoTrabajoLabel(item.tipo_trabajo)}
+				<span class="work-tag__qty">×{item.piezas}</span>
+			</span>
+			{#if item.incluye_diseno}
+				<span class="work-tag work-tag--servicio work-tag--diseno">Diseño</span>
+			{/if}
+			{#if item.incluye_fresado}
+				<span class="work-tag work-tag--servicio work-tag--fresado">Fresado</span>
+			{/if}
+			{#if item.material}
+				<span
+					class="work-tag work-tag--material"
+					style="--tag-color: {getMaterialColor(item.material)}"
+				>
+					{getMaterialLabel(item.material)}
+				</span>
+			{/if}
+			{#if item.color}
+				<VitaColorChip shade={item.color} />
+			{/if}
+			{#if item.descripcion}
+				<span class="case-work-tags__desc">{item.descripcion}</span>
+			{/if}
+		</li>
+	{/each}
+</ul>

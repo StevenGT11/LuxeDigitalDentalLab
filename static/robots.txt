@@ -1,0 +1,25 @@
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://americadental.com/sitemap.xml
+
+# Disallow crawling of sensitive areas
+Disallow: /api/
+Disallow: /admin/
+Disallow: /.svelte-kit/
+Disallow: /node_modules/
+Disallow: /private/
+
+# Allow crawling of important biological dentistry pages
+Allow: /services/
+Allow: /dental-tourism/
+Allow: /testimonials/
+Allow: /blog/
+Allow: /biological-dentistry/
+Allow: /smart-mercury-removal/
+Allow: /biocompatible-materials/
+
+# Prioritize biological dentistry content for US patients
+# Crawl delay (optional - adjust based on server capacity)
+Crawl-delay: 1 

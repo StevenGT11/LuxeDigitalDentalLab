@@ -1,0 +1,160 @@
+{
+  "conditions": {
+    "3": {
+      "showImplante": true,
+      "showAbutment": true
+    },
+    "4": {
+      "showImplante": true
+    },
+    "5": {
+      "showRootCanal": true,
+      "showRootTreatedUnsatisfactory": true
+    },
+    "6": {
+      "showDiscolored": true
+    },
+    "7": {
+      "showWorn": true
+    },
+    "26": {
+      "showAmalgamM": true,
+      "showAmalgamD": true,
+      "showFilledAmalgam": true,
+      "showFilledComposite": true,
+      "showCompositeO": true
+    }
+  },
+  "svg": {
+    "1": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "2": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "3": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "4": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "5": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "6": {
+      "showBase": true,
+      "showRaiz": true,
+      "activeIntactCondition": ["showDiscolored"]
+    },
+    "7": {
+      "showBase": false,
+      "showRaiz": true,
+      "activeIntactCondition": ["showWorn"]
+    },
+    "8": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "9": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "10": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "11": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "12": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "13": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "14": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "15": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "16": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "17": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "18": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "19": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "20": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "21": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "22": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "23": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "24": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "25": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "26": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "27": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "28": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "29": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "30": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "31": {
+      "showBase": true,
+      "showRaiz": true
+    },
+    "32": {
+      "showBase": true,
+      "showRaiz": true
+    }
+  }
+}
