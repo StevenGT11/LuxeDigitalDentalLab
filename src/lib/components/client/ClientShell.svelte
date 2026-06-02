@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { logout } from '$lib/auth/session.svelte';
+	import { signOut } from '$lib/auth/auth';
 	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
 	import { ClipboardList, LogOut, PlusCircle, User } from '@lucide/svelte';
 
@@ -75,8 +75,9 @@
 			<button
 				type="button"
 				class="dash-sidebar__logout"
-				onclick={() => {
-					logout();
+				onclick={async () => {
+					await signOut();
+					await invalidateAll();
 					goto('/');
 				}}
 			>

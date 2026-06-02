@@ -1,8 +1,5 @@
 <script lang="ts">
-	import {
-		getMaterialLabel,
-		getTipoTrabajoLabel
-	} from '$lib/lab/constants';
+	import { getCaseItemTipoLabel, getMaterialLabel } from '$lib/lab/constants';
 	import type { CaseItem } from '$lib/lab/types';
 	import { getAnatomyLabel } from '$lib/lab/teeth';
 	import { getMaterialColor, getTipoColor } from '$lib/lab/visual';
@@ -64,7 +61,7 @@
 				class="work-tag work-tag--tipo"
 				style="--tag-color: {getTipoColor(item.tipo_trabajo)}"
 			>
-				{getTipoTrabajoLabel(item.tipo_trabajo)}
+				{getCaseItemTipoLabel(item)}
 				<span class="work-tag__qty">×{item.piezas}</span>
 			</span>
 			{#if item.incluye_diseno}

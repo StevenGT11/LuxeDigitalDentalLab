@@ -2,11 +2,13 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
+	import { hydrateClientSession } from '$lib/lab/client-session';
 	import {
 		getCasesByClient,
 		getClientId,
 		getClientProfile,
 		getClientStats,
+		hydrateCasesOnce,
 		initializeLabStorage
 	} from '$lib/lab/store';
 	import ColoredBarChart from '$lib/components/admin/ColoredBarChart.svelte';
@@ -28,7 +30,8 @@
 	let anatomySegments = $state<ReturnType<typeof anatomyToChartSegments>>([]);
 	let savedNotice = $state('');
 
-	function refresh() {
+	async function refresh() {
+		await hydrateCasesOnce();
 		const id = getClientId();
 		profile = getClientProfile();
 		casos = getCasesByClient(id);
@@ -36,16 +39,21 @@
 		anatomySegments = anatomyToChartSegments(getClientAnatomyStats(casos));
 	}
 
-	onMount(() => {
+	onMount(async () => {
 		initializeLabStorage({ linkClientPortal: true });
-		refresh();
+		try {
+			await hydrateClientSession();
+		} catch {
+			/* ignore */
+		}
+		await refresh();
 	});
 
 	afterNavigate(() => {
-		refresh();
+		void refresh();
 		const sent = $page.url.searchParams.get('sent');
 		if (sent) {
-			savedNotice = `Caso ${sent} guardado en localStorage.`;
+			savedNotice = `Caso ${sent} registrado correctamente.`;
 			goto('/client', { replaceState: true });
 		}
 	});

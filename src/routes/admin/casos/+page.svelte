@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import CaseWorkTags from '$lib/components/admin/CaseWorkTags.svelte';
 	import EstadoProgress from '$lib/components/admin/EstadoProgress.svelte';
-	import { getAdminStats, getAllCases, initializeLabStorage } from '$lib/lab/store';
+	import { getAdminStats, getAllCases, hydrateCasesOnce, initializeLabStorage } from '$lib/lab/store';
 	import {
 		ESTADOS,
 		getEstadoBadgeClass,
@@ -25,13 +25,14 @@
 	let searchQuery = $state('');
 	let stats = $state({ totalCasos: 0, pendientes: 0, enProceso: 0, ingresosTotales: 0 });
 
-	onMount(() => refresh());
+	onMount(() => void refresh());
 
-	afterNavigate(() => refresh());
+	afterNavigate(() => void refresh());
 
-	function refresh() {
+	async function refresh() {
 		if (!browser) return;
 		initializeLabStorage();
+		await hydrateCasesOnce();
 		casos = getAllCases();
 		stats = getAdminStats();
 		applyFilters();

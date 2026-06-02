@@ -23,8 +23,10 @@ export interface CaseFile {
 	mime_type: string;
 	category: CaseFileCategory;
 	uploaded_at: string;
-	/** Data URL en base64 para persistencia local */
-	data_url: string;
+	/** Ruta en Supabase Storage */
+	storage_path?: string;
+	/** Legacy localStorage (base64) */
+	data_url?: string;
 }
 
 export interface ClientProfile {
@@ -63,6 +65,10 @@ export interface CaseItem {
 	incluye_diseno: boolean;
 	/** Servicio de fresado (precio por pieza según tipo de trabajo) */
 	incluye_fresado: boolean;
+	/** Implantes (1–6) cuando tipo_trabajo es guía quirúrgica */
+	implantes_guia?: number | null;
+	/** Add-on en Corona: corona sobre implante (ajusta tarifa) */
+	corona_sobre_implante?: boolean;
 	descripcion: string | null;
 	unit_price: number;
 	subtotal: number;

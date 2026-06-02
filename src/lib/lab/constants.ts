@@ -1,21 +1,97 @@
 import type { Doctor, LabCaseEstado } from './types';
+import {
+	formatImplantesGuiaLabel,
+	getGuiaPrecioCrc,
+	getGuiaPrecioUsd,
+	isGuiaQuirurgica,
+	normalizeGuiaTipoTrabajo
+} from './surgical-guide';
+import {
+	getMaterialRestauracionLabel,
+	isRestauracionTipoTrabajo,
+	normalizeRestauracionItem
+} from './restoration-pricing';
+import {
+	getPrecioDiseno,
+	getPrecioDisenoCrc,
+	getPrecioFresado,
+	getPrecioFresadoCrc,
+	getTipoTrabajoLabel,
+	getTiposTrabajo
+} from './treatments';
+
+export {
+	GUIA_QUIRURGICA_VALUE,
+	IMPLANTES_GUIA_OPTIONS,
+	formatImplantesGuiaLabel,
+	getGuiaPrecio,
+	getGuiaPrecioCrc,
+	getGuiaPrecioUsd,
+	isGuiaQuirurgica,
+	normalizeGuiaTipoTrabajo
+} from './surgical-guide';
+
+export function getCaseItemTipoLabel(item: {
+	tipo_trabajo: string;
+	material?: string | null;
+	implantes_guia?: number | null;
+	corona_sobre_implante?: boolean | null;
+}): string {
+	const normalized = normalizeGuiaTipoTrabajo(item.tipo_trabajo);
+	const rest = normalizeRestauracionItem({
+		tipo_trabajo: normalized.tipo_trabajo,
+		material: item.material,
+		corona_sobre_implante: item.corona_sobre_implante
+	});
+	const tipo = isRestauracionTipoTrabajo(normalized.tipo_trabajo)
+		? rest.tipo_trabajo
+		: normalized.tipo_trabajo;
+	let base = getTipoTrabajoLabel(tipo, rest.material ?? item.material);
+	if (rest.corona_sobre_implante && tipo === 'rest_corona') {
+		base = `${base} · sobre implante`;
+	}
+	const implantes = item.implantes_guia ?? normalized.implantes_guia;
+	if (isGuiaQuirurgica(normalized.tipo_trabajo) && implantes) {
+		return `${base} · ${formatImplantesGuiaLabel(implantes)}`;
+	}
+	return base;
+}
 import { getEstadoChipClass } from './visual';
+
+export {
+	PRECIO_DISENO_UNIDAD_RESTAURACION_CRC,
+	PRECIO_DISENO_UNIDAD_RESTAURACION_USD,
+	PRECIO_FRESADO_RESTAURACION_CRC,
+	PRECIO_FRESADO_RESTAURACION_USD,
+	treatmentRequiresTeeth
+} from './treatment-catalog';
+
+export {
+	MATERIALES_RESTAURACION,
+	getDefaultMaterialRestauracion,
+	getMaterialRestauracionLabel,
+	getMaterialesRestauracion,
+	isCoronaRestauracion,
+	isRestauracionTipoTrabajo
+} from './restoration-pricing';
+
+export {
+	getPrecioDiseno,
+	getPrecioDisenoCrc,
+	getPrecioFresado,
+	getPrecioFresadoCrc,
+	getTipoTrabajoLabel,
+	getTiposTrabajo
+} from './treatments';
+
+/** @deprecated Usar getTiposTrabajo() para listas dinámicas desde el catálogo */
+export const TIPOS_TRABAJO = getTiposTrabajo();
 
 export const DOCTORS: Doctor[] = [
 	{ id: 'doc-1', name: 'Dr. García' },
 	{ id: 'doc-2', name: 'Dra. Martínez' },
 	{ id: 'doc-3', name: 'Dr. López' }
 ];
-
-export const TIPOS_TRABAJO = [
-	{ value: 'crown', label: 'Corona' },
-	{ value: 'inlay', label: 'Inlay' },
-	{ value: 'onlay', label: 'Onlay' },
-	{ value: 'veneer', label: 'Veneer' },
-	{ value: 'bridge', label: 'Puente' },
-	{ value: 'protesis', label: 'Prótesis' },
-	{ value: 'otro', label: 'Otro' }
-] as const;
 
 export const MATERIALES = [
 	{ value: '', label: 'Sin especificar' },
@@ -78,43 +154,13 @@ export const ESTADOS: { value: LabCaseEstado | 'todos'; label: string }[] = [
 	{ value: 'finalizado', label: 'Finalizado' }
 ];
 
-export function getTipoTrabajoLabel(value: string): string {
-	return TIPOS_TRABAJO.find((t) => t.value === value)?.label ?? value;
-}
-
 export function getMaterialLabel(value: string | null): string {
 	if (!value) return '—';
+	const rest = getMaterialRestauracionLabel(value);
+	if (rest !== '—' && (value === 'zirconio' || value === 'disilicato' || value === 'impreso')) {
+		return rest;
+	}
 	return MATERIALES.find((m) => m.value === value)?.label ?? value;
-}
-
-/** USD por pieza — diseño */
-export const PRECIO_DISENO_POR_PIEZA: Record<string, number> = {
-	crown: 30,
-	inlay: 25,
-	onlay: 28,
-	veneer: 35,
-	bridge: 40,
-	protesis: 45,
-	otro: 25
-};
-
-/** USD por pieza — fresado */
-export const PRECIO_FRESADO_POR_PIEZA: Record<string, number> = {
-	crown: 90,
-	inlay: 70,
-	onlay: 75,
-	veneer: 85,
-	bridge: 100,
-	protesis: 120,
-	otro: 60
-};
-
-export function getPrecioDiseno(tipoTrabajo: string): number {
-	return PRECIO_DISENO_POR_PIEZA[tipoTrabajo] ?? PRECIO_DISENO_POR_PIEZA.otro;
-}
-
-export function getPrecioFresado(tipoTrabajo: string): number {
-	return PRECIO_FRESADO_POR_PIEZA[tipoTrabajo] ?? PRECIO_FRESADO_POR_PIEZA.otro;
 }
 
 export function calcularCostoItem(input: {
@@ -123,12 +169,33 @@ export function calcularCostoItem(input: {
 	piezas: number;
 	incluye_diseno: boolean;
 	incluye_fresado: boolean;
+	implantes_guia?: number | null;
+	corona_sobre_implante?: boolean | null;
 }): number {
+	if (isGuiaQuirurgica(input.tipo_trabajo)) {
+		if (!input.incluye_diseno) return 0;
+		return getGuiaPrecioUsd(input.implantes_guia ?? 0);
+	}
+
+	const rest = normalizeRestauracionItem({
+		tipo_trabajo: input.tipo_trabajo,
+		material: input.material,
+		corona_sobre_implante: input.corona_sobre_implante
+	});
+	const tipo = rest.tipo_trabajo;
+	const material = rest.material ?? input.material;
+	const restOpts = { corona_sobre_implante: rest.corona_sobre_implante };
+
 	const p = Math.max(1, input.piezas);
 	let porPieza = 0;
-	if (input.incluye_diseno) porPieza += getPrecioDiseno(input.tipo_trabajo);
-	if (input.incluye_fresado) porPieza += getPrecioFresado(input.tipo_trabajo);
+	if (input.incluye_diseno) porPieza += getPrecioDiseno(tipo, material, restOpts);
+	if (input.incluye_fresado) porPieza += getPrecioFresado(tipo, material, restOpts);
 	if (porPieza <= 0) return 0;
+
+	if (isRestauracionTipoTrabajo(input.tipo_trabajo) || isRestauracionTipoTrabajo(tipo)) {
+		return Math.round(porPieza * p * 100) / 100;
+	}
+
 	const mult = MULTIPLICADOR_MATERIAL[input.material ?? ''] ?? 1;
 	return Math.round(porPieza * p * mult * 100) / 100;
 }

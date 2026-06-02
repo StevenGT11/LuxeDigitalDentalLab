@@ -14,6 +14,7 @@
 		description?: string;
 		testimonials?: Testimonial[];
 		errorMessage?: string;
+		submitting?: boolean;
 		onsignin?: (data: { username: string; password: string; rememberMe: boolean }) => void;
 		ongoogle?: () => void;
 		onresetpassword?: () => void;
@@ -24,6 +25,7 @@
 		description = 'Gestiona casos, escaneos CAD y entregas desde el portal del laboratorio',
 		testimonials = [],
 		errorMessage = '',
+		submitting = false,
 		onsignin,
 		ongoogle,
 		onresetpassword,
@@ -80,7 +82,7 @@
 				<form class="space-y-5" onsubmit={handleSubmit}>
 					<div class="animate-element animate-delay-300">
 						<label class="text-sm font-medium text-muted-foreground" for="username"
-							>Usuario</label
+							>Correo electrónico</label
 						>
 						<div
 							class="luxe-sign-in__input-wrap"
@@ -88,10 +90,10 @@
 							<input
 								id="username"
 								name="username"
-								type="text"
-								autocomplete="username"
+								type="email"
+								autocomplete="email"
 								bind:value={username}
-								placeholder="admin"
+								placeholder="tu@clinica.com"
 								class="w-full rounded-2xl bg-transparent p-4 text-sm focus:outline-none"
 								required
 							/>
@@ -154,9 +156,10 @@
 
 					<button
 						type="submit"
-						class="luxe-sign-in__submit animate-element animate-delay-600 w-full rounded-2xl py-4 font-medium transition-colors"
+						disabled={submitting}
+						class="luxe-sign-in__submit animate-element animate-delay-600 w-full rounded-2xl py-4 font-medium transition-colors disabled:opacity-60"
 					>
-						Iniciar sesión
+						{submitting ? 'Entrando…' : 'Iniciar sesión'}
 					</button>
 				</form>
 

@@ -1,22 +1,19 @@
 <script lang="ts">
 	import '../app.css';
 	import { browser } from '$app/environment';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import SignIn from '$lib/components/ui/sign-in.svelte';
 	import type { Testimonial } from '$lib/components/ui/sign-in.svelte';
-	import {
-		getHomePathForRole,
-		hydrateAuth,
-		isAuthHydrated,
-		isAuthenticated,
-		login
-	} from '$lib/auth/session.svelte';
+	import { getHomePathForRole, signInWithEmail } from '$lib/auth/auth';
+	import { hydrateLabDataOnce } from '$lib/lab/store';
+	import { hydrateTreatmentsCatalogOnce } from '$lib/lab/treatments';
 	import { hydrateTheme } from '$lib/theme/theme.svelte';
 	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
 
-	let { children } = $props();
+	let { children, data } = $props();
 
 	let loginError = $state('');
+	let signingIn = $state(false);
 
 	const testimonials: Testimonial[] = [
 		{
@@ -39,23 +36,33 @@
 		}
 	];
 
+	const isLoggedIn = $derived(Boolean(data.session && data.profile?.activo));
+
 	$effect(() => {
-		if (browser) {
-			hydrateTheme();
-			hydrateAuth();
+		if (browser) hydrateTheme();
+	});
+
+	$effect(() => {
+		if (browser && data.session && data.profile?.activo) {
+			void hydrateTreatmentsCatalogOnce();
+			void hydrateLabDataOnce();
 		}
 	});
 
-	function handleSignIn(data: { username: string; password: string; rememberMe: boolean }) {
+	async function handleSignIn(payload: { username: string; password: string; rememberMe: boolean }) {
 		loginError = '';
-		const authRole = login(data.username, data.password);
-		if (authRole) {
-			goto(getHomePathForRole(authRole));
+		signingIn = true;
+		const result = await signInWithEmail(payload.username, payload.password);
+		signingIn = false;
+
+		if ('error' in result) {
+			loginError = result.error;
 			return;
 		}
-		loginError = 'Usuario o contraseña incorrectos. Prueba admin / admin o client / client.';
-	}
 
+		await invalidateAll();
+		goto(getHomePathForRole(result.role));
+	}
 </script>
 
 <svelte:head>
@@ -68,25 +75,23 @@
 	/>
 </svelte:head>
 
-{#if !browser || !isAuthHydrated()}
-	<div class="luxe-loading flex h-[100dvh] items-center justify-center">
-		<p class="text-muted-foreground">Cargando…</p>
-	</div>
-{:else if !isAuthenticated()}
+{#if !isLoggedIn}
 	<div class="luxe-auth-wrap">
 		<div class="luxe-auth-wrap__theme">
 			<ThemeToggle />
 		</div>
 		<SignIn
-			description="Accede al portal para dar seguimiento a casos, escaneos y entregas."
+			description="Accede con tu correo y contraseña del laboratorio."
 			{testimonials}
 			errorMessage={loginError}
+			submitting={signingIn}
 			onsignin={handleSignIn}
 			onresetpassword={() => {
 				loginError = 'Contacta al administrador para restablecer tu contraseña.';
 			}}
 			oncreateaccount={() => {
-				loginError = 'El registro estará disponible próximamente.';
+				loginError =
+					'Pide al administrador que cree tu usuario en Supabase Auth (Authentication → Users).';
 			}}
 			ongoogle={() => {
 				loginError = 'Inicio con Google no está configurado aún.';

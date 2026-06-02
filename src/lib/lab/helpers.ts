@@ -25,6 +25,15 @@ export function formatCurrency(amount: number): string {
 	}).format(amount);
 }
 
+export function formatColones(amount: number): string {
+	return new Intl.NumberFormat('es-CR', {
+		style: 'currency',
+		currency: 'CRC',
+		minimumFractionDigits: 0,
+		maximumFractionDigits: 0
+	}).format(amount);
+}
+
 export function daysUntil(dateString: string): number {
 	const target = new Date(dateString);
 	const now = new Date();

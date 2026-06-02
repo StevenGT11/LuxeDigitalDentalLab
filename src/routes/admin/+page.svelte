@@ -31,6 +31,7 @@
 		getAllCases,
 		getAllClients,
 		getAllInvoices,
+		hydrateLabDataOnce,
 		initializeLabStorage
 	} from '$lib/lab/store';
 	import type { LabCase } from '$lib/lab/types';
@@ -51,13 +52,14 @@
 	let materialBars = $state<ReturnType<typeof getMaterialDistribution>>([]);
 	let rankings = $state<ReturnType<typeof getClientRankings>>([]);
 
-	onMount(() => refresh());
+	onMount(() => void refresh());
 
-	afterNavigate(() => refresh());
+	afterNavigate(() => void refresh());
 
-	function refresh() {
+	async function refresh() {
 		if (!browser) return;
 		initializeLabStorage();
+		await hydrateLabDataOnce();
 
 		const casos = getAllCases();
 		const clients = getAllClients();

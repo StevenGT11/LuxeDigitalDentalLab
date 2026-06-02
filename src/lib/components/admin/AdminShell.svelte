@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { logout } from '$lib/auth/session.svelte';
+	import { signOut } from '$lib/auth/auth';
 	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
 	import {
 		BarChart3,
@@ -10,6 +10,7 @@
 		FileText,
 		LayoutDashboard,
 		LogOut,
+		Tags,
 		Users
 	} from '@lucide/svelte';
 
@@ -25,6 +26,7 @@
 		{ href: '/admin/casos', label: 'Casos recibidos', icon: ClipboardList },
 		{ href: '/admin/calendario', label: 'Calendario', icon: CalendarDays },
 		{ href: '/admin/clientes', label: 'Clientes', icon: Users },
+		{ href: '/admin/tratamientos', label: 'Tratamientos', icon: Tags },
 		{ href: '/admin/facturas', label: 'Facturas', icon: FileText },
 		{ href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3 }
 	];
@@ -34,6 +36,7 @@
 		'/admin/casos': 'Casos recibidos',
 		'/admin/calendario': 'Calendario de entregas',
 		'/admin/clientes': 'Clientes',
+		'/admin/tratamientos': 'Tratamientos y precios',
 		'/admin/facturas': 'Facturas',
 		'/admin/estadisticas': 'Estadísticas de producción'
 	};
@@ -92,8 +95,9 @@
 			<button
 				type="button"
 				class="dash-sidebar__logout"
-				onclick={() => {
-					logout();
+				onclick={async () => {
+					await signOut();
+					await invalidateAll();
 					goto('/');
 				}}
 			>

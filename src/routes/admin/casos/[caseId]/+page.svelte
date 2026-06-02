@@ -3,8 +3,9 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import {
-		getCaseById,
-		getAllInvoices,
+		getCaseByIdAsync,
+		getInvoiceByCaseIdAsync,
+		hydrateLabDataOnce,
 		updateCaseCost,
 		updateCaseStatus
 	} from '$lib/lab/store';
@@ -15,7 +16,7 @@
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
 		getMaterialLabel,
-		getTipoTrabajoLabel
+		getCaseItemTipoLabel
 	} from '$lib/lab/constants';
 	import VitaColorChip from '$lib/components/admin/VitaColorChip.svelte';
 	import CaseFilesList from '$lib/components/lab/CaseFilesList.svelte';
@@ -30,28 +31,28 @@
 
 	const estadosAdmin = ESTADOS.filter((e) => e.value !== 'todos');
 
-	onMount(() => {
-		loadCase();
+	onMount(async () => {
+		await hydrateLabDataOnce();
+		await loadCase();
 	});
 
-	function loadCase() {
-		caso = getCaseById(caseId);
+	async function loadCase() {
+		caso = await getCaseByIdAsync(caseId);
 		if (caso) {
 			costoEdit = caso.costo;
-			factura =
-				getAllInvoices().find((i) => i.case_id === caso!.id) ?? null;
+			factura = await getInvoiceByCaseIdAsync(caso.id);
 		}
 	}
 
-	function handleStatusChange(estado: string) {
+	async function handleStatusChange(estado: string) {
 		if (!caso) return;
-		const updated = updateCaseStatus(caso.id, estado as LabCaseEstado);
+		const updated = await updateCaseStatus(caso.id, estado as LabCaseEstado);
 		if (updated) caso = updated;
 	}
 
-	function saveCost() {
+	async function saveCost() {
 		if (!caso) return;
-		const updated = updateCaseCost(caso.id, costoEdit);
+		const updated = await updateCaseCost(caso.id, costoEdit);
 		if (updated) caso = updated;
 	}
 </script>
@@ -142,7 +143,7 @@
 										—
 									{/if}
 								</td>
-								<td class="type-body-strong">{getTipoTrabajoLabel(item.tipo_trabajo)}</td>
+								<td class="type-body-strong">{getCaseItemTipoLabel(item)}</td>
 								<td>{getMaterialLabel(item.material)}</td>
 								<td>
 									{#if item.color}

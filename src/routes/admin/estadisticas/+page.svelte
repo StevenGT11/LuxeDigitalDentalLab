@@ -29,7 +29,13 @@
 	} from '$lib/lab/analytics';
 	import { ESTADOS_EN_PROCESO } from '$lib/lab/constants';
 	import { formatCurrency } from '$lib/lab/helpers';
-	import { getAllCases, getAllClients, getAllInvoices, initializeLabStorage } from '$lib/lab/store';
+	import {
+		getAllCases,
+		getAllClients,
+		getAllInvoices,
+		hydrateLabDataOnce,
+		initializeLabStorage
+	} from '$lib/lab/store';
 	import type { ClientRanking } from '$lib/lab/types';
 
 	let dashboard = $state({
@@ -87,9 +93,10 @@
 		}
 	};
 
-	function refresh() {
+	async function refresh() {
 		if (!browser) return;
 		initializeLabStorage();
+		await hydrateLabDataOnce();
 
 		const casos = getAllCases();
 		const clients = getAllClients();
@@ -225,9 +232,9 @@
 		};
 	}
 
-	onMount(() => refresh());
+	onMount(() => void refresh());
 
-	afterNavigate(() => refresh());
+	afterNavigate(() => void refresh());
 </script>
 
 <div class="dash-page dash-page--stats">

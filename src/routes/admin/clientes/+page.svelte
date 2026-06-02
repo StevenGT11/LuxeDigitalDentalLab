@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
+	import { enhance } from '$app/forms';
 	import { Plus, X } from '@lucide/svelte';
-	import { createLabClient, getClientStats, getAllClients, initializeLabStorage } from '$lib/lab/store';
+	import { fetchAllClients } from '$lib/lab/clients-db';
+	import { getClientStats, initializeLabStorage } from '$lib/lab/store';
 	import { formatCurrency } from '$lib/lab/helpers';
 	import type { LabClient } from '$lib/lab/types';
 
@@ -11,13 +14,36 @@
 	let searchQuery = $state('');
 	let modalOpen = $state(false);
 	let saving = $state(false);
+	let loading = $state(true);
 	let error = $state('');
+	let successMessage = $state('');
+
+	function readQueryBanner() {
+		const params = $page.url.searchParams;
+		if (params.get('created') === '1') {
+			successMessage = 'Cliente creado. Ya puede iniciar sesión en el portal.';
+			return;
+		}
+		const d = params.get('deleted');
+		if (d === 'full') {
+			successMessage = 'Cliente y acceso eliminados correctamente.';
+		} else if (d === 'access') {
+			successMessage =
+				'Acceso al portal eliminado. Los casos y facturas del cliente se conservan en el sistema.';
+		} else if (d === 'deactivated') {
+			successMessage = 'Cliente desactivado.';
+		} else {
+			successMessage = '';
+		}
+	}
 
 	let form = $state({
 		nombre: '',
 		clinica: '',
 		email: '',
-		telefono: ''
+		telefono: '',
+		password: '',
+		passwordConfirm: ''
 	});
 
 	let filtered = $derived(
@@ -32,22 +58,45 @@
 		})
 	);
 
-	onMount(() => refresh());
+	onMount(() => {
+		readQueryBanner();
+		void refresh();
+	});
 
-	afterNavigate(() => refresh());
+	afterNavigate(() => {
+		readQueryBanner();
+		void refresh();
+	});
 
-	function refresh() {
+	async function refresh() {
 		if (!browser) return;
 		initializeLabStorage();
-		clients = getAllClients().map((c) => ({
-			...c,
-			stats: getClientStats(c.id)
-		}));
+		loading = true;
+		error = '';
+		try {
+			const rows = await fetchAllClients();
+			clients = rows.map((c) => ({
+				...c,
+				stats: getClientStats(c.id)
+			}));
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'No se pudieron cargar los clientes';
+			clients = [];
+		} finally {
+			loading = false;
+		}
 	}
 
 	function openModal() {
 		error = '';
-		form = { nombre: '', clinica: '', email: '', telefono: '' };
+		form = {
+			nombre: '',
+			clinica: '',
+			email: '',
+			telefono: '',
+			password: '',
+			passwordConfirm: ''
+		};
 		modalOpen = true;
 	}
 
@@ -61,38 +110,21 @@
 		if (e.key === 'Escape') closeModal();
 	}
 
-	function handleSubmit(e: Event) {
-		e.preventDefault();
-		if (!form.nombre.trim()) {
-			error = 'El nombre es requerido';
-			return;
-		}
 
-		saving = true;
-		error = '';
-
-		try {
-			const created = createLabClient({
-				nombre: form.nombre,
-				clinica: form.clinica,
-				email: form.email,
-				telefono: form.telefono
-			});
-			modalOpen = false;
-			refresh();
-			goto(`/admin/clientes/${created.id}`);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'No se pudo crear el cliente';
-		} finally {
-			saving = false;
-		}
-	}
 </script>
 
 <svelte:window onkeydown={modalOpen ? onModalKeydown : undefined} />
 
 <div class="dash-page">
 	<p class="dash-lead">Clínicas y consultorios registrados — casos y facturas vinculados.</p>
+
+	{#if successMessage}
+		<div class="alert alert--success">{successMessage}</div>
+	{/if}
+
+	{#if error && !modalOpen}
+		<div class="alert alert--error">{error}</div>
+	{/if}
 
 	<div class="dash-toolbar">
 		<input
@@ -108,7 +140,9 @@
 		</button>
 	</div>
 
-	{#if filtered.length === 0}
+	{#if loading}
+		<p class="type-caption">Cargando clientes…</p>
+	{:else if filtered.length === 0}
 		<div class="store-utility-card empty-state">
 			<p>{clients.length === 0 ? 'No hay clientes registrados' : 'Ningún cliente coincide con la búsqueda'}</p>
 			{#if clients.length === 0}
@@ -156,7 +190,7 @@
 {#if modalOpen}
 	<div class="case-file-modal__backdrop" onclick={closeModal} role="presentation"></div>
 	<div
-		class="case-file-modal admin-client-modal"
+		class="case-file-modal case-file-modal--form"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="add-client-title"
@@ -171,19 +205,52 @@
 			</button>
 		</header>
 
-		<p class="case-file-modal__lead">
-			La clínica o consultorio quedará disponible para vincular casos y facturas.
-		</p>
+		<form
+			class="case-file-modal__body admin-client-form"
+			method="POST"
+			action="?/create"
+			use:enhance={() => {
+				saving = true;
+				error = '';
+				return async ({ result, update }) => {
+					try {
+						if (result.type === 'redirect') {
+							modalOpen = false;
+							await goto(result.location);
+							return;
+						}
+						if (result.type === 'failure') {
+							const data = result.data as { message?: string } | undefined;
+							error = data?.message ?? 'No se pudo crear el cliente.';
+							await update({ reset: false });
+							return;
+						}
+						if (result.type === 'error') {
+							error = 'Error al enviar el formulario. Revisa tu conexión e intenta de nuevo.';
+							return;
+						}
+						await update();
+					} finally {
+						saving = false;
+					}
+				};
+			}}
+		>
+			<div class="case-file-modal__fields">
+				<p class="case-file-modal__lead">
+					Se creará un usuario de acceso al portal. Comparte el correo y la contraseña con la clínica;
+					podrán iniciar sesión de inmediato.
+				</p>
 
-		{#if error}
-			<div class="alert alert--error" style="margin-bottom: 1rem;">{error}</div>
-		{/if}
+				{#if error}
+					<div class="alert alert--error">{error}</div>
+				{/if}
 
-		<form class="admin-client-form" onsubmit={handleSubmit}>
 			<div>
 				<label class="field-label" for="client-nombre">Nombre o clínica *</label>
 				<input
 					id="client-nombre"
+					name="nombre"
 					class="field-input"
 					type="text"
 					bind:value={form.nombre}
@@ -196,6 +263,7 @@
 				<label class="field-label" for="client-clinica">Sucursal / razón social</label>
 				<input
 					id="client-clinica"
+					name="clinica"
 					class="field-input"
 					type="text"
 					bind:value={form.clinica}
@@ -203,20 +271,50 @@
 				/>
 			</div>
 			<div>
-				<label class="field-label" for="client-email">Correo</label>
+				<label class="field-label" for="client-email">Correo (usuario de acceso) *</label>
 				<input
 					id="client-email"
+					name="email"
 					class="field-input"
 					type="email"
 					bind:value={form.email}
 					placeholder="contacto@clinica.com"
 					autocomplete="email"
+					required
+				/>
+			</div>
+			<div>
+				<label class="field-label" for="client-password">Contraseña inicial *</label>
+				<input
+					id="client-password"
+					name="password"
+					class="field-input"
+					type="password"
+					bind:value={form.password}
+					placeholder="Mínimo 8 caracteres"
+					autocomplete="new-password"
+					minlength="8"
+					required
+				/>
+			</div>
+			<div>
+				<label class="field-label" for="client-password-confirm">Confirmar contraseña *</label>
+				<input
+					id="client-password-confirm"
+					name="passwordConfirm"
+					class="field-input"
+					type="password"
+					bind:value={form.passwordConfirm}
+					autocomplete="new-password"
+					minlength="8"
+					required
 				/>
 			</div>
 			<div>
 				<label class="field-label" for="client-telefono">Teléfono</label>
 				<input
 					id="client-telefono"
+					name="telefono"
 					class="field-input"
 					type="tel"
 					bind:value={form.telefono}
@@ -224,13 +322,14 @@
 					autocomplete="tel"
 				/>
 			</div>
+			</div>
 
-			<div class="admin-client-form__actions">
+			<div class="case-file-modal__footer admin-client-form__actions">
 				<button type="button" class="btn-pearl-capsule" onclick={closeModal} disabled={saving}>
 					Cancelar
 				</button>
 				<button type="submit" class="btn-primary" disabled={saving}>
-					{saving ? 'Guardando…' : 'Crear cliente'}
+					{saving ? 'Creando acceso…' : 'Crear cliente y acceso'}
 				</button>
 			</div>
 		</form>

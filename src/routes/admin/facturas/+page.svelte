@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import {
 		getAllInvoices,
+		hydrateInvoicesOnce,
 		initializeLabStorage,
 		updateInvoiceStatus
 	} from '$lib/lab/store';
@@ -22,18 +23,19 @@
 		filtroEstado === 'todos' ? facturas : facturas.filter((f) => f.estado === filtroEstado)
 	);
 
-	function refresh() {
+	async function refresh() {
 		if (!browser) return;
 		initializeLabStorage();
+		await hydrateInvoicesOnce();
 		facturas = getAllInvoices();
 	}
 
-	onMount(() => refresh());
+	onMount(() => void refresh());
 
-	afterNavigate(() => refresh());
+	afterNavigate(() => void refresh());
 
-	function cambiarEstado(id: string, estado: string) {
-		updateInvoiceStatus(id, estado as InvoiceEstado);
+	async function cambiarEstado(id: string, estado: string) {
+		await updateInvoiceStatus(id, estado as InvoiceEstado);
 		facturas = getAllInvoices();
 	}
 </script>

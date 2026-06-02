@@ -128,9 +128,14 @@ export function groupCaseFiles(archivos: CaseFile[] | undefined): {
 	};
 }
 
-export function downloadCaseFile(file: CaseFile): void {
-	const link = document.createElement('a');
-	link.href = file.data_url;
-	link.download = file.name;
-	link.click();
+export async function downloadCaseFile(file: CaseFile): Promise<void> {
+	if (file.data_url) {
+		const link = document.createElement('a');
+		link.href = file.data_url;
+		link.download = file.name;
+		link.click();
+		return;
+	}
+	const { downloadCaseFileFromStorage } = await import('./case-files-db');
+	await downloadCaseFileFromStorage(file);
 }

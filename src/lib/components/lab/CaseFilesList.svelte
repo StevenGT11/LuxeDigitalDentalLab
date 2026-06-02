@@ -33,7 +33,7 @@
 							<button
 								type="button"
 								class="case-files-list__download"
-								onclick={() => downloadCaseFile(file)}
+								onclick={() => void downloadCaseFile(file)}
 							>
 								<Download size={15} strokeWidth={1.75} />
 								Descargar
@@ -59,7 +59,7 @@
 							<button
 								type="button"
 								class="case-files-list__download"
-								onclick={() => downloadCaseFile(file)}
+								onclick={() => void downloadCaseFile(file)}
 							>
 								<Download size={15} strokeWidth={1.75} />
 								Descargar

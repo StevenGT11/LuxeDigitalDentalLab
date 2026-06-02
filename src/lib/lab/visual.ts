@@ -35,6 +35,8 @@ export const TIPO_WORK_COLORS: Record<string, string> = {
 
 export const MATERIAL_COLORS: Record<string, string> = {
 	zirconio: '#38bdf8',
+	disilicato: '#a78bfa',
+	impreso: '#34d399',
 	emax: '#a78bfa',
 	pmma: '#fbbf24',
 	resina: '#34d399',
@@ -68,6 +70,7 @@ export function getVitaHex(shade: string | null | undefined): string {
 }
 
 export function getTipoColor(tipo: string): string {
+	if (tipo.startsWith('rest_')) return '#2563eb';
 	return TIPO_WORK_COLORS[tipo] ?? TIPO_WORK_COLORS.otro;
 }
 

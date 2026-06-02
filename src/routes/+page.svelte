@@ -1,18 +1,14 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import {
-		getAuthRole,
-		getHomePathForRole,
-		isAuthHydrated,
-		isAuthenticated
-	} from '$lib/auth/session.svelte';
+	import { getHomePathForRole } from '$lib/auth/auth';
+
+	let { data } = $props();
 
 	$effect(() => {
-		if (!browser || !isAuthHydrated() || !isAuthenticated()) return;
-		const role = getAuthRole();
-		if (role) goto(getHomePathForRole(role), { replaceState: true });
+		if (data.session && data.profile?.activo) {
+			goto(getHomePathForRole(data.profile.role), { replaceState: true });
+		}
 	});
 </script>
 
-<!-- Sin sesión: el layout raíz muestra el login. Con sesión: redirige al portal correspondiente. -->
+<!-- Redirige al portal según rol cuando ya hay sesión -->

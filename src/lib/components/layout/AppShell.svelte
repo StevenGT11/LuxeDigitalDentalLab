@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { logout } from '$lib/auth/session.svelte';
+	import { signOut } from '$lib/auth/auth';
 
 	interface NavLink {
 		href: string;
@@ -50,8 +50,9 @@
 			<button
 				type="button"
 				class="btn-dark-utility"
-				onclick={() => {
-					logout();
+				onclick={async () => {
+					await signOut();
+					await invalidateAll();
 					goto('/');
 				}}
 			>

@@ -3,40 +3,150 @@
 	import CaseFileDropzone from '$lib/components/lab/CaseFileDropzone.svelte';
 	import DateTimeField from '$lib/components/lab/DateTimeField.svelte';
 	import ToothSelectionField from '$lib/components/lab/ToothSelectionField.svelte';
-	import { filesToCaseFiles, validateCaseFileBatch } from '$lib/lab/attachments';
+	import TreatmentCategoryPicker from '$lib/components/lab/TreatmentCategoryPicker.svelte';
+	import { validateCaseFileBatch } from '$lib/lab/attachments';
 	import {
 		COLORES_VITA,
-		MATERIALES,
-		TIPOS_TRABAJO,
+		IMPLANTES_GUIA_OPTIONS,
 		calcularCostoItem,
+		getDefaultMaterialRestauracion,
+		getMaterialesRestauracion,
 		getPrecioDiseno,
-		getPrecioFresado
+		getPrecioFresado,
+		isCoronaRestauracion,
+		isGuiaQuirurgica,
+		isRestauracionTipoTrabajo,
+		treatmentRequiresTeeth
 	} from '$lib/lab/constants';
+	import type { MaterialRestauracion } from '$lib/lab/restoration-pricing';
+	import { getTreatmentByValue, type TreatmentCategory } from '$lib/lab/treatments';
+	import {
+		getCachedDoctors,
+		hydrateClientSession,
+		reloadDoctors
+	} from '$lib/lab/client-session';
 	import { createCase, getClientId, getClientProfile, initializeLabStorage } from '$lib/lab/store';
+	import type { DbDoctor } from '$lib/lab/clients-db';
 	import type { CreateCaseItemInput } from '$lib/lab/store';
-	import { formatCurrency, dateTimeLocalToISO, getDefaultDeliveryDateTime } from '$lib/lab/helpers';
+	import { dateTimeLocalToISO, formatCurrency, getDefaultDeliveryDateTime } from '$lib/lab/helpers';
 	import { onMount } from 'svelte';
 
 	interface DraftItem {
 		key: string;
 		piezas_dentales: string[];
+		categoria_seleccionada: TreatmentCategory | '';
 		tipo_trabajo: string;
+		implantes_guia: number | null;
 		material: string;
 		color: string;
 		incluye_diseno: boolean;
 		incluye_fresado: boolean;
+		corona_sobre_implante: boolean;
 	}
 
 	function newDraftItem(): DraftItem {
 		return {
 			key: crypto.randomUUID(),
 			piezas_dentales: [],
+			categoria_seleccionada: '',
 			tipo_trabajo: '',
+			implantes_guia: null,
 			material: '',
 			color: '',
 			incluye_diseno: true,
-			incluye_fresado: true
+			incluye_fresado: true,
+			corona_sobre_implante: false
 		};
+	}
+
+	function restOpts(row: DraftItem) {
+		return { corona_sobre_implante: row.corona_sobre_implante };
+	}
+
+	function isGuiaRow(row: DraftItem): boolean {
+		return isGuiaQuirurgica(row.tipo_trabajo);
+	}
+
+	function patchRow(key: string, patch: Partial<DraftItem>) {
+		items = items.map((row) => (row.key === key ? { ...row, ...patch } : row));
+	}
+
+	function onCategoryChange(key: string, categoria: TreatmentCategory) {
+		const row = items.find((r) => r.key === key);
+		const current = row?.tipo_trabajo ? getTreatmentByValue(row.tipo_trabajo) : undefined;
+		if (current?.categoria === categoria) {
+			patchRow(key, { categoria_seleccionada: categoria });
+			return;
+		}
+		patchRow(key, {
+			categoria_seleccionada: categoria,
+			tipo_trabajo: '',
+			implantes_guia: null,
+			material: '',
+			corona_sobre_implante: false
+		});
+	}
+
+	function isRestauracionRow(row: DraftItem): boolean {
+		if (row.categoria_seleccionada === 'restauracion') return true;
+		return row.tipo_trabajo ? isRestauracionTipoTrabajo(row.tipo_trabajo) : false;
+	}
+
+	function itemRequiresTeeth(row: DraftItem): boolean {
+		if (isGuiaRow(row)) return false;
+		const cat =
+			row.categoria_seleccionada ||
+			(row.tipo_trabajo ? getTreatmentByValue(row.tipo_trabajo)?.categoria : '');
+		return treatmentRequiresTeeth(cat ?? '');
+	}
+
+	function isTreatmentPickerComplete(row: DraftItem): boolean {
+		if (!row.categoria_seleccionada || !row.tipo_trabajo) return false;
+		if (isGuiaRow(row)) return true;
+		if (isRestauracionRow(row)) {
+			const mats = getMaterialesRestauracion(row.tipo_trabajo);
+			if (mats.length > 0 && !row.material) return false;
+		}
+		return true;
+	}
+
+	function onTreatmentSelect(key: string, value: string) {
+		const treatment = getTreatmentByValue(value);
+		if (!treatment) return;
+
+		if (isGuiaQuirurgica(value)) {
+			patchRow(key, {
+				categoria_seleccionada: treatment.categoria,
+				tipo_trabajo: value,
+				implantes_guia: 1,
+				piezas_dentales: [],
+				incluye_diseno: true,
+				incluye_fresado: false,
+				material: '',
+				color: '',
+				corona_sobre_implante: false
+			});
+			return;
+		}
+
+		const incluye_diseno = treatment.precio_diseno > 0;
+		const incluye_fresado = treatment.precio_fresado > 0;
+		const defaultMat = getDefaultMaterialRestauracion(value);
+		const sinDientes = !treatmentRequiresTeeth(treatment.categoria);
+		patchRow(key, {
+			categoria_seleccionada: treatment.categoria,
+			tipo_trabajo: value,
+			implantes_guia: null,
+			piezas_dentales: sinDientes ? [] : items.find((r) => r.key === key)?.piezas_dentales ?? [],
+			incluye_diseno,
+			incluye_fresado,
+			material: treatment.categoria === 'restauracion' ? defaultMat : '',
+			corona_sobre_implante: false
+		});
+	}
+
+	function onMaterialChange(key: string, material: MaterialRestauracion) {
+		patchRow(key, { material });
 	}
 
 	function itemCost(row: DraftItem): number {
@@ -46,18 +156,18 @@
 			material: row.material || null,
 			piezas: itemPiezas(row),
 			incluye_diseno: row.incluye_diseno,
-			incluye_fresado: row.incluye_fresado
+			incluye_fresado: row.incluye_fresado,
+			implantes_guia: row.implantes_guia,
+			corona_sobre_implante: row.corona_sobre_implante
 		});
 	}
 
-	function itemCostBreakdown(row: DraftItem): string {
-		if (!row.tipo_trabajo) return '';
-		const p = itemPiezas(row);
-		const parts: string[] = [];
-		if (row.incluye_diseno) parts.push(`Diseño ${formatCurrency(getPrecioDiseno(row.tipo_trabajo))}/pza`);
-		if (row.incluye_fresado) parts.push(`Fresado ${formatCurrency(getPrecioFresado(row.tipo_trabajo))}/pza`);
-		if (parts.length === 0) return 'Marca al menos un servicio';
-		return `${parts.join(' + ')} × ${p} pza = ${formatCurrency(itemCost(row))}`;
+	function rowIsComplete(row: DraftItem): boolean {
+		if (!row.tipo_trabajo) return false;
+		if (isGuiaRow(row)) return row.implantes_guia !== null && row.implantes_guia >= 1;
+		if (isRestauracionRow(row) && !row.material) return false;
+		if (!itemRequiresTeeth(row)) return row.incluye_diseno || row.incluye_fresado;
+		return row.piezas_dentales.length > 0;
 	}
 
 	let items = $state<DraftItem[]>([newDraftItem()]);
@@ -69,14 +179,27 @@
 	let loading = $state(false);
 	let error = $state('');
 
-	let profile = $derived(getClientProfile());
-	let doctorLabel = $derived(profile.nombre.trim() || 'Completa tu perfil para identificarte como doctor');
+	let doctors = $state<DbDoctor[]>(getCachedDoctors());
+	let selectedDoctorId = $state('');
+	let sessionReady = $state(false);
 
-	onMount(() => {
+	onMount(async () => {
 		initializeLabStorage({ linkClientPortal: true });
+		try {
+			await hydrateClientSession();
+			doctors = await reloadDoctors();
+			if (doctors.length > 0 && !selectedDoctorId) {
+				selectedDoctorId = doctors[0].id;
+			}
+		} catch {
+			/* fallback local */
+		} finally {
+			sessionReady = true;
+		}
 	});
 
 	function itemPiezas(row: DraftItem): number {
+		if (!itemRequiresTeeth(row)) return 1;
 		return Math.max(1, row.piezas_dentales.length);
 	}
 
@@ -110,12 +233,21 @@
 		for (let i = 0; i < items.length; i++) {
 			const row = items[i];
 			const n = i + 1;
-			if (row.piezas_dentales.length === 0) {
-				error = `Ítem ${n}: selecciona al menos un diente en el odontograma`;
+			if (!row.categoria_seleccionada) {
+				error = `Ítem ${n}: selecciona una categoría de tratamiento`;
 				return;
 			}
 			if (!row.tipo_trabajo) {
-				error = `Ítem ${n}: selecciona el tipo de trabajo`;
+				error = `Ítem ${n}: selecciona el tratamiento`;
+				return;
+			}
+			if (isGuiaRow(row)) {
+				if (!row.implantes_guia || row.implantes_guia < 1 || row.implantes_guia > 6) {
+					error = `Ítem ${n}: indica la cantidad de implantes (1 a 6)`;
+					return;
+				}
+			} else if (itemRequiresTeeth(row) && row.piezas_dentales.length === 0) {
+				error = `Ítem ${n}: selecciona al menos un diente en el odontograma`;
 				return;
 			}
 			if (!row.incluye_diseno && !row.incluye_fresado) {
@@ -123,19 +255,27 @@
 				return;
 			}
 			payloadItems.push({
-				piezas_dentales: row.piezas_dentales,
+				piezas_dentales: itemRequiresTeeth(row) ? row.piezas_dentales : [],
 				tipo_trabajo: row.tipo_trabajo,
 				material: row.material || null,
 				color: row.color || null,
 				piezas: itemPiezas(row),
 				incluye_diseno: row.incluye_diseno,
-				incluye_fresado: row.incluye_fresado
+				incluye_fresado: row.incluye_fresado,
+				implantes_guia: isGuiaRow(row) ? row.implantes_guia : null,
+				corona_sobre_implante: isCoronaRestauracion(row.tipo_trabajo)
+					? row.corona_sobre_implante
+					: false
 			});
 		}
 
 		const profile = getClientProfile();
 		if (!profile.nombre.trim()) {
 			error = 'Completa tu perfil antes de enviar un caso';
+			return;
+		}
+		if (!selectedDoctorId) {
+			error = 'Selecciona el doctor responsable del caso';
 			return;
 		}
 
@@ -151,19 +291,16 @@
 		try {
 			const fechaISO = dateTimeLocalToISO(fecha_entrega);
 
-			const archivos = [
-				...(await filesToCaseFiles(escaneoFiles, 'escaneo')),
-				...(await filesToCaseFiles(disenoFiles, 'diseno'))
-			];
-
-			const created = createCase({
+			const created = await createCase({
 				client_id: getClientId(),
+				doctor_id: selectedDoctorId,
 				paciente_name: paciente_name.trim(),
 				items: payloadItems,
 				fecha_entrega: fechaISO,
 				notas: notas.trim() || null,
 				costo: costoEstimado,
-				archivos
+				escaneoFiles,
+				disenosFiles: disenoFiles
 			});
 
 			goto(`/client?sent=${encodeURIComponent(created.case_number)}`);
@@ -198,10 +335,26 @@
 						required
 					/>
 				</div>
-				<div class="case-form__doctor-note">
-					<span class="field-label">Doctor</span>
-					<p class="case-form__doctor-value">{doctorLabel}</p>
-					<p class="type-fine-print">Se registrará automáticamente como la persona que envía el caso.</p>
+				<div>
+					<label class="field-label" for="doctor">Doctor responsable *</label>
+					{#if !sessionReady}
+						<p class="type-fine-print">Cargando doctores…</p>
+					{:else if doctors.length === 0}
+						<p class="type-fine-print">
+							<a href="/client/perfil" class="text-link">Agrega doctores en tu perfil</a> antes de enviar el caso.
+						</p>
+					{:else}
+						<select
+							id="doctor"
+							class="field-input"
+							bind:value={selectedDoctorId}
+							required
+						>
+							{#each doctors as doc (doc.id)}
+								<option value={doc.id}>{doc.nombre}</option>
+							{/each}
+						</select>
+					{/if}
 				</div>
 			</div>
 		</section>
@@ -229,79 +382,116 @@
 						</div>
 
 						<div class="case-form__grid">
-							<div class="case-form__tooth-cell">
-								<ToothSelectionField bind:selected={row.piezas_dentales} id="pieza-{row.key}" />
+							<div class="case-form__treatment-cell">
+								<TreatmentCategoryPicker
+									id="tratamiento-{row.key}"
+									selectedValue={row.tipo_trabajo}
+									selectedCategory={row.categoria_seleccionada}
+									selectedMaterial={row.material}
+									oncategorychange={(categoria) => onCategoryChange(row.key, categoria)}
+									ontreatmentchange={(value) => onTreatmentSelect(row.key, value)}
+									onmaterialchange={(material) => onMaterialChange(row.key, material)}
+									coronaSobreImplante={row.corona_sobre_implante}
+									oncoronaimplantechange={(activo) =>
+										patchRow(row.key, { corona_sobre_implante: activo })}
+								/>
 							</div>
-							<div>
-								<label class="field-label" for="tipo-{row.key}">Tipo de trabajo *</label>
-								<select
-									id="tipo-{row.key}"
-									class="field-select"
-									bind:value={row.tipo_trabajo}
-									required
-								>
-									<option value="">Seleccionar</option>
-									{#each TIPOS_TRABAJO as tipo}
-										<option value={tipo.value}>{tipo.label}</option>
-									{/each}
-								</select>
-							</div>
-							<div>
-								<label class="field-label">Cantidad</label>
-								<p class="case-item-draft__qty-display">
-									{itemPiezas(row)}
-									{itemPiezas(row) === 1 ? 'pieza' : 'piezas'}
-									<span class="type-fine-print">(según dientes seleccionados)</span>
-								</p>
-							</div>
-							<div>
-								<label class="field-label" for="mat-{row.key}">Material</label>
-								<select id="mat-{row.key}" class="field-select" bind:value={row.material}>
-									{#each MATERIALES as m}
-										<option value={m.value}>{m.label}</option>
-									{/each}
-								</select>
-							</div>
-							<div>
-								<label class="field-label" for="color-{row.key}">Color VITA</label>
-								<select id="color-{row.key}" class="field-select" bind:value={row.color}>
-									{#each COLORES_VITA as c}
-										<option value={c.value}>{c.label}</option>
-									{/each}
-								</select>
-							</div>
-							<div class="case-item-draft__services">
-								<span class="field-label">Servicios *</span>
-								<div class="service-checks">
-									<label class="service-check">
-										<input type="checkbox" bind:checked={row.incluye_diseno} />
-										<span>
-											Diseño
-											{#if row.tipo_trabajo}
-												<span class="service-check__price">
-													{formatCurrency(getPrecioDiseno(row.tipo_trabajo))}/pza
-												</span>
-											{/if}
-										</span>
-									</label>
-									<label class="service-check">
-										<input type="checkbox" bind:checked={row.incluye_fresado} />
-										<span>
-											Fresado
-											{#if row.tipo_trabajo}
-												<span class="service-check__price">
-													{formatCurrency(getPrecioFresado(row.tipo_trabajo))}/pza
-												</span>
-											{/if}
-										</span>
-									</label>
+
+							{#if isTreatmentPickerComplete(row) && isGuiaRow(row)}
+								<div>
+									<label class="field-label" for="implantes-{row.key}">Cantidad de implantes *</label>
+									<select
+										id="implantes-{row.key}"
+										class="field-select"
+										value={row.implantes_guia ?? ''}
+										required
+										onchange={(e) =>
+											patchRow(row.key, {
+												implantes_guia: Number((e.currentTarget as HTMLSelectElement).value)
+											})}
+									>
+										<option value="">Seleccionar (1–6)</option>
+										{#each IMPLANTES_GUIA_OPTIONS as n}
+											<option value={n}>{n} {n === 1 ? 'implante' : 'implantes'}</option>
+										{/each}
+									</select>
 								</div>
-							</div>
-							{#if row.tipo_trabajo && row.piezas_dentales.length > 0}
+								<div class="case-item-draft__guia-note">
+									<span class="field-label">Servicio</span>
+									<p class="type-body">Diseño de guía quirúrgica (precio según implantes).</p>
+								</div>
+							{:else if isTreatmentPickerComplete(row) && !itemRequiresTeeth(row)}
+								<div class="case-item-draft__guia-note">
+									<span class="field-label">Alcance</span>
+									<p class="type-body">Servicio por caso (no requiere selección de dientes en el odontograma).</p>
+								</div>
+								<div>
+									<span class="field-label">Cantidad</span>
+									<p class="case-item-draft__qty-display">1 servicio</p>
+								</div>
+							{:else if isTreatmentPickerComplete(row)}
+								<div class="case-form__tooth-cell">
+									<ToothSelectionField bind:selected={row.piezas_dentales} id="pieza-{row.key}" />
+								</div>
+								<div>
+									<span class="field-label">Cantidad</span>
+									<p class="case-item-draft__qty-display">
+										{itemPiezas(row)}
+										{itemPiezas(row) === 1 ? 'pieza' : 'piezas'}
+										<span class="type-fine-print">(según dientes seleccionados)</span>
+									</p>
+								</div>
+								{#if !isRestauracionRow(row)}
+									<div>
+										<span class="field-label">Material</span>
+										<p class="type-fine-print case-item-draft__qty-display">Opcional (otras categorías)</p>
+									</div>
+								{/if}
+							{/if}
+
+							{#if isTreatmentPickerComplete(row) && !isGuiaRow(row)}
+								<div>
+									<label class="field-label" for="color-{row.key}">Color VITA</label>
+									<select id="color-{row.key}" class="field-select" bind:value={row.color}>
+										{#each COLORES_VITA as c}
+											<option value={c.value}>{c.label}</option>
+										{/each}
+									</select>
+								</div>
+								{@const treatment = row.tipo_trabajo ? getTreatmentByValue(row.tipo_trabajo) : undefined}
+								{@const mat = row.material || null}
+								{@const rowRestOpts = restOpts(row)}
+								{@const precioDiseno = row.tipo_trabajo
+									? getPrecioDiseno(row.tipo_trabajo, mat, rowRestOpts)
+									: 0}
+								{@const precioFresado = row.tipo_trabajo
+									? getPrecioFresado(row.tipo_trabajo, mat, rowRestOpts)
+									: 0}
+								{#if treatment && (precioDiseno > 0 || precioFresado > 0) && (!isRestauracionRow(row) || row.material)}
+									<div class="case-item-draft__services">
+										<span class="field-label">Servicios *</span>
+										<div class="service-checks">
+											{#if precioDiseno > 0}
+												<label class="service-check">
+													<input type="checkbox" bind:checked={row.incluye_diseno} />
+													<span>Diseño</span>
+												</label>
+											{/if}
+											{#if precioFresado > 0}
+												<label class="service-check">
+													<input type="checkbox" bind:checked={row.incluye_fresado} />
+													<span>Fresado</span>
+												</label>
+											{/if}
+										</div>
+									</div>
+								{/if}
+							{/if}
+
+							{#if rowIsComplete(row)}
 								<div class="case-item-draft__subtotal case-item-draft__subtotal--wide">
 									<span class="type-fine-print">Subtotal ítem</span>
 									<span class="case-item-draft__subtotal-value">{formatCurrency(itemCost(row))}</span>
-									<span class="case-item-draft__subtotal-detail">{itemCostBreakdown(row)}</span>
 								</div>
 							{/if}
 						</div>

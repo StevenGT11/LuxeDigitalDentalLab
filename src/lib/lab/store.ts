@@ -1,23 +1,39 @@
 import { browser } from '$app/environment';
-import { calcularCostoItem, DOCTORS, ESTADOS_EN_PROCESO } from './constants';
+import { DOCTORS, ESTADOS_EN_PROCESO, getCaseItemTipoLabel, isGuiaQuirurgica } from './constants';
+import { getClientProfileFromCache, getDoctorDisplayName, isSupabaseClientLinked } from './client-session';
+import { fetchClientById, fetchOwnClient } from './clients-db';
+import { buildCaseItem, migrateCaseRow } from './case-builder';
+import { uploadCaseFilesFromInputs } from './case-files-db';
 import {
-	formatTeethSelection,
-	inferAnatomySummary,
-	parseTeethFromString,
-	sortTeethFdi
-} from './teeth';
+	createCaseInDb,
+	fetchCaseByIdFromDb,
+	hydrateCasesFromDb,
+	updateCaseCostInDb,
+	updateCaseStatusInDb
+} from './cases-db';
+import { getCachedCases, isCasesHydrated, runCasesHydrate } from './cases-cache';
+import {
+	createInvoiceInDb,
+	fetchInvoiceByCaseId,
+	hydrateInvoicesFromDb,
+	updateInvoiceStatusInDb
+} from './invoices-db';
+import { getCachedInvoices, isInvoicesHydrated, runInvoicesHydrate } from './invoices-cache';
+import { initializeTreatmentsStorage } from './treatments';
+import type { CreateCaseInput } from './store-types';
 import type {
 	CaseFile,
 	CaseItem,
 	ClientProfile,
 	ClientStats,
-	CreateCaseInput,
 	Invoice,
 	InvoiceEstado,
 	LabCase,
 	LabCaseEstado,
 	LabClient
 } from './types';
+
+export type { CreateCaseInput, CreateCaseItemInput } from './store-types';
 
 const CASES_KEY = 'luxe-lab-cases';
 const CLIENTS_KEY = 'luxe-lab-clients-registry';
@@ -77,96 +93,58 @@ function saveJson(key: string, data: unknown): void {
 	}
 }
 
-function migrateCase(raw: LabCase): LabCase {
-	const rawItems =
-		raw.items?.length > 0
-			? raw.items
-			: [
-					{
-						id: uid(),
-						case_id: raw.id,
-						numero_pieza: null,
-						piezas_dentales: [],
-						tipo_pieza: null,
-						tipo_trabajo: raw.tipo_trabajo,
-						material: raw.material,
-						color: raw.color,
-						piezas: raw.piezas,
-						descripcion: null,
-						incluye_diseno: true,
-						incluye_fresado: true,
-						unit_price: raw.piezas > 0 ? raw.costo / raw.piezas : raw.costo,
-						subtotal: raw.costo
-					}
-				];
-
-	const items = rawItems.map((item) => {
-		const piezas_dentales =
-			item.piezas_dentales?.length > 0
-				? sortTeethFdi(item.piezas_dentales)
-				: parseTeethFromString(item.numero_pieza);
-		const numero_pieza =
-			item.numero_pieza ?? (piezas_dentales.length > 0 ? formatTeethSelection(piezas_dentales) : null);
-		const incluye_diseno = item.incluye_diseno ?? true;
-		const incluye_fresado = item.incluye_fresado ?? true;
-		const p = item.piezas;
-		const subtotal =
-			item.subtotal > 0 && incluye_diseno && incluye_fresado
-				? item.subtotal
-				: calcularCostoItem({
-						tipo_trabajo: item.tipo_trabajo,
-						material: item.material,
-						piezas: p,
-						incluye_diseno,
-						incluye_fresado
-					});
-		return {
-			...item,
-			piezas_dentales,
-			numero_pieza,
-			tipo_pieza: item.tipo_pieza ?? inferAnatomySummary(piezas_dentales),
-			incluye_diseno,
-			incluye_fresado,
-			subtotal,
-			unit_price: Math.round((subtotal / Math.max(1, p)) * 100) / 100
-		};
-	});
-
-	const costo = items.reduce((s, i) => s + i.subtotal, 0);
-	const first = items[0];
-
-	return {
-		...raw,
-		id: raw.id ?? uid(),
-		items,
-		costo,
-		tipo_trabajo: first.tipo_trabajo ?? raw.tipo_trabajo,
-		material: first.material ?? raw.material,
-		color: first.color ?? raw.color,
-		piezas: items.reduce((s, i) => s + i.piezas, 0),
-		archivos: raw.archivos ?? [],
-		estado: raw.estado ?? 'pendiente'
-	};
+function loadCasesLocal(): LabCase[] {
+	if (!browser) return [];
+	return loadRawCases()
+		.map((c) => migrateCaseRow(c))
+		.filter(isValidCase);
 }
 
 function loadCases(): LabCase[] {
-	if (!browser) return [];
-	return loadRawCases()
-		.map((c) => migrateCase(c))
-		.filter(isValidCase);
+	if (isCasesHydrated()) return getCachedCases();
+	return loadCasesLocal();
+}
+
+/** Carga casos desde Supabase (idempotente). */
+export async function hydrateCasesOnce(): Promise<void> {
+	if (!browser) return;
+	await runCasesHydrate(() => hydrateCasesFromDb());
+}
+
+/** Carga facturas desde Supabase (idempotente). */
+export async function hydrateInvoicesOnce(): Promise<void> {
+	if (!browser) return;
+	await runInvoicesHydrate(() => hydrateInvoicesFromDb());
+}
+
+/** Casos + facturas en paralelo. */
+export async function hydrateLabDataOnce(): Promise<void> {
+	if (!browser) return;
+	await Promise.all([hydrateCasesOnce(), hydrateInvoicesOnce()]);
+	if (isSupabaseClientLinked() && isCasesHydrated() && isInvoicesHydrated()) {
+		localStorage.removeItem(CASES_KEY);
+		localStorage.removeItem(INVOICES_KEY);
+		localStorage.removeItem(COUNTER_KEY);
+		localStorage.removeItem(INVOICE_COUNTER_KEY);
+	}
 }
 
 function saveCases(cases: LabCase[]): void {
 	saveJson(CASES_KEY, cases);
 }
 
-/** Inicializa datos locales (demo + registro). Llamar al entrar al portal. */
+/** Inicializa catálogo y registro local mínimo (sin demo si hay Supabase). */
 export function initializeLabStorage(options?: { linkClientPortal?: boolean }): void {
 	if (!browser) return;
+	initializeTreatmentsStorage();
 	purgeInvalidCaseStorage();
-	seedDemoCases();
+	if (!isSupabaseClientLinked() && !isCasesHydrated()) {
+		seedDemoCases();
+	}
 	ensureClientRegistry();
-	ensureInvoicesForCases();
+	if (!isInvoicesHydrated() && !isCasesHydrated()) {
+		ensureInvoicesForCases();
+	}
 	if (options?.linkClientPortal) ensurePortalClientSession();
 }
 
@@ -222,6 +200,8 @@ function nextInvoiceNumber(): string {
 
 export function getClientId(): string {
 	if (!browser) return 'server';
+	const cached = getClientProfileFromCache();
+	if (cached?.id) return cached.id;
 	let id = localStorage.getItem(CLIENT_KEY);
 	if (!id) {
 		id = uid();
@@ -231,6 +211,9 @@ export function getClientId(): string {
 }
 
 export function getClientProfile(): ClientProfile {
+	const fromSupabase = getClientProfileFromCache();
+	if (fromSupabase) return fromSupabase;
+
 	const id = getClientId();
 	if (!browser) {
 		return { id, nombre: '', clinica: '', email: '', telefono: '' };
@@ -319,6 +302,9 @@ export function getClientById(id: string): LabClient | null {
 }
 
 export function getDoctorName(doctorId: string): string {
+	const fromSupabase = getDoctorDisplayName(doctorId);
+	if (fromSupabase) return fromSupabase;
+
 	const fromList = DOCTORS.find((d) => d.id === doctorId);
 	if (fromList) return fromList.name;
 
@@ -357,7 +343,7 @@ export function resolveCaseDoctor(input?: {
 }
 
 export function getAllCases(): LabCase[] {
-	return loadCases().sort(
+	return [...loadCases()].sort(
 		(a, b) => new Date(b.fecha_creacion).getTime() - new Date(a.fecha_creacion).getTime()
 	);
 }
@@ -367,11 +353,19 @@ export function getCasesByClient(clientId: string): LabCase[] {
 }
 
 export function getCaseById(id: string): LabCase | null {
-	return loadCases().find((c) => c.id === id) ?? null;
+	return getAllCases().find((c) => c.id === id) ?? null;
+}
+
+export async function getCaseByIdAsync(id: string): Promise<LabCase | null> {
+	const local = getCaseById(id);
+	if (local) return local;
+	if (!browser) return null;
+	return fetchCaseByIdFromDb(id);
 }
 
 export function getAllInvoices(): Invoice[] {
-	return loadInvoices().sort(
+	const source = isInvoicesHydrated() ? getCachedInvoices() : loadInvoices();
+	return [...source].sort(
 		(a, b) => new Date(b.fecha_emision).getTime() - new Date(a.fecha_emision).getTime()
 	);
 }
@@ -381,7 +375,14 @@ export function getInvoicesByClient(clientId: string): Invoice[] {
 }
 
 export function getInvoiceById(id: string): Invoice | null {
-	return loadInvoices().find((i) => i.id === id) ?? null;
+	return getAllInvoices().find((i) => i.id === id) ?? null;
+}
+
+export async function getInvoiceByCaseIdAsync(caseId: string): Promise<Invoice | null> {
+	const cached = getAllInvoices().find((i) => i.case_id === caseId);
+	if (cached) return cached;
+	if (!browser) return null;
+	return fetchInvoiceByCaseId(caseId);
 }
 
 export function getClientStats(clientId: string): ClientStats {
@@ -409,55 +410,11 @@ export function getAdminStats() {
 	};
 }
 
-function buildCaseItem(
-	caseId: string,
-	tipo_trabajo: string,
-	material: string | null,
-	color: string | null,
-	piezas: number,
-	options?: {
-		descripcion?: string | null;
-		numero_pieza?: string | null;
-		piezas_dentales?: string[];
-		tipo_pieza?: CaseItem['tipo_pieza'];
-		incluye_diseno?: boolean;
-		incluye_fresado?: boolean;
-	}
-): CaseItem {
-	const piezas_dentales = sortTeethFdi(options?.piezas_dentales ?? []);
-	const numero =
-		options?.numero_pieza?.trim() ||
-		(piezas_dentales.length > 0 ? formatTeethSelection(piezas_dentales) : null);
-	const p = Math.max(1, piezas_dentales.length > 0 ? piezas_dentales.length : piezas);
-	const incluye_diseno = options?.incluye_diseno ?? false;
-	const incluye_fresado = options?.incluye_fresado ?? false;
-	const subtotal = calcularCostoItem({
-		tipo_trabajo,
-		material,
-		piezas: p,
-		incluye_diseno,
-		incluye_fresado
-	});
-	return {
-		id: uid(),
-		case_id: caseId,
-		numero_pieza: numero,
-		piezas_dentales,
-		tipo_pieza: options?.tipo_pieza ?? inferAnatomySummary(piezas_dentales),
-		tipo_trabajo,
-		material,
-		color,
-		piezas: p,
-		incluye_diseno,
-		incluye_fresado,
-		descripcion: options?.descripcion ?? null,
-		unit_price: Math.round((subtotal / Math.max(1, p)) * 100) / 100,
-		subtotal
-	};
-}
-
 function invoiceLineLabel(item: CaseItem): string {
-	const tipo = getTipoLabel(item.tipo_trabajo);
+	const tipo = getCaseItemTipoLabel(item);
+	if (isGuiaQuirurgica(item.tipo_trabajo)) {
+		return `${tipo} — Diseño`;
+	}
 	const pieza = item.numero_pieza ? ` · pieza ${item.numero_pieza}` : '';
 	const servicios: string[] = [];
 	if (item.incluye_diseno) servicios.push('Diseño');
@@ -498,194 +455,65 @@ function createInvoiceForCase(caso: LabCase, client: LabClient): Invoice {
 	};
 }
 
-function getTipoLabel(tipo: string): string {
-	const labels: Record<string, string> = {
-		crown: 'Corona',
-		bridge: 'Puente',
-		veneer: 'Veneer',
-		inlay: 'Inlay',
-		onlay: 'Onlay',
-		protesis: 'Prótesis',
-		otro: 'Otro'
-	};
-	return labels[tipo] ?? tipo;
-}
-
-export interface CreateCaseItemInput {
-	tipo_trabajo: string;
-	material: string | null;
-	color: string | null;
-	piezas?: number;
-	piezas_dentales: string[];
-	incluye_diseno: boolean;
-	incluye_fresado: boolean;
-	numero_pieza?: string;
-	descripcion?: string | null;
-}
-
-export interface CreateCaseInput {
-	client_id: string;
-	paciente_name: string;
-	/** Si se omite, se usa el perfil del usuario logueado */
-	doctor_id?: string;
-	doctor_name?: string;
-	fecha_entrega: string;
-	notas: string | null;
-	costo?: number;
-	archivos?: CaseFile[];
-	/** Lista de trabajos (preferido) */
-	items?: CreateCaseItemInput[];
-	/** Campos legacy — un solo ítem */
-	tipo_trabajo?: string;
-	material?: string | null;
-	color?: string | null;
-	piezas?: number;
-	extra_items?: {
-		tipo_trabajo: string;
-		material: string | null;
-		color: string | null;
-		piezas: number;
-		numero_pieza?: string;
-		descripcion?: string | null;
-	}[];
-}
-
-export function createCase(input: CreateCaseInput): LabCase {
+async function resolveClientForCase(clientId: string): Promise<LabClient> {
 	const profile = getClientProfile();
-	const client = upsertLabClient(
-		input.client_id === profile.id
+	if (clientId === profile.id) {
+		const own = await fetchOwnClient();
+		if (own) return own;
+	}
+	const remote = await fetchClientById(clientId);
+	if (remote) return remote;
+	return upsertLabClient(
+		clientId === profile.id
 			? profile
 			: {
-					id: input.client_id,
+					id: clientId,
 					nombre: profile.nombre || 'Cliente',
 					clinica: profile.clinica || '—',
 					email: profile.email,
 					telefono: profile.telefono
 				}
 	);
+}
 
-	const caseId = uid();
-	let items: CaseItem[] = [];
+export async function createCase(input: CreateCaseInput): Promise<LabCase> {
+	if (!browser) throw new Error('createCase solo está disponible en el navegador');
 
-	if (input.items && input.items.length > 0) {
-		items = input.items.map((row) =>
-			buildCaseItem(
-				caseId,
-				row.tipo_trabajo,
-				row.material,
-				row.color,
-				row.piezas ?? row.piezas_dentales.length,
-				{
-					piezas_dentales: row.piezas_dentales,
-					numero_pieza: row.numero_pieza,
-					incluye_diseno: row.incluye_diseno,
-					incluye_fresado: row.incluye_fresado,
-					descripcion: row.descripcion
-				}
-			)
-		);
-	} else if (input.tipo_trabajo) {
-		items = [
-			buildCaseItem(
-				caseId,
-				input.tipo_trabajo,
-				input.material ?? null,
-				input.color ?? null,
-				input.piezas ?? 1,
-				{
-					numero_pieza: null,
-					incluye_diseno: true,
-					incluye_fresado: true
-				}
-			)
-		];
-		if (input.extra_items?.length) {
-			for (const extra of input.extra_items) {
-				items.push(
-					buildCaseItem(
-						caseId,
-						extra.tipo_trabajo,
-						extra.material,
-						extra.color,
-						extra.piezas,
-						{
-							numero_pieza: extra.numero_pieza ?? null,
-							incluye_diseno: true,
-							incluye_fresado: true,
-							descripcion: extra.descripcion
-						}
-					)
-				);
-			}
-		}
-	} else {
-		throw new Error('El caso debe incluir al menos un ítem de trabajo');
-	}
-
-	const costo =
-		input.costo ?? items.reduce((s, i) => s + i.subtotal, 0);
-	const first = items[0];
 	const doctor = resolveCaseDoctor(input);
+	const client = await resolveClientForCase(input.client_id);
+	let nuevo = await createCaseInDb(input, client, doctor);
 
-	const cases = loadCases();
-	const nuevo: LabCase = {
-		id: caseId,
-		case_number: nextCaseNumber(),
-		client_id: input.client_id,
-		client_name: client.nombre,
-		client_clinica: client.clinica,
-		paciente_name: input.paciente_name,
-		doctor_id: doctor.doctor_id,
-		doctor_name: doctor.doctor_name,
-		tipo_trabajo: first.tipo_trabajo,
-		material: first.material,
-		color: first.color,
-		piezas: items.reduce((s, i) => s + i.piezas, 0),
-		items,
-		costo,
-		fecha_creacion: new Date().toISOString(),
-		fecha_entrega: input.fecha_entrega,
-		estado: 'pendiente',
-		notas: input.notas,
-		archivos: input.archivos ?? []
-	};
-	cases.push(nuevo);
-	saveCases(cases);
-
-	const invoice = createInvoiceForCase(nuevo, client);
-	const invoices = loadInvoices();
-	invoices.push(invoice);
-	try {
-		saveInvoices(invoices);
-	} catch (err) {
-		cases.pop();
-		saveCases(cases);
-		throw err;
+	const escaneos = input.escaneoFiles ?? [];
+	const disenos = input.disenosFiles ?? [];
+	if (escaneos.length > 0 || disenos.length > 0) {
+		await uploadCaseFilesFromInputs(nuevo.id, escaneos, disenos);
+		nuevo = (await fetchCaseByIdFromDb(nuevo.id)) ?? nuevo;
 	}
+
+	await createInvoiceInDb(nuevo, client);
 
 	return nuevo;
 }
 
-export function updateCaseStatus(id: string, estado: LabCaseEstado): LabCase | null {
-	const cases = loadCases();
+export async function updateCaseStatus(id: string, estado: LabCaseEstado): Promise<LabCase | null> {
+	if (!browser) return null;
+	if (isCasesHydrated()) {
+		return updateCaseStatusInDb(id, estado);
+	}
+	const cases = loadCasesLocal();
 	const index = cases.findIndex((c) => c.id === id);
 	if (index === -1) return null;
 	cases[index] = { ...cases[index], estado };
 	saveCases(cases);
-
-	if (estado === 'finalizado') {
-		const invoices = loadInvoices();
-		const inv = invoices.find((i) => i.case_id === id);
-		if (inv && inv.estado === 'pendiente') {
-			/* mantiene pendiente hasta pago manual */
-		}
-	}
-
 	return cases[index];
 }
 
-export function updateCaseCost(id: string, costo: number): LabCase | null {
-	const cases = loadCases();
+export async function updateCaseCost(id: string, costo: number): Promise<LabCase | null> {
+	if (!browser) return null;
+	if (isCasesHydrated()) {
+		return updateCaseCostInDb(id, costo);
+	}
+	const cases = loadCasesLocal();
 	const index = cases.findIndex((c) => c.id === id);
 	if (index === -1) return null;
 	const caso = cases[index];
@@ -702,7 +530,14 @@ export function updateCaseCost(id: string, costo: number): LabCase | null {
 	return cases[index];
 }
 
-export function updateInvoiceStatus(id: string, estado: InvoiceEstado): Invoice | null {
+export async function updateInvoiceStatus(
+	id: string,
+	estado: InvoiceEstado
+): Promise<Invoice | null> {
+	if (!browser) return null;
+	if (isInvoicesHydrated()) {
+		return updateInvoiceStatusInDb(id, estado);
+	}
 	const invoices = loadInvoices();
 	const index = invoices.findIndex((i) => i.id === id);
 	if (index === -1) return null;
@@ -756,6 +591,7 @@ export function ensureClientRegistry(): void {
 /** Vincula el portal cliente a un cliente con casos (evita ID huérfano en localStorage). */
 export function ensurePortalClientSession(): void {
 	if (!browser) return;
+	if (isSupabaseClientLinked()) return;
 
 	seedDemoCases();
 	ensureClientRegistry();
@@ -785,6 +621,7 @@ export function ensurePortalClientSession(): void {
 
 export function seedDemoCases(): void {
 	if (!browser) return;
+	if (isSupabaseClientLinked() || isCasesHydrated()) return;
 	if (loadCases().length > 0) return;
 	purgeInvalidCaseStorage();
 
@@ -844,6 +681,7 @@ export function seedDemoCases(): void {
 						numero_pieza: row.numero_pieza,
 						incluye_diseno: row.incluye_diseno,
 						incluye_fresado: row.incluye_fresado,
+						implantes_guia: row.implantes_guia,
 						descripcion: row.descripcion
 					}
 				)
@@ -874,7 +712,7 @@ export function seedDemoCases(): void {
 		}
 		const costo = items.reduce((s, i) => s + i.subtotal, 0);
 		const first = items[0];
-		const cases = loadCases();
+		const cases = loadCasesLocal();
 		const nuevo: LabCase = {
 			id: caseId,
 			case_number: nextCaseNumber(),
