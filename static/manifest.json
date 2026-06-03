@@ -4,8 +4,16 @@
 	"description": "Gestión de casos de laboratorio dental",
 	"start_url": "/",
 	"display": "standalone",
-	"background_color": "#ffffff",
-	"theme_color": "#0284c7",
+	"background_color": "#0f172a",
+	"theme_color": "#0f172a",
 	"lang": "es",
-	"scope": "/"
+	"scope": "/",
+	"icons": [
+		{
+			"src": "/favicon.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any"
+		}
+	]
 }
