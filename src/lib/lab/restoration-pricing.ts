@@ -200,9 +200,11 @@ export function normalizeRestauracionItem(input: {
 } {
 	const legacy = LEGACY[input.tipo_trabajo];
 	if (legacy) {
+		const material =
+			resolveRestauracionMaterial(legacy.tipo, input.material) ?? legacy.material;
 		return {
 			tipo_trabajo: legacy.tipo,
-			material: legacy.material,
+			material,
 			corona_sobre_implante:
 				input.corona_sobre_implante === true || legacy.corona_sobre_implante === true
 		};
@@ -236,7 +238,7 @@ export function getRestauracionPrecio(
 	return sobreImplante ? withCoronaImplante(base) : base;
 }
 
-export function getDefaultMaterialRestauracion(tipoTrabajo: string): MaterialRestauracion | '' {
-	const mats = getMaterialesRestauracion(tipoTrabajo);
-	return mats[0] ?? '';
+/** Sin material por defecto: el usuario debe elegir en el paso «Material». */
+export function getDefaultMaterialRestauracion(_tipoTrabajo: string): MaterialRestauracion | '' {
+	return '';
 }

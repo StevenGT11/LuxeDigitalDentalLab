@@ -9,7 +9,6 @@
 		COLORES_VITA,
 		IMPLANTES_GUIA_OPTIONS,
 		calcularCostoItem,
-		getDefaultMaterialRestauracion,
 		getMaterialesRestauracion,
 		getPrecioDiseno,
 		getPrecioFresado,
@@ -131,7 +130,6 @@
 
 		const incluye_diseno = treatment.precio_diseno > 0;
 		const incluye_fresado = treatment.precio_fresado > 0;
-		const defaultMat = getDefaultMaterialRestauracion(value);
 		const sinDientes = !treatmentRequiresTeeth(treatment.categoria);
 		patchRow(key, {
 			categoria_seleccionada: treatment.categoria,
@@ -140,7 +138,7 @@
 			piezas_dentales: sinDientes ? [] : items.find((r) => r.key === key)?.piezas_dentales ?? [],
 			incluye_diseno,
 			incluye_fresado,
-			material: treatment.categoria === 'restauracion' ? defaultMat : '',
+			material: '',
 			corona_sobre_implante: false
 		});
 	}

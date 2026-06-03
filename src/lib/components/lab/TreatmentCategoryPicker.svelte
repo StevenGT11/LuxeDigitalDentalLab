@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		getActiveTreatmentsByCategory,
-		getDefaultMaterialRestauracion,
 		getMaterialesRestauracion,
 		getTreatmentByValue,
 		TREATMENT_CATEGORY_LABELS,
@@ -102,8 +101,6 @@
 	function selectTreatment(value: string) {
 		manualStep = null;
 		ontreatmentchange?.(value);
-		const def = getDefaultMaterialRestauracion(value);
-		if (def && !selectedMaterial) onmaterialchange?.(def);
 	}
 
 	function selectMaterial(material: MaterialRestauracion) {
