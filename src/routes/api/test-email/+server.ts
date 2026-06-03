@@ -7,7 +7,7 @@ import type { RequestHandler } from './$types';
 
 /** SMTP requiere TCP; no usar Edge en despliegues que lo soporten. */
 export const config = {
-	runtime: 'nodejs'
+	runtime: 'nodejs22.x'
 };
 
 const TEST_SUBJECT = 'Prueba de notificación - Luxe Digital Dental Lab';

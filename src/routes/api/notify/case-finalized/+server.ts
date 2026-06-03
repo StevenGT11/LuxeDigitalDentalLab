@@ -3,7 +3,7 @@ import { sendCaseFinalizedClientNotification } from '$lib/server/case-notify';
 import type { RequestHandler } from './$types';
 
 export const config = {
-	runtime: 'nodejs'
+	runtime: 'nodejs22.x'
 };
 
 export const POST: RequestHandler = async ({ request, locals: { supabase, safeGetSession } }) => {
