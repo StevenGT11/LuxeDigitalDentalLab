@@ -229,6 +229,14 @@ export function getDeliveriesThisWeek(casos: LabCase[]): number {
 	}).length;
 }
 
+/** Entregas pendientes ordenadas por fecha (incluye atrasados). */
+export function getUpcomingDeliveries(casos: LabCase[], limit = 6): LabCase[] {
+	return casos
+		.filter((c) => c.estado !== 'finalizado')
+		.sort((a, b) => new Date(a.fecha_entrega).getTime() - new Date(b.fecha_entrega).getTime())
+		.slice(0, limit);
+}
+
 export function getAnatomyStats(casos: LabCase[]): AnatomyStat[] {
 	const allItems = casos.flatMap((c) => caseItems(c));
 	return countPiezasByAnatomy(allItems);

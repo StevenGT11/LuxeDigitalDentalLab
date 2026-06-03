@@ -1179,11 +1179,142 @@
 	margin-bottom: 0;
 }
 
+.dash-panel--cases {
+	margin-bottom: 0;
+	padding-bottom: 0.25rem;
+}
+
+.dash-page--home .dash-panel--cases {
+	margin-bottom: 2.75rem;
+	padding-bottom: 0.5rem;
+	border-bottom: 1px solid var(--dash-border);
+}
+
+.dash-insights {
+	display: flex;
+	flex-direction: column;
+	gap: 1.35rem;
+	margin-top: 0.5rem;
+}
+
+.dash-insights__head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.dash-insights__title {
+	margin: 0;
+	font-family: 'Outfit', sans-serif;
+	font-size: 1.25rem;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	color: var(--dash-text);
+}
+
+.dash-insights__lead {
+	margin: 0.35rem 0 0;
+	font-size: 0.875rem;
+	color: var(--dash-muted);
+}
+
 .dash-chart-grid {
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 1rem;
 	margin-bottom: 1.5rem;
+}
+
+.dash-chart-grid--home {
+	gap: 1.15rem;
+	margin-bottom: 0;
+}
+
+.dash-chart-grid--home .dash-panel--chart {
+	min-height: 17rem;
+	padding: 1.25rem 1.35rem 1.35rem;
+}
+
+.dash-panel--chart-wide {
+	grid-column: span 1;
+}
+
+.dash-panel__chart--centered {
+	justify-content: center;
+}
+
+.dash-two-col--home {
+	margin-bottom: 0;
+	gap: 1.15rem;
+}
+
+.dash-delivery-preview {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.dash-delivery-preview__item {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.75rem 1rem;
+	width: 100%;
+	padding: 0.85rem 1rem;
+	text-align: left;
+	border: 1px solid var(--dash-border);
+	border-radius: var(--dash-radius-lg);
+	background: var(--dash-table-head);
+	cursor: pointer;
+	transition:
+		border-color 0.15s ease,
+		box-shadow 0.15s ease,
+		transform 0.12s ease;
+}
+
+.dash-delivery-preview__item:hover {
+	border-color: var(--luxe-gold-accent, #c9a227);
+	box-shadow: var(--dash-shadow-hover);
+	transform: translateY(-1px);
+}
+
+.dash-delivery-preview__main {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	min-width: 0;
+}
+
+.dash-delivery-preview__case {
+	font-size: 0.6875rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--dash-text-secondary);
+}
+
+.dash-delivery-preview__patient {
+	font-size: 0.9375rem;
+	font-weight: 600;
+	color: var(--dash-text);
+}
+
+.dash-delivery-preview__aside {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 0.25rem;
+	flex-shrink: 0;
+}
+
+.shade-legend--compact .shade-legend__item {
+	padding: 0.22rem 0;
 }
 
 .dash-panel--chart .dash-panel__chart {
@@ -2623,6 +2754,81 @@
 	border-top: 1px solid var(--dash-border);
 }
 
+.case-preview-modal {
+	max-width: 32rem;
+}
+
+.case-preview-modal__body {
+	display: flex;
+	flex-direction: column;
+	gap: 0.85rem;
+}
+
+.case-preview-modal__head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.65rem;
+}
+
+.case-preview-modal__patient {
+	margin: 0;
+	font-family: 'Outfit', sans-serif;
+	font-size: 1.25rem;
+	font-weight: 700;
+	color: var(--dash-text);
+}
+
+.case-preview-modal__meta {
+	display: grid;
+	gap: 0.55rem;
+	margin: 0;
+}
+
+.case-preview-modal__row {
+	display: grid;
+	grid-template-columns: 5.5rem minmax(0, 1fr);
+	gap: 0.5rem;
+	align-items: baseline;
+}
+
+.case-preview-modal__row dt {
+	margin: 0;
+	font-size: 0.6875rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--dash-text-secondary);
+}
+
+.case-preview-modal__row dd {
+	margin: 0;
+	font-size: 0.875rem;
+	color: var(--dash-text);
+}
+
+.case-preview-modal__notes {
+	margin: 0;
+	padding: 0.75rem 0.85rem;
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	color: var(--dash-text-secondary);
+	border-radius: var(--dash-radius);
+	background: var(--dash-table-head);
+	border: 1px solid var(--dash-border);
+}
+
+.case-preview-modal__footer {
+	padding: 1rem 1.25rem 1.25rem;
+}
+
+.case-preview-modal__go {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+}
+
 .dash-content .case-file-modal__footer .btn-primary {
 	min-width: 0;
 }
@@ -3058,8 +3264,13 @@
 }
 
 @media (max-width: 1200px) {
-	.dash-chart-grid {
+	.dash-chart-grid,
+	.dash-chart-grid--home {
 		grid-template-columns: 1fr;
+	}
+
+	.dash-panel--chart-wide {
+		grid-column: auto;
 	}
 }
 
@@ -3840,7 +4051,6 @@
 	border: 1px solid var(--dash-border);
 	border-radius: 12px;
 	background: var(--dash-card);
-	cursor: pointer;
 	text-align: left;
 	transition:
 		border-color 0.15s ease,
@@ -3849,10 +4059,22 @@
 		transform 0.12s ease;
 }
 
-.delivery-calendar__day:hover {
+.delivery-calendar__day:has(.delivery-calendar__day-select:hover),
+.delivery-calendar__day:has(.delivery-calendar__chip:hover) {
 	border-color: var(--luxe-gold-accent, #c9a227);
 	box-shadow: var(--dash-shadow-hover);
 	transform: translateY(-1px);
+}
+
+.delivery-calendar__day-select {
+	display: block;
+	width: 100%;
+	padding: 0;
+	border: none;
+	background: transparent;
+	cursor: pointer;
+	text-align: left;
+	color: inherit;
 }
 
 .delivery-calendar__day--muted {
@@ -3945,6 +4167,15 @@
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
+	cursor: pointer;
+	transition:
+		border-color 0.15s ease,
+		background 0.15s ease;
+}
+
+.delivery-calendar__chip:hover {
+	border-color: var(--luxe-gold-accent, #c9a227);
+	background: var(--dash-table-head);
 }
 
 .delivery-calendar__chip--overdue {
@@ -3962,7 +4193,15 @@
 	font-size: 0.625rem;
 	font-weight: 600;
 	color: var(--dash-text-secondary);
-	padding-left: 0.15rem;
+	padding: 0.15rem 0.15rem 0.15rem 0;
+	border: none;
+	background: transparent;
+	cursor: pointer;
+	text-align: left;
+}
+
+.delivery-calendar__more:hover {
+	color: var(--luxe-gold-accent, #c9a227);
 }
 
 .delivery-calendar__detail {
@@ -4075,9 +4314,19 @@
 	transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
-.delivery-calendar__event-card:hover {
+.delivery-calendar__event-card:hover,
+.delivery-calendar__event-card--interactive:focus-visible {
 	border-color: var(--luxe-gold-accent, #c9a227);
 	box-shadow: var(--dash-shadow-hover);
+}
+
+.delivery-calendar__event-card--interactive {
+	cursor: pointer;
+}
+
+.delivery-calendar__event-card--interactive:focus-visible {
+	outline: 2px solid var(--luxe-gold-accent, #c9a227);
+	outline-offset: 2px;
 }
 
 .delivery-calendar__event-head {

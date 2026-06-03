@@ -13,17 +13,15 @@
 		getDeliveriesThisWeek,
 		getMaterialDistribution,
 		getPipelineByEstado,
-		getProductionStats,
 		getShadeDistribution,
+		getUpcomingDeliveries,
 		pipelineToChartSegments,
-		productionToChartSegments,
 		shadesToChartSegments
 	} from '$lib/lab/analytics';
 	import { ESTADOS_EN_PROCESO, getEstadoBadgeClass, getEstadoLabel } from '$lib/lab/constants';
 	import {
 		deliveryUrgencyClass,
 		formatCurrency,
-		formatDate,
 		formatDateTime,
 		formatDeliveryCountdown
 	} from '$lib/lab/helpers';
@@ -47,9 +45,9 @@
 	let activeCases = $state<LabCase[]>([]);
 	let deliveriesWeek = $state(0);
 	let pipelineSegments = $state<ReturnType<typeof pipelineToChartSegments>>([]);
-	let productionSegments = $state<ReturnType<typeof productionToChartSegments>>([]);
 	let shadeSegments = $state<ReturnType<typeof shadesToChartSegments>>([]);
 	let materialBars = $state<ReturnType<typeof getMaterialDistribution>>([]);
+	let upcomingDeliveries = $state<LabCase[]>([]);
 	let rankings = $state<ReturnType<typeof getClientRankings>>([]);
 
 	onMount(() => void refresh());
@@ -72,21 +70,19 @@
 		const pipeline = getPipelineByEstado(casos);
 		pipelineSegments = pipelineToChartSegments(pipeline);
 
-		const production = getProductionStats(casos);
-		productionSegments = productionToChartSegments(production);
-
 		const shades = getShadeDistribution(casos);
 		shadeSegments = shadesToChartSegments(shades);
 
 		materialBars = getMaterialDistribution(casos);
+		upcomingDeliveries = getUpcomingDeliveries(casos, 6);
 		rankings = getClientRankings(casos, clients, 5);
 	}
 </script>
 
 <div class="dash-page dash-page--home">
 	<p class="dash-lead">
-		Producción, tonos VITA y casos en curso. Los colores BL, A y B reflejan las piezas pedidas en
-		cada caso.
+		Pipeline del taller, tonos VITA y casos en curso. Los colores BL, A y B reflejan los tonos pedidos
+		en cada caso.
 	</p>
 
 	<section class="dash-stat-grid dash-stat-grid--kpi">
@@ -118,84 +114,6 @@
 			<p class="dash-stat__hint">
 				<a href="/admin/facturas" class="text-link">Ver facturas →</a>
 			</p>
-		</div>
-	</section>
-
-	<section class="dash-chart-grid">
-		<div class="dash-panel dash-panel--chart">
-			<h3 class="dash-panel__title">Pipeline de casos</h3>
-			<p class="dash-panel__subtitle">Cuántos casos hay en cada etapa del flujo</p>
-			<div class="dash-panel__chart">
-				<DonutChart segments={pipelineSegments} unit=" casos" />
-			</div>
-		</div>
-
-		<div class="dash-panel dash-panel--chart">
-			<h3 class="dash-panel__title">Producción por trabajo</h3>
-			<p class="dash-panel__subtitle">Piezas según tipo (corona, puente, veneer…)</p>
-			<ColoredBarChart segments={productionSegments} suffix=" pzs" />
-		</div>
-
-		<div class="dash-panel dash-panel--chart">
-			<h3 class="dash-panel__title">Tonos VITA pedidos</h3>
-			<p class="dash-panel__subtitle">Incluye bleach (BL), serie A y B</p>
-			<div class="dash-panel__chart dash-panel__chart--split">
-				<DonutChart segments={shadeSegments} size={140} unit=" pzs" />
-				{#if shadeSegments.length > 0}
-					<ul class="shade-legend">
-						{#each shadeSegments as shade}
-							<li class="shade-legend__item">
-								<span
-									class="shade-legend__swatch"
-									style="background: {shade.color}"
-									class:shade-legend__swatch--bleach={shade.label.startsWith('BL')}
-								></span>
-								<span class="shade-legend__name">{shade.label}</span>
-								<span class="shade-legend__count">{shade.value} pzs</span>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</div>
-		</div>
-	</section>
-
-	<section class="dash-two-col">
-		<div class="dash-panel">
-			<h3 class="dash-panel__title">Materiales en producción</h3>
-			<p class="dash-panel__subtitle">Zirconio, Emax, PMMA… por piezas</p>
-			<ColoredBarChart
-				segments={materialBars.map((m) => ({
-					label: m.label,
-					value: m.piezas,
-					color: m.color
-				}))}
-				suffix=" pzs"
-			/>
-		</div>
-
-		<div class="dash-panel">
-			<h3 class="dash-panel__title">Clientes con más volumen</h3>
-			{#if rankings.length === 0}
-				<p class="type-caption">Sin datos</p>
-			{:else}
-				<ol class="admin-ranking">
-					{#each rankings as row, i}
-						<li class="admin-ranking__item">
-							<span class="admin-ranking__pos">{i + 1}</span>
-							<div class="admin-ranking__body">
-								<a href="/admin/clientes/{row.client.id}" class="text-link type-body-strong">
-									{row.client.nombre}
-								</a>
-								<p class="type-fine-print">
-									{row.totalCasos} casos · {row.totalPiezas} piezas
-								</p>
-							</div>
-							<span class="type-body-strong">{formatCurrency(row.totalGastado)}</span>
-						</li>
-					{/each}
-				</ol>
-			{/if}
 		</div>
 	</section>
 
@@ -270,5 +188,135 @@
 				{/each}
 			</div>
 		{/if}
+	</section>
+
+	<section class="dash-insights" aria-labelledby="dash-insights-title">
+		<header class="dash-insights__head">
+			<div>
+				<h2 id="dash-insights-title" class="dash-insights__title">Resumen del taller</h2>
+				<p class="dash-insights__lead">
+					{deliveriesWeek} entrega{deliveriesWeek === 1 ? '' : 's'} en los próximos 7 días
+				</p>
+			</div>
+			<a href="/admin/calendario" class="btn-secondary-pill">Ver calendario</a>
+		</header>
+
+		<div class="dash-chart-grid dash-chart-grid--home">
+			<div class="dash-panel dash-panel--chart">
+				<h3 class="dash-panel__title">Pipeline de casos</h3>
+				<p class="dash-panel__subtitle">Casos en cada etapa del flujo</p>
+				<div class="dash-panel__chart dash-panel__chart--centered">
+					<DonutChart segments={pipelineSegments} size={168} unit=" casos" />
+				</div>
+			</div>
+
+			<div class="dash-panel dash-panel--chart dash-panel--chart-wide">
+				<h3 class="dash-panel__title">Tonos VITA pedidos</h3>
+				<p class="dash-panel__subtitle">Bleach (BL), serie A y B</p>
+				<div class="dash-panel__chart dash-panel__chart--split">
+					<DonutChart segments={shadeSegments} size={156} unit=" pzs" />
+					{#if shadeSegments.length > 0}
+						<ul class="shade-legend shade-legend--compact">
+							{#each shadeSegments as shade}
+								<li class="shade-legend__item">
+									<span
+										class="shade-legend__swatch"
+										style="background: {shade.color}"
+										class:shade-legend__swatch--bleach={shade.label.startsWith('BL')}
+									></span>
+									<span class="shade-legend__name">{shade.label}</span>
+									<span class="shade-legend__count">{shade.value} pzs</span>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="type-caption">Sin tonos registrados aún.</p>
+					{/if}
+				</div>
+			</div>
+
+			<div class="dash-panel dash-panel--chart">
+				<h3 class="dash-panel__title">Materiales en producción</h3>
+				<p class="dash-panel__subtitle">Zirconio, Emax, PMMA…</p>
+				{#if materialBars.length === 0}
+					<p class="type-caption">Sin materiales en casos activos.</p>
+				{:else}
+					<ColoredBarChart
+						segments={materialBars.map((m) => ({
+							label: m.label,
+							value: m.piezas,
+							color: m.color
+						}))}
+						suffix=" pzs"
+					/>
+				{/if}
+			</div>
+		</div>
+
+		<div class="dash-two-col dash-two-col--home">
+			<div class="dash-panel">
+				<div class="dash-panel__header-row">
+					<div>
+						<h3 class="dash-panel__title">Próximas entregas</h3>
+						<p class="dash-panel__subtitle">Compromisos más urgentes</p>
+					</div>
+				</div>
+				{#if upcomingDeliveries.length === 0}
+					<p class="type-caption">No hay entregas pendientes.</p>
+				{:else}
+					<ul class="dash-delivery-preview">
+						{#each upcomingDeliveries as caso}
+							<li>
+								<button
+									type="button"
+									class="dash-delivery-preview__item"
+									onclick={() => goto(`/admin/casos/${caso.id}`)}
+								>
+									<div class="dash-delivery-preview__main">
+										<span class="dash-delivery-preview__case">{caso.case_number}</span>
+										<span class="dash-delivery-preview__patient">{caso.paciente_name}</span>
+										<span class="type-fine-print">{caso.client_name}</span>
+									</div>
+									<div class="dash-delivery-preview__aside">
+										<span class={deliveryUrgencyClass(caso.fecha_entrega, caso.estado)}>
+											{formatDeliveryCountdown(caso.fecha_entrega, caso.estado)}
+										</span>
+										<span class="type-caption">{formatDateTime(caso.fecha_entrega)}</span>
+										<span class={getEstadoBadgeClass(caso.estado)}>
+											{getEstadoLabel(caso.estado)}
+										</span>
+									</div>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+
+			<div class="dash-panel">
+				<h3 class="dash-panel__title">Clientes con más volumen</h3>
+				<p class="dash-panel__subtitle">Por facturación acumulada</p>
+				{#if rankings.length === 0}
+					<p class="type-caption">Sin datos</p>
+				{:else}
+					<ol class="admin-ranking">
+						{#each rankings as row, i}
+							<li class="admin-ranking__item">
+								<span class="admin-ranking__pos">{i + 1}</span>
+								<div class="admin-ranking__body">
+									<a href="/admin/clientes/{row.client.id}" class="text-link type-body-strong">
+										{row.client.nombre}
+									</a>
+									<p class="type-fine-print">
+										{row.totalCasos} casos · {row.totalPiezas} piezas
+									</p>
+								</div>
+								<span class="type-body-strong">{formatCurrency(row.totalGastado)}</span>
+							</li>
+						{/each}
+					</ol>
+				{/if}
+			</div>
+		</div>
 	</section>
 </div>

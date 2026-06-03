@@ -29,4 +29,4 @@ Proyecto: `tsngtzlwychbpagdinwj` · [Dashboard](https://supabase.com/dashboard/p
 - **Adjuntos:** nuevos casos suben a Storage; registros en `case_files`. Casos viejos pueden seguir con `data_url` en jsonb hasta migración manual.
 - **Facturas:** se crean en Postgres al registrar el caso (`createInvoiceInDb`).
 - **Demo local:** `seedDemoCases` solo corre sin Supabase vinculado y sin caché hidratada.
-- **Límite UI:** 4 MB por archivo (`MAX_CASE_FILE_BYTES`); buckets permiten hasta 50 MB.
+- **Límite por archivo:** 50 MB (`MAX_CASE_FILE_BYTES`), alineado con buckets de Storage.

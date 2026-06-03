@@ -11,9 +11,14 @@
 	interface Props {
 		items: LabCase[];
 		emptyMessage?: string;
+		onCasePreview?: (caso: LabCase) => void;
 	}
 
-	let { items, emptyMessage = 'Sin entregas programadas.' }: Props = $props();
+	let { items, emptyMessage = 'Sin entregas programadas.', onCasePreview }: Props = $props();
+
+	function handleCardClick(caso: LabCase) {
+		onCasePreview?.(caso);
+	}
 </script>
 
 {#if items.length === 0}
@@ -28,7 +33,19 @@
 					<span class="delivery-calendar__event-time">{formatTimeOnly(caso.fecha_entrega)}</span>
 					<span class="delivery-calendar__event-line" aria-hidden="true"></span>
 				</div>
-				<article class="delivery-calendar__event-card">
+				<article
+					class="delivery-calendar__event-card"
+					class:delivery-calendar__event-card--interactive={!!onCasePreview}
+					role={onCasePreview ? 'button' : undefined}
+					tabindex={onCasePreview ? 0 : undefined}
+					onclick={() => handleCardClick(caso)}
+					onkeydown={(e) => {
+						if (onCasePreview && (e.key === 'Enter' || e.key === ' ')) {
+							e.preventDefault();
+							handleCardClick(caso);
+						}
+					}}
+				>
 					<div class="delivery-calendar__event-head">
 						<span class="delivery-calendar__event-case">{caso.case_number}</span>
 						<span class={getEstadoBadgeClass(caso.estado)}>{getEstadoLabel(caso.estado)}</span>
@@ -44,9 +61,16 @@
 						<button
 							type="button"
 							class="btn-secondary-pill delivery-calendar__event-btn"
-							onclick={() => goto(`/admin/casos/${caso.id}`)}
+							onclick={(e) => {
+								e.stopPropagation();
+								if (onCasePreview) {
+									handleCardClick(caso);
+								} else {
+									void goto(`/admin/casos/${caso.id}`);
+								}
+							}}
 						>
-							Ver caso
+							{onCasePreview ? 'Vista previa' : 'Ver caso'}
 						</button>
 					</div>
 				</article>

@@ -25,6 +25,7 @@
 		reloadDoctors
 	} from '$lib/lab/client-session';
 	import { createCase, getClientId, getClientProfile, initializeLabStorage } from '$lib/lab/store';
+	import { requestNewCaseAdminNotification } from '$lib/lab/notify-client';
 	import type { DbDoctor } from '$lib/lab/clients-db';
 	import type { CreateCaseItemInput } from '$lib/lab/store';
 	import { dateTimeLocalToISO, formatCurrency, getDefaultDeliveryDateTime } from '$lib/lab/helpers';
@@ -300,6 +301,8 @@
 				escaneoFiles,
 				disenosFiles: disenoFiles
 			});
+
+			requestNewCaseAdminNotification(created.id);
 
 			goto(`/client?sent=${encodeURIComponent(created.case_number)}`);
 		} catch (err) {

@@ -16,7 +16,7 @@ const ALLOWED_EXTENSIONS = new Set([
 	'dcm'
 ]);
 
-export const MAX_CASE_FILE_BYTES = 4 * 1024 * 1024;
+export const MAX_CASE_FILE_BYTES = 50 * 1024 * 1024;
 
 export interface PendingFileReview {
 	file: File;

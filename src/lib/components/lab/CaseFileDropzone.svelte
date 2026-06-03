@@ -3,6 +3,7 @@
 	import {
 		CASE_FILE_ACCEPT,
 		formatFileSize,
+		MAX_CASE_FILE_BYTES,
 		reviewIncomingFiles,
 		type PendingFileReview
 	} from '$lib/lab/attachments';
@@ -108,7 +109,9 @@
 				selecciónalos de una vez
 			</button>
 		</p>
-		<p class="case-file-zone__formats">STL, PLY, OBJ, ZIP, PDF, JPG, PNG</p>
+		<p class="case-file-zone__formats">
+			STL, PLY, OBJ, ZIP, PDF, JPG, PNG · máx. {formatFileSize(MAX_CASE_FILE_BYTES)} por archivo
+		</p>
 		<input
 			bind:this={inputEl}
 			{id}

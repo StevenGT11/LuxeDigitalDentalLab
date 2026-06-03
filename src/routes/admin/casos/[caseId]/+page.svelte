@@ -23,6 +23,7 @@
 	import { getAnatomyLabel } from '$lib/lab/teeth';
 	import { formatCurrency, formatDateTime } from '$lib/lab/helpers';
 	import type { Invoice, LabCase, LabCaseEstado } from '$lib/lab/types';
+	import { requestCaseFinalizedClientNotification } from '$lib/lab/notify-client';
 
 	let caseId = $derived($page.params.caseId);
 	let caso = $state<LabCase | null>(null);
@@ -46,8 +47,14 @@
 
 	async function handleStatusChange(estado: string) {
 		if (!caso) return;
+		const prevEstado = caso.estado;
 		const updated = await updateCaseStatus(caso.id, estado as LabCaseEstado);
-		if (updated) caso = updated;
+		if (updated) {
+			caso = updated;
+			if (prevEstado !== 'finalizado' && updated.estado === 'finalizado') {
+				requestCaseFinalizedClientNotification(updated.id);
+			}
+		}
 	}
 
 	async function saveCost() {

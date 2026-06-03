@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CasePreviewModal from '$lib/components/admin/CasePreviewModal.svelte';
 	import DeliveryAgendaList from '$lib/components/admin/DeliveryAgendaList.svelte';
 	import {
 		addDays,
@@ -34,6 +35,7 @@
 	let viewMonth = $state(new Date().getMonth());
 	let selectedKey = $state(toDateKey(new Date()));
 	let showFinished = $state(false);
+	let previewCase = $state<LabCase | null>(null);
 
 	const activeCases = $derived(getActiveDeliveryCases(cases, showFinished));
 	const casesByDate = $derived(groupCasesByDeliveryDate(activeCases));
@@ -64,6 +66,15 @@
 	function selectDay(date: Date) {
 		selectedKey = toDateKey(date);
 		syncViewFromSelected();
+	}
+
+	function openCasePreview(caso: LabCase, day?: Date) {
+		if (day) selectDay(day);
+		previewCase = caso;
+	}
+
+	function closeCasePreview() {
+		previewCase = null;
 	}
 
 	function setViewMode(mode: CalendarViewMode) {
@@ -222,6 +233,7 @@
 			<DeliveryAgendaList
 				items={selectedCases}
 				emptyMessage="Sin entregas programadas para este día."
+				onCasePreview={(caso) => openCasePreview(caso)}
 			/>
 		</section>
 	{:else if viewMode === 'week'}
@@ -249,7 +261,7 @@
 										type="button"
 										class="delivery-calendar__week-event"
 										class:delivery-calendar__week-event--overdue={isOverdueCase(caso, day)}
-										onclick={() => selectDay(day)}
+										onclick={() => openCasePreview(caso, day)}
 									>
 										<span class="delivery-calendar__week-event-time">
 											<Clock size={12} strokeWidth={2} aria-hidden="true" />
@@ -277,7 +289,10 @@
 				</div>
 				<span class="delivery-calendar__detail-count">{weekCount} esta semana</span>
 			</header>
-			<DeliveryAgendaList items={selectedCases} />
+			<DeliveryAgendaList
+				items={selectedCases}
+				onCasePreview={(caso) => openCasePreview(caso)}
+			/>
 		</section>
 	{:else}
 		<section class="delivery-calendar__grid-panel dash-panel">
@@ -293,41 +308,54 @@
 						{#each week as cell}
 							{@const dayCases = casesOnDay(cell.date)}
 							{@const key = toDateKey(cell.date)}
-							<button
-								type="button"
+							<div
 								class="delivery-calendar__day"
 								class:delivery-calendar__day--muted={!cell.inMonth}
 								class:delivery-calendar__day--today={isToday(cell.date)}
 								class:delivery-calendar__day--past={isPastDay(cell.date) && dayCases.length > 0}
 								class:delivery-calendar__day--selected={selectedKey === key}
 								class:delivery-calendar__day--busy={dayCases.length > 0}
-								onclick={() => selectDay(cell.date)}
 							>
-								<div class="delivery-calendar__day-top">
-									<span class="delivery-calendar__day-num">{cell.date.getDate()}</span>
-									{#if dayCases.length > 0}
-										<span class="delivery-calendar__day-badge">{dayCases.length}</span>
-									{/if}
-								</div>
+								<button
+									type="button"
+									class="delivery-calendar__day-select"
+									aria-label="Seleccionar {formatDayTitle(cell.date)}"
+									onclick={() => selectDay(cell.date)}
+								>
+									<div class="delivery-calendar__day-top">
+										<span class="delivery-calendar__day-num">{cell.date.getDate()}</span>
+										{#if dayCases.length > 0}
+											<span class="delivery-calendar__day-badge">{dayCases.length}</span>
+										{/if}
+									</div>
+								</button>
 
 								{#if dayCases.length > 0}
 									<div class="delivery-calendar__day-events">
 										{#each dayCases.slice(0, 3) as caso (caso.id)}
-											<span
+											<button
+												type="button"
 												class="delivery-calendar__chip"
 												class:delivery-calendar__chip--overdue={isOverdueCase(caso, cell.date)}
+												onclick={() => openCasePreview(caso, cell.date)}
 											>
 												<Clock size={11} strokeWidth={2} aria-hidden="true" />
 												{formatTimeOnly(caso.fecha_entrega)}
 												<span class="delivery-calendar__chip-case">{caso.case_number}</span>
-											</span>
+											</button>
 										{/each}
 										{#if dayCases.length > 3}
-											<span class="delivery-calendar__more">+{dayCases.length - 3} más</span>
+											<button
+												type="button"
+												class="delivery-calendar__more"
+												onclick={() => selectDay(cell.date)}
+											>
+												+{dayCases.length - 3} más
+											</button>
 										{/if}
 									</div>
 								{/if}
-							</button>
+							</div>
 						{/each}
 					</div>
 				{/each}
@@ -346,7 +374,12 @@
 					</span>
 				{/if}
 			</header>
-			<DeliveryAgendaList items={selectedCases} />
+			<DeliveryAgendaList
+				items={selectedCases}
+				onCasePreview={(caso) => openCasePreview(caso)}
+			/>
 		</section>
 	{/if}
+
+	<CasePreviewModal caso={previewCase} onClose={closeCasePreview} />
 </div>
