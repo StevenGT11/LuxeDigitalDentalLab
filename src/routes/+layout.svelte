@@ -89,13 +89,6 @@
 			onresetpassword={() => {
 				loginError = 'Contacta al administrador para restablecer tu contraseña.';
 			}}
-			oncreateaccount={() => {
-				loginError =
-					'Pide al administrador que cree tu usuario en Supabase Auth (Authentication → Users).';
-			}}
-			ongoogle={() => {
-				loginError = 'Inicio con Google no está configurado aún.';
-			}}
 		/>
 	</div>
 {:else}
