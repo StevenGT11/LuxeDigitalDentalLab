@@ -6,6 +6,7 @@
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import { Trash2 } from '@lucide/svelte';
+	import { canViewFinancial } from '$lib/auth/roles';
 	import { loadClientForAdmin } from '$lib/lab/client-session';
 	import {
 		getClientById,
@@ -35,6 +36,8 @@
 	let deleting = $state(false);
 	let deleteError = $state('');
 	let createdNotice = $state(false);
+
+	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 
 	let deleteModeLabel = $derived(
 		stats.totalCasos === 0
@@ -104,17 +107,19 @@
 					{#if client.telefono}<p class="type-caption">{client.telefono}</p>{/if}
 				</div>
 			</div>
-			<button
-				type="button"
-				class="btn-danger-outline"
-				onclick={() => {
-					deleteError = '';
-					deleteOpen = true;
-				}}
-			>
-				<Trash2 size={16} />
-				Eliminar cliente
-			</button>
+			{#if showFinancial}
+				<button
+					type="button"
+					class="btn-danger-outline"
+					onclick={() => {
+						deleteError = '';
+						deleteOpen = true;
+					}}
+				>
+					<Trash2 size={16} />
+					Eliminar cliente
+				</button>
+			{/if}
 		</header>
 
 		<section class="dash-stat-grid dash-stat-grid--compact">
@@ -126,12 +131,14 @@
 				<p class="dash-stat__label">Piezas totales</p>
 				<p class="dash-stat__value">{stats.totalPiezas}</p>
 			</div>
-			<div class="dash-stat">
-				<p class="dash-stat__label">Total comprado</p>
-				<p class="dash-stat__value dash-stat__value--currency">
-					{formatCurrency(stats.totalGastado)}
-				</p>
-			</div>
+			{#if showFinancial}
+				<div class="dash-stat">
+					<p class="dash-stat__label">Total comprado</p>
+					<p class="dash-stat__value dash-stat__value--currency">
+						{formatCurrency(stats.totalGastado)}
+					</p>
+				</div>
+			{/if}
 			<div class="dash-stat">
 				<p class="dash-stat__label">Finalizados</p>
 				<p class="dash-stat__value">{stats.finalizados}</p>
@@ -150,7 +157,7 @@
 								<th>Caso</th>
 								<th>Paciente</th>
 								<th>Ítems</th>
-								<th>Costo</th>
+								{#if showFinancial}<th>Costo</th>{/if}
 								<th>Estado</th>
 								<th></th>
 							</tr>
@@ -161,7 +168,7 @@
 									<td class="type-body-strong">{caso.case_number}</td>
 									<td>{caso.paciente_name}</td>
 									<td class="type-caption">{itemsLabel(caso)}</td>
-									<td>{formatCurrency(caso.costo)}</td>
+									{#if showFinancial}<td>{formatCurrency(caso.costo)}</td>{/if}
 									<td>
 										<span class={getEstadoBadgeClass(caso.estado)}>{getEstadoLabel(caso.estado)}</span>
 									</td>
@@ -176,45 +183,47 @@
 			{/if}
 		</section>
 
-		<section style="margin-top: var(--spacing-xxl);">
-			<h3 class="type-tagline" style="margin: 0 0 var(--spacing-lg);">Facturas</h3>
-			{#if facturas.length === 0}
-				<p class="type-caption">Sin facturas</p>
-			{:else}
-				<div class="data-table-wrap">
-					<table class="data-table">
-						<thead>
-							<tr>
-								<th>Número</th>
-								<th>Caso</th>
-								<th>Total</th>
-								<th>Estado</th>
-								<th>Emisión</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each facturas as fac}
+		{#if showFinancial}
+			<section style="margin-top: var(--spacing-xxl);">
+				<h3 class="type-tagline" style="margin: 0 0 var(--spacing-lg);">Facturas</h3>
+				{#if facturas.length === 0}
+					<p class="type-caption">Sin facturas</p>
+				{:else}
+					<div class="data-table-wrap">
+						<table class="data-table">
+							<thead>
 								<tr>
-									<td class="type-body-strong">{fac.invoice_number}</td>
-									<td>{fac.case_number}</td>
-									<td>{formatCurrency(fac.total)}</td>
-									<td>
-										<span class={getInvoiceEstadoClass(fac.estado)}>
-											{getInvoiceEstadoLabel(fac.estado)}
-										</span>
-									</td>
-									<td>{formatDate(fac.fecha_emision)}</td>
+									<th>Número</th>
+									<th>Caso</th>
+									<th>Total</th>
+									<th>Estado</th>
+									<th>Emisión</th>
 								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-		</section>
+							</thead>
+							<tbody>
+								{#each facturas as fac}
+									<tr>
+										<td class="type-body-strong">{fac.invoice_number}</td>
+										<td>{fac.case_number}</td>
+										<td>{formatCurrency(fac.total)}</td>
+										<td>
+											<span class={getInvoiceEstadoClass(fac.estado)}>
+												{getInvoiceEstadoLabel(fac.estado)}
+											</span>
+										</td>
+										<td>{formatDate(fac.fecha_emision)}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+			</section>
+		{/if}
 	{/if}
 </div>
 
-{#if deleteOpen && client}
+{#if deleteOpen && client && showFinancial}
 	<div class="case-file-modal__backdrop" onclick={() => !deleting && (deleteOpen = false)} role="presentation"></div>
 	<div
 		class="case-file-modal case-file-modal--form"

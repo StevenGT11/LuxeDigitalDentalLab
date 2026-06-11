@@ -3,6 +3,7 @@
 	import CaseFileDropzone from '$lib/components/lab/CaseFileDropzone.svelte';
 	import DateTimeField from '$lib/components/lab/DateTimeField.svelte';
 	import ToothSelectionField from '$lib/components/lab/ToothSelectionField.svelte';
+	import ImplantCrownFields from '$lib/components/lab/ImplantCrownFields.svelte';
 	import TreatmentCategoryPicker from '$lib/components/lab/TreatmentCategoryPicker.svelte';
 	import { validateCaseFileBatch } from '$lib/lab/attachments';
 	import {
@@ -42,6 +43,8 @@
 		incluye_diseno: boolean;
 		incluye_fresado: boolean;
 		corona_sobre_implante: boolean;
+		implante_marca: string;
+		implante_plataforma: string;
 	}
 
 	function newDraftItem(): DraftItem {
@@ -55,7 +58,9 @@
 			color: '',
 			incluye_diseno: true,
 			incluye_fresado: true,
-			corona_sobre_implante: false
+			corona_sobre_implante: false,
+			implante_marca: '',
+			implante_plataforma: ''
 		};
 	}
 
@@ -83,7 +88,9 @@
 			tipo_trabajo: '',
 			implantes_guia: null,
 			material: '',
-			corona_sobre_implante: false
+			corona_sobre_implante: false,
+			implante_marca: '',
+			implante_plataforma: ''
 		});
 	}
 
@@ -124,7 +131,9 @@
 				incluye_fresado: false,
 				material: '',
 				color: '',
-				corona_sobre_implante: false
+				corona_sobre_implante: false,
+				implante_marca: '',
+				implante_plataforma: ''
 			});
 			return;
 		}
@@ -140,7 +149,9 @@
 			incluye_diseno,
 			incluye_fresado,
 			material: '',
-			corona_sobre_implante: false
+			corona_sobre_implante: false,
+			implante_marca: '',
+			implante_plataforma: ''
 		});
 	}
 
@@ -165,6 +176,13 @@
 		if (!row.tipo_trabajo) return false;
 		if (isGuiaRow(row)) return row.implantes_guia !== null && row.implantes_guia >= 1;
 		if (isRestauracionRow(row) && !row.material) return false;
+		if (
+			isCoronaRestauracion(row.tipo_trabajo) &&
+			row.corona_sobre_implante &&
+			(!row.implante_marca.trim() || !row.implante_plataforma.trim())
+		) {
+			return false;
+		}
 		if (!itemRequiresTeeth(row)) return row.incluye_diseno || row.incluye_fresado;
 		return row.piezas_dentales.length > 0;
 	}
@@ -253,6 +271,14 @@
 				error = `Ítem ${n}: marca Diseño y/o Fresado`;
 				return;
 			}
+			if (
+				isCoronaRestauracion(row.tipo_trabajo) &&
+				row.corona_sobre_implante &&
+				(!row.implante_marca.trim() || !row.implante_plataforma.trim())
+			) {
+				error = `Ítem ${n}: indica marca y tamaño de plataforma del implante`;
+				return;
+			}
 			payloadItems.push({
 				piezas_dentales: itemRequiresTeeth(row) ? row.piezas_dentales : [],
 				tipo_trabajo: row.tipo_trabajo,
@@ -264,7 +290,15 @@
 				implantes_guia: isGuiaRow(row) ? row.implantes_guia : null,
 				corona_sobre_implante: isCoronaRestauracion(row.tipo_trabajo)
 					? row.corona_sobre_implante
-					: false
+					: false,
+				implante_marca:
+					isCoronaRestauracion(row.tipo_trabajo) && row.corona_sobre_implante
+						? row.implante_marca.trim()
+						: null,
+				implante_plataforma:
+					isCoronaRestauracion(row.tipo_trabajo) && row.corona_sobre_implante
+						? row.implante_plataforma.trim()
+						: null
 			});
 		}
 
@@ -394,9 +428,21 @@
 									onmaterialchange={(material) => onMaterialChange(row.key, material)}
 									coronaSobreImplante={row.corona_sobre_implante}
 									oncoronaimplantechange={(activo) =>
-										patchRow(row.key, { corona_sobre_implante: activo })}
+										patchRow(row.key, {
+											corona_sobre_implante: activo,
+											implante_marca: activo ? row.implante_marca : '',
+											implante_plataforma: activo ? row.implante_plataforma : ''
+										})}
 								/>
 							</div>
+
+							{#if isTreatmentPickerComplete(row) && isCoronaRestauracion(row.tipo_trabajo) && row.corona_sobre_implante}
+								<ImplantCrownFields
+									id="implante-{row.key}"
+									bind:marca={row.implante_marca}
+									bind:plataforma={row.implante_plataforma}
+								/>
+							{/if}
 
 							{#if isTreatmentPickerComplete(row) && isGuiaRow(row)}
 								<div>

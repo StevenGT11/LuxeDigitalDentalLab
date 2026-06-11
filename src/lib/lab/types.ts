@@ -69,6 +69,10 @@ export interface CaseItem {
 	implantes_guia?: number | null;
 	/** Add-on en Corona: corona sobre implante (ajusta tarifa) */
 	corona_sobre_implante?: boolean;
+	/** Marca del implante (corona sobre implante) */
+	implante_marca?: string | null;
+	/** Tamaño de plataforma del implante */
+	implante_plataforma?: string | null;
 	descripcion: string | null;
 	unit_price: number;
 	subtotal: number;

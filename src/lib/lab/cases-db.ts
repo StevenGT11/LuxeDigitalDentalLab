@@ -19,6 +19,8 @@ type DbItem = {
 	incluye_fresado: boolean;
 	implantes_guia: number | null;
 	corona_sobre_implante: boolean;
+	implante_marca: string | null;
+	implante_plataforma: string | null;
 	descripcion: string | null;
 	tipo_pieza: CaseItem['tipo_pieza'];
 	unit_price: number;
@@ -97,6 +99,8 @@ const CASE_SELECT = `
 		incluye_fresado,
 		implantes_guia,
 		corona_sobre_implante,
+		implante_marca,
+		implante_plataforma,
 		descripcion,
 		tipo_pieza,
 		unit_price,
@@ -126,6 +130,8 @@ function mapItem(row: DbItem): CaseItem {
 		incluye_fresado: row.incluye_fresado,
 		implantes_guia: row.implantes_guia,
 		corona_sobre_implante: row.corona_sobre_implante,
+		implante_marca: row.implante_marca,
+		implante_plataforma: row.implante_plataforma,
 		descripcion: row.descripcion,
 		unit_price: num(row.unit_price),
 		subtotal: num(row.subtotal)
@@ -270,6 +276,8 @@ export async function createCaseInDb(
 				incluye_fresado: item.incluye_fresado,
 				implantes_guia: item.implantes_guia,
 				corona_sobre_implante: item.corona_sobre_implante,
+				implante_marca: item.implante_marca,
+				implante_plataforma: item.implante_plataforma,
 				descripcion: item.descripcion,
 				tipo_pieza: item.tipo_pieza,
 				unit_price: item.unit_price,

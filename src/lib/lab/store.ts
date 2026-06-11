@@ -682,6 +682,9 @@ export function seedDemoCases(): void {
 						incluye_diseno: row.incluye_diseno,
 						incluye_fresado: row.incluye_fresado,
 						implantes_guia: row.implantes_guia,
+						corona_sobre_implante: row.corona_sobre_implante,
+						implante_marca: row.implante_marca,
+						implante_plataforma: row.implante_plataforma,
 						descripcion: row.descripcion
 					}
 				)

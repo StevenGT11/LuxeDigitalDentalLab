@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import CaseWorkTags from '$lib/components/admin/CaseWorkTags.svelte';
 	import EstadoProgress from '$lib/components/admin/EstadoProgress.svelte';
+	import { canViewFinancial } from '$lib/auth/roles';
 	import { getAdminStats, getAllCases, hydrateCasesOnce, initializeLabStorage } from '$lib/lab/store';
 	import {
 		ESTADOS,
@@ -24,6 +26,8 @@
 	let selectedEstado = $state('todos');
 	let searchQuery = $state('');
 	let stats = $state({ totalCasos: 0, pendientes: 0, enProceso: 0, ingresosTotales: 0 });
+
+	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 
 	onMount(() => void refresh());
 
@@ -93,12 +97,14 @@
 			<p class="dash-stat__label">En proceso</p>
 			<p class="dash-stat__value">{stats.enProceso}</p>
 		</div>
-		<div class="dash-stat">
-			<p class="dash-stat__label">Ingresos</p>
-			<p class="dash-stat__value dash-stat__value--currency">
-				{formatCurrency(stats.ingresosTotales)}
-			</p>
-		</div>
+		{#if showFinancial}
+			<div class="dash-stat">
+				<p class="dash-stat__label">Ingresos</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatCurrency(stats.ingresosTotales)}
+				</p>
+			</div>
+		{/if}
 	</section>
 
 	<div class="dash-toolbar">
@@ -151,7 +157,9 @@
 						<EstadoProgress estado={caso.estado} compact />
 					</div>
 					<div class="case-list__side">
-						<p class="case-list__cost">{formatCurrency(caso.costo)}</p>
+						{#if showFinancial}
+							<p class="case-list__cost">{formatCurrency(caso.costo)}</p>
+						{/if}
 						<span class={deliveryUrgencyClass(caso.fecha_entrega, caso.estado)}>
 							{formatDeliveryCountdown(caso.fecha_entrega, caso.estado)}
 						</span>

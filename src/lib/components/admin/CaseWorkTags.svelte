@@ -70,6 +70,16 @@
 			{#if item.incluye_fresado}
 				<span class="work-tag work-tag--servicio work-tag--fresado">Fresado</span>
 			{/if}
+			{#if item.corona_sobre_implante}
+				<span class="work-tag work-tag--servicio work-tag--implante">Sobre implante</span>
+			{/if}
+			{#if item.corona_sobre_implante && (item.implante_marca || item.implante_plataforma)}
+				<span class="work-tag work-tag--implante-detail" title="Datos del implante">
+					{item.implante_marca}{#if item.implante_marca && item.implante_plataforma}
+						·
+					{/if}{item.implante_plataforma}
+				</span>
+			{/if}
 			{#if item.material}
 				<span
 					class="work-tag work-tag--material"

@@ -33,6 +33,8 @@ export function buildCaseItem(
 		incluye_fresado?: boolean;
 		implantes_guia?: number | null;
 		corona_sobre_implante?: boolean;
+		implante_marca?: string | null;
+		implante_plataforma?: string | null;
 	}
 ): CaseItem {
 	const esGuia = isGuiaQuirurgica(tipo_trabajo);
@@ -48,6 +50,10 @@ export function buildCaseItem(
 	const incluye_diseno = esGuia ? true : (options?.incluye_diseno ?? false);
 	const incluye_fresado = esGuia ? false : (options?.incluye_fresado ?? false);
 	const corona_sobre_implante = options?.corona_sobre_implante === true;
+	const implante_marca = corona_sobre_implante ? options?.implante_marca?.trim() || null : null;
+	const implante_plataforma = corona_sobre_implante
+		? options?.implante_plataforma?.trim() || null
+		: null;
 	const subtotal = calcularCostoItem({
 		tipo_trabajo,
 		material,
@@ -71,6 +77,8 @@ export function buildCaseItem(
 		incluye_fresado,
 		implantes_guia: esGuia ? implantes_guia : null,
 		corona_sobre_implante: tipo_trabajo === 'rest_corona' ? corona_sobre_implante : false,
+		implante_marca: tipo_trabajo === 'rest_corona' ? implante_marca : null,
+		implante_plataforma: tipo_trabajo === 'rest_corona' ? implante_plataforma : null,
 		descripcion: options?.descripcion ?? null,
 		unit_price: Math.round(subtotal * 100) / 100,
 		subtotal
@@ -87,6 +95,8 @@ export function buildCaseItemsFromInput(caseId: string, input: CreateCaseInput):
 				incluye_fresado: row.incluye_fresado,
 				implantes_guia: row.implantes_guia,
 				corona_sobre_implante: row.corona_sobre_implante,
+				implante_marca: row.implante_marca,
+				implante_plataforma: row.implante_plataforma,
 				descripcion: row.descripcion
 			})
 		);

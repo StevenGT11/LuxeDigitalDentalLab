@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import CaseWorkTags from '$lib/components/admin/CaseWorkTags.svelte';
 	import EstadoProgress from '$lib/components/admin/EstadoProgress.svelte';
+	import { canViewFinancial } from '$lib/auth/roles';
 	import { getEstadoBadgeClass, getEstadoLabel } from '$lib/lab/constants';
 	import {
 		deliveryUrgencyClass,
@@ -18,6 +20,8 @@
 	}
 
 	let { caso, onClose }: Props = $props();
+
+	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 
 	const modalTitleId = 'case-preview-title';
 
@@ -70,10 +74,12 @@
 					<dt>Entrega</dt>
 					<dd>{formatDateTime(caso.fecha_entrega)}</dd>
 				</div>
-				<div class="case-preview-modal__row">
-					<dt>Costo</dt>
-					<dd>{formatCurrency(caso.costo)}</dd>
-				</div>
+				{#if showFinancial}
+					<div class="case-preview-modal__row">
+						<dt>Costo</dt>
+						<dd>{formatCurrency(caso.costo)}</dd>
+					</div>
+				{/if}
 			</dl>
 
 			<span class={deliveryUrgencyClass(caso.fecha_entrega, caso.estado)}>

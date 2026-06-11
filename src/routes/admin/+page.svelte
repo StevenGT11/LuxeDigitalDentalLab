@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import ColoredBarChart from '$lib/components/admin/ColoredBarChart.svelte';
 	import CaseWorkTags from '$lib/components/admin/CaseWorkTags.svelte';
 	import DonutChart from '$lib/components/admin/DonutChart.svelte';
 	import EstadoProgress from '$lib/components/admin/EstadoProgress.svelte';
+	import { canViewFinancial } from '$lib/auth/roles';
 	import {
 		buildAdminDashboard,
 		getActiveCases,
@@ -49,6 +51,8 @@
 	let materialBars = $state<ReturnType<typeof getMaterialDistribution>>([]);
 	let upcomingDeliveries = $state<LabCase[]>([]);
 	let rankings = $state<ReturnType<typeof getClientRankings>>([]);
+
+	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 
 	onMount(() => void refresh());
 
@@ -101,20 +105,28 @@
 			<p class="dash-stat__value">{deliveriesWeek}</p>
 			<p class="dash-stat__hint">compromisos próximos</p>
 		</div>
-		<div class="dash-stat">
-			<p class="dash-stat__label">Ingresos (casos)</p>
-			<p class="dash-stat__value dash-stat__value--currency">
-				{formatCurrency(stats.ingresosTotales)}
-			</p>
-			<p class="dash-stat__hint">{stats.totalCasos} casos · {stats.totalClientes} clientes</p>
-		</div>
-		<div class="dash-stat">
-			<p class="dash-stat__label">Facturas por cobrar</p>
-			<p class="dash-stat__value">{stats.facturasPendientes}</p>
-			<p class="dash-stat__hint">
-				<a href="/admin/facturas" class="text-link">Ver facturas →</a>
-			</p>
-		</div>
+		{#if showFinancial}
+			<div class="dash-stat">
+				<p class="dash-stat__label">Ingresos (casos)</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatCurrency(stats.ingresosTotales)}
+				</p>
+				<p class="dash-stat__hint">{stats.totalCasos} casos · {stats.totalClientes} clientes</p>
+			</div>
+			<div class="dash-stat">
+				<p class="dash-stat__label">Facturas por cobrar</p>
+				<p class="dash-stat__value">{stats.facturasPendientes}</p>
+				<p class="dash-stat__hint">
+					<a href="/admin/facturas" class="text-link">Ver facturas →</a>
+				</p>
+			</div>
+		{:else}
+			<div class="dash-stat">
+				<p class="dash-stat__label">Casos totales</p>
+				<p class="dash-stat__value">{stats.totalCasos}</p>
+				<p class="dash-stat__hint">{stats.totalClientes} clientes activos</p>
+			</div>
+		{/if}
 	</section>
 
 	<section class="dash-panel dash-panel--cases">
@@ -175,7 +187,9 @@
 						</div>
 
 						<footer class="case-card__footer">
-							<span class="case-card__cost">{formatCurrency(caso.costo)}</span>
+							{#if showFinancial}
+								<span class="case-card__cost">{formatCurrency(caso.costo)}</span>
+							{/if}
 							<button
 								type="button"
 								class="text-link"
@@ -294,8 +308,12 @@
 			</div>
 
 			<div class="dash-panel">
-				<h3 class="dash-panel__title">Clientes con más volumen</h3>
-				<p class="dash-panel__subtitle">Por facturación acumulada</p>
+				<h3 class="dash-panel__title">
+					{showFinancial ? 'Clientes con más volumen' : 'Clientes con más casos'}
+				</h3>
+				<p class="dash-panel__subtitle">
+					{showFinancial ? 'Por facturación acumulada' : 'Por cantidad de casos enviados'}
+				</p>
 				{#if rankings.length === 0}
 					<p class="type-caption">Sin datos</p>
 				{:else}
@@ -311,7 +329,9 @@
 										{row.totalCasos} casos · {row.totalPiezas} piezas
 									</p>
 								</div>
-								<span class="type-body-strong">{formatCurrency(row.totalGastado)}</span>
+								{#if showFinancial}
+									<span class="type-body-strong">{formatCurrency(row.totalGastado)}</span>
+								{/if}
 							</li>
 						{/each}
 					</ol>

@@ -5,6 +5,7 @@
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { Plus, X } from '@lucide/svelte';
+	import { canViewFinancial } from '$lib/auth/roles';
 	import { fetchAllClients } from '$lib/lab/clients-db';
 	import { getClientStats, initializeLabStorage } from '$lib/lab/store';
 	import { formatCurrency } from '$lib/lab/helpers';
@@ -17,6 +18,8 @@
 	let loading = $state(true);
 	let error = $state('');
 	let successMessage = $state('');
+
+	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 
 	function readQueryBanner() {
 		const params = $page.url.searchParams;
@@ -116,7 +119,11 @@
 <svelte:window onkeydown={modalOpen ? onModalKeydown : undefined} />
 
 <div class="dash-page">
-	<p class="dash-lead">Clínicas y consultorios registrados — casos y facturas vinculados.</p>
+	<p class="dash-lead">
+		{showFinancial
+			? 'Clínicas y consultorios registrados — casos y facturas vinculados.'
+			: 'Clínicas y consultorios registrados — contacto y casos vinculados.'}
+	</p>
 
 	{#if successMessage}
 		<div class="alert alert--success">{successMessage}</div>
@@ -134,10 +141,12 @@
 			bind:value={searchQuery}
 			placeholder="Buscar cliente o clínica..."
 		/>
-		<button type="button" class="btn-primary" onclick={openModal}>
-			<Plus size={16} strokeWidth={2} />
-			Agregar cliente
-		</button>
+		{#if showFinancial}
+			<button type="button" class="btn-primary" onclick={openModal}>
+				<Plus size={16} strokeWidth={2} />
+				Agregar cliente
+			</button>
+		{/if}
 	</div>
 
 	{#if loading}
@@ -145,7 +154,7 @@
 	{:else if filtered.length === 0}
 		<div class="store-utility-card empty-state">
 			<p>{clients.length === 0 ? 'No hay clientes registrados' : 'Ningún cliente coincide con la búsqueda'}</p>
-			{#if clients.length === 0}
+			{#if showFinancial && clients.length === 0}
 				<button type="button" class="btn-primary" style="margin-top: 1rem;" onclick={openModal}>
 					Agregar primer cliente
 				</button>
@@ -171,12 +180,14 @@
 							<p class="detail-item__label">Piezas</p>
 							<p class="detail-item__value">{client.stats.totalPiezas}</p>
 						</div>
-						<div>
-							<p class="detail-item__label">Total comprado</p>
-							<p class="detail-item__value" style="font-size: 16px;">
-								{formatCurrency(client.stats.totalGastado)}
-							</p>
-						</div>
+						{#if showFinancial}
+							<div>
+								<p class="detail-item__label">Total comprado</p>
+								<p class="detail-item__value" style="font-size: 16px;">
+									{formatCurrency(client.stats.totalGastado)}
+								</p>
+							</div>
+						{/if}
 					</div>
 					{#if client.email}
 						<p class="type-fine-print" style="margin-top: var(--spacing-md);">{client.email}</p>
@@ -187,7 +198,7 @@
 	{/if}
 </div>
 
-{#if modalOpen}
+{#if modalOpen && showFinancial}
 	<div class="case-file-modal__backdrop" onclick={closeModal} role="presentation"></div>
 	<div
 		class="case-file-modal case-file-modal--form"

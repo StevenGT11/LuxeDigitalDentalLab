@@ -10,6 +10,8 @@ export interface CreateCaseItemInput {
 	incluye_fresado: boolean;
 	implantes_guia?: number | null;
 	corona_sobre_implante?: boolean;
+	implante_marca?: string | null;
+	implante_plataforma?: string | null;
 	numero_pieza?: string;
 	descripcion?: string | null;
 }

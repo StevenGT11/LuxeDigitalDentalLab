@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
+	import { canViewFinancial } from '$lib/auth/roles';
 	import {
 		getCaseByIdAsync,
 		getInvoiceByCaseIdAsync,
@@ -32,6 +33,8 @@
 
 	const estadosAdmin = ESTADOS.filter((e) => e.value !== 'todos');
 
+	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
+
 	onMount(async () => {
 		await hydrateLabDataOnce();
 		await loadCase();
@@ -41,7 +44,9 @@
 		caso = await getCaseByIdAsync(caseId);
 		if (caso) {
 			costoEdit = caso.costo;
-			factura = await getInvoiceByCaseIdAsync(caso.id);
+			if (showFinancial) {
+				factura = await getInvoiceByCaseIdAsync(caso.id);
+			}
 		}
 	}
 
@@ -126,9 +131,12 @@
 							<th>Material</th>
 							<th>Color</th>
 							<th>Servicios</th>
+							<th>Implante</th>
 							<th>Cant.</th>
-							<th>P. unit.</th>
-							<th>Subtotal</th>
+							{#if showFinancial}
+								<th>P. unit.</th>
+								<th>Subtotal</th>
+							{/if}
 						</tr>
 					</thead>
 					<tbody>
@@ -167,23 +175,53 @@
 										{#if item.incluye_fresado}
 											<span class="work-tag work-tag--servicio work-tag--fresado">Fresado</span>
 										{/if}
-										{#if !item.incluye_diseno && !item.incluye_fresado}
+										{#if item.corona_sobre_implante}
+											<span class="work-tag work-tag--servicio work-tag--implante">Sobre implante</span>
+										{/if}
+										{#if !item.incluye_diseno && !item.incluye_fresado && !item.corona_sobre_implante}
 											—
 										{/if}
 									</div>
 								</td>
+								<td>
+									{#if item.corona_sobre_implante}
+										<div class="implante-detail-cell">
+											{#if item.implante_marca}
+												<p class="implante-detail-cell__line">
+													<span class="type-fine-print">Marca</span>
+													<span>{item.implante_marca}</span>
+												</p>
+											{/if}
+											{#if item.implante_plataforma}
+												<p class="implante-detail-cell__line">
+													<span class="type-fine-print">Plataforma</span>
+													<span>{item.implante_plataforma}</span>
+												</p>
+											{/if}
+											{#if !item.implante_marca && !item.implante_plataforma}
+												<span class="type-caption">Sin datos</span>
+											{/if}
+										</div>
+									{:else}
+										—
+									{/if}
+								</td>
 								<td>{item.piezas}</td>
-								<td>{formatCurrency(item.unit_price)}</td>
-								<td class="type-body-strong">{formatCurrency(item.subtotal)}</td>
+								{#if showFinancial}
+									<td>{formatCurrency(item.unit_price)}</td>
+									<td class="type-body-strong">{formatCurrency(item.subtotal)}</td>
+								{/if}
 							</tr>
 						{/each}
 					</tbody>
-					<tfoot>
-						<tr>
-							<td colspan="8">Total caso</td>
-							<td>{formatCurrency(caso.costo)}</td>
-						</tr>
-					</tfoot>
+					{#if showFinancial}
+						<tfoot>
+							<tr>
+								<td colspan="9">Total caso</td>
+								<td>{formatCurrency(caso.costo)}</td>
+							</tr>
+						</tfoot>
+					{/if}
 				</table>
 			</div>
 			<p class="type-caption" style="margin-top: var(--spacing-md);">
@@ -202,42 +240,44 @@
 			/>
 		</section>
 
-		<section class="dash-panel dash-panel--section" style="margin-top: 1rem;">
-			<h3 class="dash-panel__section-title">Costo</h3>
-			<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--spacing-md);">
-				<div style="flex: 1; min-width: 140px;">
-					<label class="field-label" for="costo">Monto total (USD)</label>
-					<input id="costo" class="field-input" type="number" min="0" step="0.01" bind:value={costoEdit} />
-				</div>
-				<button type="button" class="btn-primary" onclick={saveCost}>Guardar costo</button>
-			</div>
-		</section>
-
-		{#if factura}
+		{#if showFinancial}
 			<section class="dash-panel dash-panel--section" style="margin-top: 1rem;">
-				<h3 class="dash-panel__section-title">Factura vinculada</h3>
-				<div class="detail-grid">
-					<div>
-						<p class="detail-item__label">Número</p>
-						<p class="detail-item__value">{factura.invoice_number}</p>
+				<h3 class="dash-panel__section-title">Costo</h3>
+				<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--spacing-md);">
+					<div style="flex: 1; min-width: 140px;">
+						<label class="field-label" for="costo">Monto total (USD)</label>
+						<input id="costo" class="field-input" type="number" min="0" step="0.01" bind:value={costoEdit} />
 					</div>
-					<div>
-						<p class="detail-item__label">Estado</p>
-						<p class="detail-item__value">
-							<span class={getInvoiceEstadoClass(factura.estado)}>
-								{getInvoiceEstadoLabel(factura.estado)}
-							</span>
-						</p>
-					</div>
-					<div>
-						<p class="detail-item__label">Total</p>
-						<p class="detail-item__value">{formatCurrency(factura.total)}</p>
-					</div>
+					<button type="button" class="btn-primary" onclick={saveCost}>Guardar costo</button>
 				</div>
-				<a href="/admin/facturas" class="text-link" style="display: inline-block; margin-top: var(--spacing-md);">
-					Ver todas las facturas →
-				</a>
 			</section>
+
+			{#if factura}
+				<section class="dash-panel dash-panel--section" style="margin-top: 1rem;">
+					<h3 class="dash-panel__section-title">Factura vinculada</h3>
+					<div class="detail-grid">
+						<div>
+							<p class="detail-item__label">Número</p>
+							<p class="detail-item__value">{factura.invoice_number}</p>
+						</div>
+						<div>
+							<p class="detail-item__label">Estado</p>
+							<p class="detail-item__value">
+								<span class={getInvoiceEstadoClass(factura.estado)}>
+									{getInvoiceEstadoLabel(factura.estado)}
+								</span>
+							</p>
+						</div>
+						<div>
+							<p class="detail-item__label">Total</p>
+							<p class="detail-item__value">{formatCurrency(factura.total)}</p>
+						</div>
+					</div>
+					<a href="/admin/facturas" class="text-link" style="display: inline-block; margin-top: var(--spacing-md);">
+						Ver todas las facturas →
+					</a>
+				</section>
+			{/if}
 		{/if}
 	{/if}
 </div>

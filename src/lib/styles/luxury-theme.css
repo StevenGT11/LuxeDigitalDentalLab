@@ -1882,6 +1882,32 @@
 	background: rgba(180, 83, 9, 0.08);
 }
 
+.work-tag--implante {
+	color: #0f766e;
+	border-color: rgba(15, 118, 110, 0.35);
+	background: rgba(15, 118, 110, 0.08);
+}
+
+.work-tag--implante-detail {
+	color: var(--color-text);
+	border-color: rgba(15, 118, 110, 0.25);
+	background: rgba(15, 118, 110, 0.06);
+	font-size: 12px;
+}
+
+.implante-detail-cell {
+	display: grid;
+	gap: 4px;
+	min-width: 120px;
+}
+
+.implante-detail-cell__line {
+	display: grid;
+	gap: 2px;
+	margin: 0;
+	font-size: 13px;
+}
+
 .case-item-draft--add {
 	display: flex;
 	align-items: center;
