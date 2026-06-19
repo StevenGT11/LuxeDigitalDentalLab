@@ -18,6 +18,7 @@ type DbItem = {
 	incluye_diseno: boolean;
 	incluye_fresado: boolean;
 	implantes_guia: number | null;
+	alcance_arcada: import('./arcada-scope').ArcadaScope | null;
 	corona_sobre_implante: boolean;
 	implante_marca: string | null;
 	implante_plataforma: string | null;
@@ -46,6 +47,9 @@ type DbCase = {
 	fecha_entrega: string;
 	estado: LabCaseEstado;
 	notas: string | null;
+	last_edited_at: string | null;
+	last_edited_by: string | null;
+	last_edited_by_name: string | null;
 	archivos: CaseFile[] | null;
 	case_items: DbItem[] | null;
 	case_files: {
@@ -77,6 +81,9 @@ const CASE_SELECT = `
 	fecha_entrega,
 	estado,
 	notas,
+	last_edited_at,
+	last_edited_by,
+	last_edited_by_name,
 	case_files (
 		id,
 		category,
@@ -98,6 +105,7 @@ const CASE_SELECT = `
 		incluye_diseno,
 		incluye_fresado,
 		implantes_guia,
+		alcance_arcada,
 		corona_sobre_implante,
 		implante_marca,
 		implante_plataforma,
@@ -129,6 +137,7 @@ function mapItem(row: DbItem): CaseItem {
 		incluye_diseno: row.incluye_diseno,
 		incluye_fresado: row.incluye_fresado,
 		implantes_guia: row.implantes_guia,
+		alcance_arcada: row.alcance_arcada,
 		corona_sobre_implante: row.corona_sobre_implante,
 		implante_marca: row.implante_marca,
 		implante_plataforma: row.implante_plataforma,
@@ -161,6 +170,9 @@ function mapCase(row: DbCase): LabCase {
 		fecha_entrega: row.fecha_entrega,
 		estado: row.estado,
 		notas: row.notas,
+		last_edited_at: row.last_edited_at,
+		last_edited_by: row.last_edited_by,
+		last_edited_by_name: row.last_edited_by_name,
 		archivos: mapCaseFiles(row)
 	};
 }
@@ -275,6 +287,7 @@ export async function createCaseInDb(
 				incluye_diseno: item.incluye_diseno,
 				incluye_fresado: item.incluye_fresado,
 				implantes_guia: item.implantes_guia,
+				alcance_arcada: item.alcance_arcada,
 				corona_sobre_implante: item.corona_sobre_implante,
 				implante_marca: item.implante_marca,
 				implante_plataforma: item.implante_plataforma,
@@ -301,6 +314,95 @@ export async function createCaseInDb(
 
 	const saved = await fetchCaseByIdFromDb(caseId);
 	if (!saved) throw new Error('No se pudo cargar el caso creado');
+	upsertCachedCase(saved);
+	return saved;
+}
+
+export async function updateCaseInDb(
+	caseId: string,
+	input: CreateCaseInput,
+	client: LabClient,
+	doctor: { doctor_id: string; doctor_name: string }
+): Promise<LabCase> {
+	const supabase = createSupabaseBrowserClient();
+	const existing = await fetchCaseByIdFromDb(caseId);
+	if (!existing) throw new Error('Caso no encontrado');
+	if (existing.estado !== 'pendiente') {
+		throw new Error('Solo se pueden editar casos en estado pendiente');
+	}
+	if (existing.client_id !== input.client_id) {
+		throw new Error('No tienes permiso para editar este caso');
+	}
+
+	const items = buildCaseItemsFromInput(caseId, input);
+	const first = items[0];
+	const costo = input.costo ?? items.reduce((s, i) => s + i.subtotal, 0);
+	const piezas = items.reduce((s, i) => s + i.piezas, 0);
+
+	const { error: deleteError } = await supabase.from('case_items').delete().eq('case_id', caseId);
+	if (deleteError) throw deleteError;
+
+	const { error: caseError } = await supabase
+		.from('cases')
+		.update({
+			doctor_id: doctor.doctor_id,
+			doctor_name: doctor.doctor_name,
+			paciente_name: input.paciente_name.trim(),
+			tipo_trabajo: first.tipo_trabajo,
+			material: first.material,
+			color: first.color,
+			piezas,
+			costo,
+			fecha_entrega: input.fecha_entrega,
+			notas: input.notas
+		})
+		.eq('id', caseId);
+
+	if (caseError) throw caseError;
+
+	for (let i = 0; i < items.length; i++) {
+		const item = items[i];
+		const { data: itemRow, error: itemError } = await supabase
+			.from('case_items')
+			.insert({
+				id: item.id,
+				case_id: caseId,
+				sort_order: i,
+				numero_pieza: item.numero_pieza,
+				tipo_trabajo: item.tipo_trabajo,
+				material: item.material,
+				color: item.color,
+				piezas: item.piezas,
+				incluye_diseno: item.incluye_diseno,
+				incluye_fresado: item.incluye_fresado,
+				implantes_guia: item.implantes_guia,
+				alcance_arcada: item.alcance_arcada,
+				corona_sobre_implante: item.corona_sobre_implante,
+				implante_marca: item.implante_marca,
+				implante_plataforma: item.implante_plataforma,
+				descripcion: item.descripcion,
+				tipo_pieza: item.tipo_pieza,
+				unit_price: item.unit_price,
+				subtotal: item.subtotal
+			})
+			.select('id')
+			.single();
+
+		if (itemError) throw itemError;
+
+		if (item.piezas_dentales.length > 0) {
+			const { error: teethError } = await supabase.from('case_item_teeth').insert(
+				item.piezas_dentales.map((tooth_fdi) => ({
+					case_item_id: itemRow.id,
+					tooth_fdi
+				}))
+			);
+			if (teethError) throw teethError;
+		}
+	}
+
+	const saved = await fetchCaseByIdFromDb(caseId);
+	if (!saved) throw new Error('No se pudo cargar el caso actualizado');
 	upsertCachedCase(saved);
 	return saved;
 }

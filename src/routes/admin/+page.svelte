@@ -134,7 +134,7 @@
 			<div>
 				<h3 class="dash-panel__title">Casos activos</h3>
 				<p class="dash-panel__subtitle">
-					Trabajo, material, tono y fecha de entrega — ordenados por urgencia
+					Material, tono y fecha de entrega — ordenados por urgencia
 				</p>
 			</div>
 			<a href="/admin/casos" class="btn-secondary-pill">Ver todos los casos</a>
@@ -174,8 +174,9 @@
 						<EstadoProgress estado={caso.estado} compact />
 
 						<div class="case-card__work">
-							<p class="case-card__work-label">Trabajo solicitado</p>
+							<p class="case-card__work-label">Material y tono</p>
 							<CaseWorkTags
+								variant="minimal"
 								items={caso.items}
 								fallback={{
 									tipo_trabajo: caso.tipo_trabajo,

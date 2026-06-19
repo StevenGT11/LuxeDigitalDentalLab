@@ -3,6 +3,7 @@ import {
 	formatImplantesGuiaLabel,
 	isGuiaQuirurgica
 } from './constants';
+import { formatArcadaScopeLabel, isArcadaScopeTreatment, normalizeArcadaScope } from './arcada-scope';
 import { normalizeGuiaTipoTrabajo } from './surgical-guide';
 import { normalizeRestauracionItem } from './restoration-pricing';
 import {
@@ -32,21 +33,28 @@ export function buildCaseItem(
 		incluye_diseno?: boolean;
 		incluye_fresado?: boolean;
 		implantes_guia?: number | null;
+		alcance_arcada?: import('./arcada-scope').ArcadaScope | null;
 		corona_sobre_implante?: boolean;
 		implante_marca?: string | null;
 		implante_plataforma?: string | null;
 	}
 ): CaseItem {
 	const esGuia = isGuiaQuirurgica(tipo_trabajo);
+	const esArcadaScope = isArcadaScopeTreatment(tipo_trabajo);
 	const implantes_guia = options?.implantes_guia ?? null;
-	const piezas_dentales = esGuia ? [] : sortTeethFdi(options?.piezas_dentales ?? []);
+	const alcance_arcada = esArcadaScope
+		? (normalizeArcadaScope(options?.alcance_arcada) ?? 'ambas')
+		: null;
+	const piezas_dentales = esGuia || esArcadaScope ? [] : sortTeethFdi(options?.piezas_dentales ?? []);
 	const numero = esGuia
 		? implantes_guia
 			? formatImplantesGuiaLabel(implantes_guia)
 			: (options?.numero_pieza?.trim() ?? null)
-		: options?.numero_pieza?.trim() ||
-			(piezas_dentales.length > 0 ? formatTeethSelection(piezas_dentales) : null);
-	const p = esGuia ? 1 : Math.max(1, piezas_dentales.length > 0 ? piezas_dentales.length : piezas);
+		: esArcadaScope
+			? formatArcadaScopeLabel(alcance_arcada)
+			: options?.numero_pieza?.trim() ||
+				(piezas_dentales.length > 0 ? formatTeethSelection(piezas_dentales) : null);
+	const p = esGuia || esArcadaScope ? 1 : Math.max(1, piezas_dentales.length > 0 ? piezas_dentales.length : piezas);
 	const incluye_diseno = esGuia ? true : (options?.incluye_diseno ?? false);
 	const incluye_fresado = esGuia ? false : (options?.incluye_fresado ?? false);
 	const corona_sobre_implante = options?.corona_sobre_implante === true;
@@ -61,6 +69,7 @@ export function buildCaseItem(
 		incluye_diseno,
 		incluye_fresado,
 		implantes_guia,
+		alcance_arcada,
 		corona_sobre_implante
 	});
 	return {
@@ -76,6 +85,7 @@ export function buildCaseItem(
 		incluye_diseno,
 		incluye_fresado,
 		implantes_guia: esGuia ? implantes_guia : null,
+		alcance_arcada: esArcadaScope ? alcance_arcada : null,
 		corona_sobre_implante: tipo_trabajo === 'rest_corona' ? corona_sobre_implante : false,
 		implante_marca: tipo_trabajo === 'rest_corona' ? implante_marca : null,
 		implante_plataforma: tipo_trabajo === 'rest_corona' ? implante_plataforma : null,
@@ -94,6 +104,7 @@ export function buildCaseItemsFromInput(caseId: string, input: CreateCaseInput):
 				incluye_diseno: row.incluye_diseno,
 				incluye_fresado: row.incluye_fresado,
 				implantes_guia: row.implantes_guia,
+				alcance_arcada: row.alcance_arcada,
 				corona_sobre_implante: row.corona_sobre_implante,
 				implante_marca: row.implante_marca,
 				implante_plataforma: row.implante_plataforma,
@@ -196,8 +207,12 @@ export function migrateCaseRow(raw: LabCase): LabCase {
 		const corona_sobre_implante = restNorm.corona_sobre_implante;
 		const implantes_guia = item.implantes_guia ?? guiaNorm.implantes_guia ?? null;
 		const esGuia = isGuiaQuirurgica(tipo_trabajo);
+		const esArcadaScope = isArcadaScopeTreatment(tipo_trabajo);
+		const alcance_arcada = esArcadaScope
+			? (normalizeArcadaScope(item.alcance_arcada) ?? 'ambas')
+			: null;
 
-		const piezas_dentales = esGuia
+		const piezas_dentales = esGuia || esArcadaScope
 			? []
 			: item.piezas_dentales?.length > 0
 				? sortTeethFdi(item.piezas_dentales)
@@ -206,10 +221,12 @@ export function migrateCaseRow(raw: LabCase): LabCase {
 			? implantes_guia
 				? formatImplantesGuiaLabel(implantes_guia)
 				: (item.numero_pieza ?? null)
-			: (item.numero_pieza ?? (piezas_dentales.length > 0 ? formatTeethSelection(piezas_dentales) : null));
+			: esArcadaScope
+				? formatArcadaScopeLabel(alcance_arcada)
+				: (item.numero_pieza ?? (piezas_dentales.length > 0 ? formatTeethSelection(piezas_dentales) : null));
 		const incluye_diseno = esGuia ? true : (item.incluye_diseno ?? true);
 		const incluye_fresado = esGuia ? false : (item.incluye_fresado ?? true);
-		const p = esGuia ? 1 : item.piezas;
+		const p = esGuia || esArcadaScope ? 1 : item.piezas;
 		const subtotal = calcularCostoItem({
 			tipo_trabajo,
 			material,
@@ -217,6 +234,7 @@ export function migrateCaseRow(raw: LabCase): LabCase {
 			incluye_diseno,
 			incluye_fresado,
 			implantes_guia,
+			alcance_arcada,
 			corona_sobre_implante
 		});
 		return {
@@ -225,6 +243,7 @@ export function migrateCaseRow(raw: LabCase): LabCase {
 			material,
 			corona_sobre_implante: tipo_trabajo === 'rest_corona' ? corona_sobre_implante : false,
 			implantes_guia,
+			alcance_arcada,
 			piezas_dentales,
 			numero_pieza,
 			tipo_pieza: esGuia ? null : (item.tipo_pieza ?? inferAnatomySummary(piezas_dentales)),

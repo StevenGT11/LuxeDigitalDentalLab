@@ -76,7 +76,7 @@ insert into public.treatments (slug, label, categoria, sort_order, precio_diseno
 ('rest_mockup_arcada', 'Arcada completa (mock up)', 'restauracion', 13, 0, 100, 0, 50000),
 ('guia_quirurgica', 'Guía quirúrgica', 'guias', 0, 0, 0, 0, 0),
 ('fundas_blanqueamiento', 'Fundas de blanqueamiento', 'otros', 0, 40, 0, 20000, 0),
-('retenedores_ortodoncia', 'Retenedores de ortodoncia (ambas arcadas)', 'otros', 1, 60, 0, 30000, 0);
+('retenedores_ortodoncia', 'Retenedores de ortodoncia', 'otros', 1, 60, 0, 30000, 0);
 
 -- ——— Precios restauración (tipo × material) ———
 insert into public.restoration_prices (treatment_id, material, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado)

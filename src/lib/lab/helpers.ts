@@ -94,6 +94,21 @@ export function toDateTimeLocalValue(date: Date): string {
 	return `${formatDateInput(date)}T${formatTimeInput(date)}`;
 }
 
+export function isoToDateTimeLocal(iso: string): string {
+	if (!iso) return getDefaultDeliveryDateTime();
+	return toDateTimeLocalValue(new Date(iso));
+}
+
+export function formatLastEditedLine(caso: {
+	last_edited_at?: string | null;
+	last_edited_by_name?: string | null;
+}): string | null {
+	if (!caso.last_edited_at) return null;
+	const when = formatDateTime(caso.last_edited_at);
+	const who = caso.last_edited_by_name?.trim() || 'Cliente';
+	return `Editado por última vez el ${when} por ${who}`;
+}
+
 export function splitDateTimeLocal(value: string): { date: string; time: string } {
 	if (!value || !value.includes('T')) {
 		return { date: '', time: '10:00' };

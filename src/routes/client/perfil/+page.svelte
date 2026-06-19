@@ -2,9 +2,19 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import ClientDoctorsEditor from '$lib/components/client/ClientDoctorsEditor.svelte';
+	import DoctorProductionSummary from '$lib/components/lab/DoctorProductionSummary.svelte';
+	import { getDoctorProductionStats } from '$lib/lab/analytics';
 	import { hydrateClientSession, saveClientProfileRemote } from '$lib/lab/client-session';
-	import { getClientProfile } from '$lib/lab/store';
-	import type { ClientProfile } from '$lib/lab/types';
+	import {
+		getCasesByClient,
+		getClientId,
+		getClientProfile,
+		hydrateCasesOnce,
+		initializeLabStorage
+	} from '$lib/lab/store';
+	import type { ClientProfile, LabCase } from '$lib/lab/types';
+
+	let casos = $state<LabCase[]>([]);
 
 	let form = $state<ClientProfile>({
 		id: '',
@@ -18,12 +28,17 @@
 	let loading = $state(true);
 	let saving = $state(false);
 
+	let doctorProduction = $derived(getDoctorProductionStats(casos));
+
 	onMount(async () => {
 		loading = true;
 		error = '';
 		try {
+			initializeLabStorage({ linkClientPortal: true });
 			await hydrateClientSession();
+			await hydrateCasesOnce();
 			form = { ...getClientProfile() };
+			casos = getCasesByClient(getClientId());
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'No se pudo cargar el perfil';
 		} finally {
@@ -135,5 +150,9 @@
 		</form>
 
 		<ClientDoctorsEditor />
+
+		<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-xl);">
+			<DoctorProductionSummary stats={doctorProduction} />
+		</div>
 	{/if}
 </div>

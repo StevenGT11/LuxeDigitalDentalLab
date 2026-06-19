@@ -21,8 +21,7 @@
 	} from '$lib/lab/constants';
 	import VitaColorChip from '$lib/components/admin/VitaColorChip.svelte';
 	import CaseFilesList from '$lib/components/lab/CaseFilesList.svelte';
-	import { getAnatomyLabel } from '$lib/lab/teeth';
-	import { formatCurrency, formatDateTime } from '$lib/lab/helpers';
+	import { formatCurrency, formatDateTime, formatLastEditedLine } from '$lib/lab/helpers';
 	import type { Invoice, LabCase, LabCaseEstado } from '$lib/lab/types';
 	import { requestCaseFinalizedClientNotification } from '$lib/lab/notify-client';
 
@@ -79,11 +78,15 @@
 			<p>Caso no encontrado</p>
 		</div>
 	{:else}
+		{@const lastEditedLine = formatLastEditedLine(caso)}
 		<header class="case-detail-header admin-page__header">
 			<div>
 				<p class="case-detail-header__eyebrow">Caso</p>
 				<h2 class="case-detail-header__number">{caso.case_number}</h2>
 				<p class="case-detail-header__patient">{caso.paciente_name}</p>
+				{#if lastEditedLine}
+					<p class="type-fine-print" style="margin-top: 0.5rem;">{lastEditedLine}</p>
+				{/if}
 			</div>
 			<div class="case-detail-header__actions">
 				<span class={getEstadoBadgeClass(caso.estado)}>{getEstadoLabel(caso.estado)}</span>
@@ -126,7 +129,6 @@
 					<thead>
 						<tr>
 							<th>Dientes</th>
-							<th>Grupo</th>
 							<th>Tipo</th>
 							<th>Material</th>
 							<th>Color</th>
@@ -145,15 +147,6 @@
 								<td>
 									{#if item.numero_pieza}
 										<span class="work-tag work-tag--pieza">#{item.numero_pieza}</span>
-									{:else}
-										—
-									{/if}
-								</td>
-								<td>
-									{#if item.tipo_pieza}
-										<span class="work-tag work-tag--anatomy work-tag--anatomy-{item.tipo_pieza}">
-											{getAnatomyLabel(item.tipo_pieza)}
-										</span>
 									{:else}
 										—
 									{/if}

@@ -62,6 +62,21 @@ export async function syncOwnProfile(input: {
 	if (error) throw error;
 }
 
+export async function createDoctorForClient(clientId: string, nombre: string): Promise<DbDoctor> {
+	const supabase = createSupabaseBrowserClient();
+	const trimmed = nombre.trim();
+	if (!trimmed) throw new Error('El nombre del doctor es requerido');
+
+	const { data, error } = await supabase
+		.from('doctors')
+		.insert({ client_id: clientId, nombre: trimmed })
+		.select('id, client_id, nombre, activo')
+		.single();
+
+	if (error) throw error;
+	return data;
+}
+
 export async function createDoctor(nombre: string): Promise<DbDoctor> {
 	const supabase = createSupabaseBrowserClient();
 	const client = await fetchOwnClient();

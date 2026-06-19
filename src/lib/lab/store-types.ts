@@ -9,6 +9,7 @@ export interface CreateCaseItemInput {
 	incluye_diseno: boolean;
 	incluye_fresado: boolean;
 	implantes_guia?: number | null;
+	alcance_arcada?: import('./arcada-scope').ArcadaScope | null;
 	corona_sobre_implante?: boolean;
 	implante_marca?: string | null;
 	implante_plataforma?: string | null;

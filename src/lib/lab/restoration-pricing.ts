@@ -21,7 +21,8 @@ export const MATERIALES_RESTAURACION: { value: MaterialRestauracion; label: stri
 export const DEPRECATED_RESTORATION_VALUES = new Set([
 	'rest_incrustacion',
 	'rest_veneer',
-	'rest_corona_implante'
+	'rest_corona_implante',
+	'rest_ferula_impresa'
 ]);
 
 /** Orden de tipos en UI (categoría Restauración) */
@@ -34,7 +35,6 @@ export const RESTAURACION_VALUE_ORDER: string[] = [
 	'rest_pilar',
 	'rest_estructura_zirconio',
 	'rest_modelo_resina',
-	'rest_ferula_impresa',
 	'rest_completo_arc',
 	'rest_resina_larga_duracion',
 	'rest_resina_provisional',
@@ -108,7 +108,6 @@ const MATRIX: Record<string, Partial<Record<MaterialRestauracion, RestauracionPr
 		zirconio: soloFresado(1800, 900_000)
 	},
 	rest_modelo_resina: { impreso: soloFresado(10, 5_000) },
-	rest_ferula_impresa: { impreso: soloFresado(100, 50_000) },
 	rest_completo_arc: { impreso: soloFresado(500, 250_000) },
 	rest_resina_larga_duracion: { impreso: soloFresado(50, 20_000) },
 	rest_resina_provisional: { impreso: soloFresado(30, 10_000) },
@@ -144,7 +143,8 @@ const LEGACY: Record<string, LegacyMap> = {
 	silicato_incrustacion: { tipo: 'rest_inlay', material: 'disilicato' },
 	rest_incrustacion: { tipo: 'rest_inlay', material: 'disilicato' },
 	imp_modelo_resina: { tipo: 'rest_modelo_resina', material: 'impreso' },
-	imp_ferula: { tipo: 'rest_ferula_impresa', material: 'impreso' },
+	imp_ferula: { tipo: 'ferula_impresa', material: 'impreso' },
+	rest_ferula_impresa: { tipo: 'ferula_impresa', material: 'impreso' },
 	imp_completo_arc: { tipo: 'rest_completo_arc', material: 'impreso' },
 	imp_resina_larga_duracion: { tipo: 'rest_resina_larga_duracion', material: 'impreso' },
 	imp_resina_provisional: { tipo: 'rest_resina_provisional', material: 'impreso' },

@@ -11,10 +11,9 @@
 		hydrateCasesOnce,
 		initializeLabStorage
 	} from '$lib/lab/store';
-	import ColoredBarChart from '$lib/components/admin/ColoredBarChart.svelte';
-	import { anatomyToChartSegments, getClientAnatomyStats } from '$lib/lab/analytics';
 	import { getEstadoBadgeClass, getEstadoLabel, getMaterialLabel, getTipoTrabajoLabel } from '$lib/lab/constants';
-	import { formatCurrency, formatDate, formatDateTime } from '$lib/lab/helpers';
+	import { canClientEditCase } from '$lib/lab/client-case-draft';
+	import { formatCurrency, formatDate, formatDateTime, formatLastEditedLine } from '$lib/lab/helpers';
 	import type { ClientStats, LabCase } from '$lib/lab/types';
 
 	let casos = $state<LabCase[]>([]);
@@ -27,7 +26,6 @@
 		totalPiezas: 0
 	});
 	let profile = $state(getClientProfile());
-	let anatomySegments = $state<ReturnType<typeof anatomyToChartSegments>>([]);
 	let savedNotice = $state('');
 
 	async function refresh() {
@@ -36,7 +34,6 @@
 		profile = getClientProfile();
 		casos = getCasesByClient(id);
 		stats = getClientStats(id);
-		anatomySegments = anatomyToChartSegments(getClientAnatomyStats(casos));
 	}
 
 	onMount(async () => {
@@ -52,8 +49,12 @@
 	afterNavigate(() => {
 		void refresh();
 		const sent = $page.url.searchParams.get('sent');
+		const updated = $page.url.searchParams.get('updated');
 		if (sent) {
 			savedNotice = `Caso ${sent} registrado correctamente.`;
+			goto('/client', { replaceState: true });
+		} else if (updated) {
+			savedNotice = `Caso ${updated} actualizado correctamente.`;
 			goto('/client', { replaceState: true });
 		}
 	});
@@ -119,16 +120,6 @@
 		</div>
 	</section>
 
-	{#if anatomySegments.length > 0}
-		<section class="dash-panel dash-panel--section" style="margin-bottom: 1.25rem;">
-			<h2 class="dash-panel__section-title">Tus piezas por tipo dental</h2>
-			<p class="dash-panel__subtitle" style="margin: -0.35rem 0 1rem;">
-				Cuántas incisivos, molares, etc. has enviado al laboratorio
-			</p>
-			<ColoredBarChart segments={anatomySegments} suffix=" pzs" />
-		</section>
-	{/if}
-
 	<section>
 		<div
 			style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;"
@@ -156,12 +147,19 @@
 							<th>Costo</th>
 							<th>Estado</th>
 							<th>Entrega</th>
+							<th></th>
 						</tr>
 					</thead>
 					<tbody>
 						{#each casos as caso}
+							{@const editLine = formatLastEditedLine(caso)}
 							<tr>
-								<td><span class="type-body-strong">{caso.case_number}</span></td>
+								<td>
+									<span class="type-body-strong">{caso.case_number}</span>
+									{#if editLine}
+										<br /><span class="type-fine-print">{editLine}</span>
+									{/if}
+								</td>
 								<td>{caso.paciente_name}</td>
 								<td>
 									{getTipoTrabajoLabel(caso.tipo_trabajo)}
@@ -177,6 +175,17 @@
 									</span>
 								</td>
 								<td class="type-caption">{formatDateTime(caso.fecha_entrega)}</td>
+								<td>
+									{#if canClientEditCase(caso, getClientId())}
+										<button
+											type="button"
+											class="text-link"
+											onclick={() => goto(`/client/casos/${caso.id}/editar`)}
+										>
+											Editar
+										</button>
+									{/if}
+								</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -184,7 +193,7 @@
 						<tr>
 							<td colspan="4" style="text-align: right;">Total acumulado</td>
 							<td>{formatCurrency(stats.totalGastado)}</td>
-							<td colspan="2"></td>
+							<td colspan="3"></td>
 						</tr>
 					</tfoot>
 				</table>

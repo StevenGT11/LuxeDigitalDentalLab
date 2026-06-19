@@ -6,7 +6,10 @@
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import { Trash2 } from '@lucide/svelte';
-	import { canViewFinancial } from '$lib/auth/roles';
+	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
+	import AdminClientDoctorsEditor from '$lib/components/admin/AdminClientDoctorsEditor.svelte';
+	import DoctorProductionSummary from '$lib/components/lab/DoctorProductionSummary.svelte';
+	import { getDoctorProductionStats } from '$lib/lab/analytics';
 	import { loadClientForAdmin } from '$lib/lab/client-session';
 	import {
 		getClientById,
@@ -38,6 +41,8 @@
 	let createdNotice = $state(false);
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
+	let canManage = $derived(canManageClients($page.data.staffRole ?? $page.data.profile?.role));
+	let doctorProduction = $derived(getDoctorProductionStats(casos));
 
 	let deleteModeLabel = $derived(
 		stats.totalCasos === 0
@@ -182,6 +187,14 @@
 				</div>
 			{/if}
 		</section>
+
+		{#if canManage}
+			<AdminClientDoctorsEditor clientId={client.id} />
+		{/if}
+
+		<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-lg);">
+			<DoctorProductionSummary stats={doctorProduction} />
+		</div>
 
 		{#if showFinancial}
 			<section style="margin-top: var(--spacing-xxl);">

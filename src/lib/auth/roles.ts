@@ -17,6 +17,11 @@ export function canViewFinancial(role: AuthRole | null | undefined): boolean {
 	return role === 'admin';
 }
 
+/** Admin y técnicos pueden registrar clínicas y doctores. */
+export function canManageClients(role: AuthRole | null | undefined): boolean {
+	return isStaffRole(role);
+}
+
 export function getStaffPanelLabel(role: AuthRole | null | undefined): string {
 	if (role === 'technician') return 'Panel del taller';
 	return 'Panel de administración';

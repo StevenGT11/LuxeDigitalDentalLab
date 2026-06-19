@@ -80,8 +80,7 @@
 
 <div class="dash-page">
 	<p class="dash-lead">
-		Cada fila muestra paciente, clínica, ítems con tono VITA (A, B, BL…), material y progreso en
-		el taller.
+		Cada fila muestra paciente, clínica, material, tono VITA y progreso en el taller.
 	</p>
 
 	<section class="dash-stat-grid dash-stat-grid--compact">
@@ -146,6 +145,7 @@
 							· {caso.doctor_name}
 						</p>
 						<CaseWorkTags
+							variant="minimal"
 							items={caso.items}
 							fallback={{
 								tipo_trabajo: caso.tipo_trabajo,

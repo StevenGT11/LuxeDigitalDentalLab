@@ -8,6 +8,7 @@ import {
 	createCaseInDb,
 	fetchCaseByIdFromDb,
 	hydrateCasesFromDb,
+	updateCaseInDb,
 	updateCaseCostInDb,
 	updateCaseStatusInDb
 } from './cases-db';
@@ -495,6 +496,24 @@ export async function createCase(input: CreateCaseInput): Promise<LabCase> {
 	return nuevo;
 }
 
+export async function updateCase(caseId: string, input: CreateCaseInput): Promise<LabCase> {
+	if (!browser) throw new Error('updateCase solo está disponible en el navegador');
+
+	const doctor = resolveCaseDoctor(input);
+	const client = await resolveClientForCase(input.client_id);
+	let updated = await updateCaseInDb(caseId, input, client, doctor);
+
+	const escaneos = input.escaneoFiles ?? [];
+	const disenos = input.disenosFiles ?? [];
+	if (escaneos.length > 0 || disenos.length > 0) {
+		await uploadCaseFilesFromInputs(updated.id, escaneos, disenos);
+		updated = (await fetchCaseByIdFromDb(updated.id)) ?? updated;
+	}
+
+	upsertCachedCase(updated);
+	return updated;
+}
+
 export async function updateCaseStatus(id: string, estado: LabCaseEstado): Promise<LabCase | null> {
 	if (!browser) return null;
 	if (isCasesHydrated()) {
@@ -682,6 +701,7 @@ export function seedDemoCases(): void {
 						incluye_diseno: row.incluye_diseno,
 						incluye_fresado: row.incluye_fresado,
 						implantes_guia: row.implantes_guia,
+						alcance_arcada: row.alcance_arcada,
 						corona_sobre_implante: row.corona_sobre_implante,
 						implante_marca: row.implante_marca,
 						implante_plataforma: row.implante_plataforma,

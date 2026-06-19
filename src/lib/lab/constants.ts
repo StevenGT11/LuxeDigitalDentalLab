@@ -7,6 +7,11 @@ import {
 	normalizeGuiaTipoTrabajo
 } from './surgical-guide';
 import {
+	formatArcadaScopeLabel,
+	getArcadaScopePriceMultiplier,
+	isArcadaScopeTreatment
+} from './arcada-scope';
+import {
 	getMaterialRestauracionLabel,
 	isRestauracionTipoTrabajo,
 	normalizeRestauracionItem
@@ -31,10 +36,18 @@ export {
 	normalizeGuiaTipoTrabajo
 } from './surgical-guide';
 
+export {
+	ARCADA_SCOPE_OPTIONS,
+	formatArcadaScopeLabel,
+	isArcadaScopeTreatment,
+	type ArcadaScope
+} from './arcada-scope';
+
 export function getCaseItemTipoLabel(item: {
 	tipo_trabajo: string;
 	material?: string | null;
 	implantes_guia?: number | null;
+	alcance_arcada?: import('./arcada-scope').ArcadaScope | null;
 	corona_sobre_implante?: boolean | null;
 }): string {
 	const normalized = normalizeGuiaTipoTrabajo(item.tipo_trabajo);
@@ -53,6 +66,9 @@ export function getCaseItemTipoLabel(item: {
 	const implantes = item.implantes_guia ?? normalized.implantes_guia;
 	if (isGuiaQuirurgica(normalized.tipo_trabajo) && implantes) {
 		return `${base} · ${formatImplantesGuiaLabel(implantes)}`;
+	}
+	if (isArcadaScopeTreatment(tipo)) {
+		return `${base} · ${formatArcadaScopeLabel(item.alcance_arcada ?? 'ambas')}`;
 	}
 	return base;
 }
@@ -170,6 +186,7 @@ export function calcularCostoItem(input: {
 	incluye_diseno: boolean;
 	incluye_fresado: boolean;
 	implantes_guia?: number | null;
+	alcance_arcada?: import('./arcada-scope').ArcadaScope | null;
 	corona_sobre_implante?: boolean | null;
 }): number {
 	if (isGuiaQuirurgica(input.tipo_trabajo)) {
@@ -190,6 +207,9 @@ export function calcularCostoItem(input: {
 	let porPieza = 0;
 	if (input.incluye_diseno) porPieza += getPrecioDiseno(tipo, material, restOpts);
 	if (input.incluye_fresado) porPieza += getPrecioFresado(tipo, material, restOpts);
+	if (isArcadaScopeTreatment(tipo)) {
+		porPieza *= getArcadaScopePriceMultiplier(input.alcance_arcada ?? 'ambas');
+	}
 	if (porPieza <= 0) return 0;
 
 	if (isRestauracionTipoTrabajo(input.tipo_trabajo) || isRestauracionTipoTrabajo(tipo)) {

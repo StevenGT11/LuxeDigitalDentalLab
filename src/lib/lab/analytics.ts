@@ -405,6 +405,53 @@ export function getDoctorStats(casos: LabCase[], limit = 8): DoctorStat[] {
 	return [...map.values()].sort((a, b) => b.ingresos - a.ingresos).slice(0, limit);
 }
 
+export interface DoctorTreatmentStat {
+	doctor_name: string;
+	totalPiezas: number;
+	treatments: { tipo: string; label: string; piezas: number; color: string }[];
+}
+
+/** Piezas por doctor agrupadas por tipo de trabajo (corona, carilla, etc.) */
+export function getDoctorProductionStats(casos: LabCase[], limit = 12): DoctorTreatmentStat[] {
+	const byDoctor = new Map<string, Map<string, { tipo: string; label: string; piezas: number }>>();
+
+	for (const caso of casos) {
+		const doctor = caso.doctor_name?.trim() || 'Sin doctor';
+		const treatmentMap = byDoctor.get(doctor) ?? new Map();
+
+		for (const item of caseItems(caso)) {
+			const tipo = item.tipo_trabajo;
+			const cur = treatmentMap.get(tipo) ?? {
+				tipo,
+				label: getTipoTrabajoLabel(tipo, item.material ?? null),
+				piezas: 0
+			};
+			cur.piezas += item.piezas;
+			treatmentMap.set(tipo, cur);
+		}
+
+		byDoctor.set(doctor, treatmentMap);
+	}
+
+	return [...byDoctor.entries()]
+		.map(([doctor_name, treatmentMap]) => {
+			const treatments = [...treatmentMap.values()]
+				.sort((a, b) => b.piezas - a.piezas)
+				.map((row) => ({
+					...row,
+					color: getTipoColor(row.tipo)
+				}));
+			return {
+				doctor_name,
+				treatments,
+				totalPiezas: treatments.reduce((sum, row) => sum + row.piezas, 0)
+			};
+		})
+		.filter((row) => row.totalPiezas > 0)
+		.sort((a, b) => b.totalPiezas - a.totalPiezas)
+		.slice(0, limit);
+}
+
 export function getTotalsOverview(casos: LabCase[]) {
 	const piezas = casos.reduce((s, c) => s + getCaseTotalPiezas(c), 0);
 	const ingresos = casos.reduce((s, c) => s + c.costo, 0);

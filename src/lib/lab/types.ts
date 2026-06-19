@@ -1,6 +1,7 @@
 import type { ToothAnatomySummary, ToothAnatomyType } from './teeth';
+import type { ArcadaScope } from './arcada-scope';
 
-export type { ToothAnatomySummary, ToothAnatomyType };
+export type { ToothAnatomySummary, ToothAnatomyType, ArcadaScope };
 
 export type LabCaseEstado =
 	| 'pendiente'
@@ -67,6 +68,8 @@ export interface CaseItem {
 	incluye_fresado: boolean;
 	/** Implantes (1–6) cuando tipo_trabajo es guía quirúrgica */
 	implantes_guia?: number | null;
+	/** Una o ambas arcadas (fundas de blanqueamiento, retenedores) */
+	alcance_arcada?: ArcadaScope | null;
 	/** Add-on en Corona: corona sobre implante (ajusta tarifa) */
 	corona_sobre_implante?: boolean;
 	/** Marca del implante (corona sobre implante) */
@@ -100,6 +103,10 @@ export interface LabCase {
 	notas: string | null;
 	/** Escaneos y diseños adjuntos al enviar el caso */
 	archivos: CaseFile[];
+	/** Última edición de contenido por el cliente */
+	last_edited_at?: string | null;
+	last_edited_by?: string | null;
+	last_edited_by_name?: string | null;
 }
 
 export interface Invoice {

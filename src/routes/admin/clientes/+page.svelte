@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { Plus, X } from '@lucide/svelte';
-	import { canViewFinancial } from '$lib/auth/roles';
+	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
 	import { fetchAllClients } from '$lib/lab/clients-db';
 	import { getClientStats, initializeLabStorage } from '$lib/lab/store';
 	import { formatCurrency } from '$lib/lab/helpers';
@@ -20,6 +20,7 @@
 	let successMessage = $state('');
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
+	let canManage = $derived(canManageClients($page.data.staffRole ?? $page.data.profile?.role));
 
 	function readQueryBanner() {
 		const params = $page.url.searchParams;
@@ -141,7 +142,7 @@
 			bind:value={searchQuery}
 			placeholder="Buscar cliente o clínica..."
 		/>
-		{#if showFinancial}
+		{#if canManage}
 			<button type="button" class="btn-primary" onclick={openModal}>
 				<Plus size={16} strokeWidth={2} />
 				Agregar cliente
@@ -154,7 +155,7 @@
 	{:else if filtered.length === 0}
 		<div class="store-utility-card empty-state">
 			<p>{clients.length === 0 ? 'No hay clientes registrados' : 'Ningún cliente coincide con la búsqueda'}</p>
-			{#if showFinancial && clients.length === 0}
+			{#if canManage && clients.length === 0}
 				<button type="button" class="btn-primary" style="margin-top: 1rem;" onclick={openModal}>
 					Agregar primer cliente
 				</button>
@@ -198,7 +199,7 @@
 	{/if}
 </div>
 
-{#if modalOpen && showFinancial}
+{#if modalOpen && canManage}
 	<div class="case-file-modal__backdrop" onclick={closeModal} role="presentation"></div>
 	<div
 		class="case-file-modal case-file-modal--form"

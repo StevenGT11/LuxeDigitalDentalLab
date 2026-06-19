@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getCaseItemTipoLabel, getMaterialLabel } from '$lib/lab/constants';
 	import type { CaseItem } from '$lib/lab/types';
-	import { getAnatomyLabel } from '$lib/lab/teeth';
 	import { getMaterialColor, getTipoColor } from '$lib/lab/visual';
 	import VitaColorChip from './VitaColorChip.svelte';
 
@@ -14,9 +13,11 @@
 			color: string | null;
 			piezas: number;
 		};
+		/** Resumen compacto: solo material y tono VITA */
+		variant?: 'full' | 'minimal';
 	}
 
-	let { items, fallback }: Props = $props();
+	let { items, fallback, variant = 'full' }: Props = $props();
 
 	const rows = $derived(
 		items.length > 0
@@ -45,40 +46,37 @@
 </script>
 
 <ul class="case-work-tags">
-	{#each rows as item}
+	{#each rows as item (item.id)}
 		<li class="case-work-tags__item">
-			{#if item.numero_pieza || item.piezas_dentales?.length}
-				<span class="work-tag work-tag--pieza" title="Dientes FDI">
-					#{item.numero_pieza ?? item.piezas_dentales.join(', ')}
+			{#if variant === 'full'}
+				{#if item.numero_pieza || item.piezas_dentales?.length}
+					<span class="work-tag work-tag--pieza" title="Dientes FDI">
+						#{item.numero_pieza ?? item.piezas_dentales.join(', ')}
+					</span>
+				{/if}
+				<span
+					class="work-tag work-tag--tipo"
+					style="--tag-color: {getTipoColor(item.tipo_trabajo)}"
+				>
+					{getCaseItemTipoLabel(item)}
+					<span class="work-tag__qty">×{item.piezas}</span>
 				</span>
-			{/if}
-			{#if item.tipo_pieza}
-				<span class="work-tag work-tag--anatomy work-tag--anatomy-{item.tipo_pieza}">
-					{getAnatomyLabel(item.tipo_pieza)}
-				</span>
-			{/if}
-			<span
-				class="work-tag work-tag--tipo"
-				style="--tag-color: {getTipoColor(item.tipo_trabajo)}"
-			>
-				{getCaseItemTipoLabel(item)}
-				<span class="work-tag__qty">×{item.piezas}</span>
-			</span>
-			{#if item.incluye_diseno}
-				<span class="work-tag work-tag--servicio work-tag--diseno">Diseño</span>
-			{/if}
-			{#if item.incluye_fresado}
-				<span class="work-tag work-tag--servicio work-tag--fresado">Fresado</span>
-			{/if}
-			{#if item.corona_sobre_implante}
-				<span class="work-tag work-tag--servicio work-tag--implante">Sobre implante</span>
-			{/if}
-			{#if item.corona_sobre_implante && (item.implante_marca || item.implante_plataforma)}
-				<span class="work-tag work-tag--implante-detail" title="Datos del implante">
-					{item.implante_marca}{#if item.implante_marca && item.implante_plataforma}
-						·
-					{/if}{item.implante_plataforma}
-				</span>
+				{#if item.incluye_diseno}
+					<span class="work-tag work-tag--servicio work-tag--diseno">Diseño</span>
+				{/if}
+				{#if item.incluye_fresado}
+					<span class="work-tag work-tag--servicio work-tag--fresado">Fresado</span>
+				{/if}
+				{#if item.corona_sobre_implante}
+					<span class="work-tag work-tag--servicio work-tag--implante">Sobre implante</span>
+				{/if}
+				{#if item.corona_sobre_implante && (item.implante_marca || item.implante_plataforma)}
+					<span class="work-tag work-tag--implante-detail" title="Datos del implante">
+						{item.implante_marca}{#if item.implante_marca && item.implante_plataforma}
+							·
+						{/if}{item.implante_plataforma}
+					</span>
+				{/if}
 			{/if}
 			{#if item.material}
 				<span
@@ -91,7 +89,7 @@
 			{#if item.color}
 				<VitaColorChip shade={item.color} />
 			{/if}
-			{#if item.descripcion}
+			{#if variant === 'full' && item.descripcion}
 				<span class="case-work-tags__desc">{item.descripcion}</span>
 			{/if}
 		</li>

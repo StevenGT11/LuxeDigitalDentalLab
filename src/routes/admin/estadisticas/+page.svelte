@@ -7,10 +7,8 @@
 	import VitaShadesPanel from '$lib/components/admin/VitaShadesPanel.svelte';
 	import { horizontalBarOptions } from '$lib/charts/chart-theme';
 	import {
-		anatomyToChartSegments,
 		buildAdminDashboard,
 		clientRankingsToChartSegments,
-		getAnatomyStats,
 		getClientRankings,
 		getDeliveryHealth,
 		getDoctorStats,
@@ -67,7 +65,6 @@
 	let pipelineDoughnut = $state<ChartData<'doughnut'>>({ labels: [], datasets: [] });
 	let productionBar = $state<ChartData<'bar'>>({ labels: [], datasets: [] });
 	let materialDoughnut = $state<ChartData<'doughnut'>>({ labels: [], datasets: [] });
-	let anatomyBar = $state<ChartData<'bar'>>({ labels: [], datasets: [] });
 	let shadeStats = $state<ShadeStat[]>([]);
 	let servicesDoughnut = $state<ChartData<'doughnut'>>({ labels: [], datasets: [] });
 	let clientsBar = $state<ChartData<'bar'>>({ labels: [], datasets: [] });
@@ -163,18 +160,6 @@
 				{
 					data: materials.map((s) => s.value),
 					backgroundColor: materials.map((s) => s.color)
-				}
-			]
-		};
-
-		const anatomy = anatomyToChartSegments(getAnatomyStats(casos));
-		anatomyBar = {
-			labels: anatomy.map((s) => s.label),
-			datasets: [
-				{
-					label: 'Piezas',
-					data: anatomy.map((s) => s.value),
-					backgroundColor: anatomy.map((s) => s.color)
 				}
 			]
 		};
@@ -352,13 +337,6 @@
 					centerLabel="piezas"
 					ariaLabel="Servicios por ítem"
 				/>
-			</div>
-		</article>
-
-		<article class="stats-chart-card dash-panel">
-			<h3 class="stats-chart-card__title">Grupos dentales (FDI)</h3>
-			<div class="stats-chart-card__canvas">
-				<ChartJs type="bar" data={anatomyBar} showLegend={false} ariaLabel="Piezas por anatomía" />
 			</div>
 		</article>
 
