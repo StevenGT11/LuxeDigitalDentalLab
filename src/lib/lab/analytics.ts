@@ -1,4 +1,6 @@
 import { getEstadoLabel, getMaterialLabel, getTipoTrabajoLabel } from './constants';
+import { resolveRestauracionTipoTrabajo } from './restoration-pricing';
+import { getTreatmentByValue, TREATMENT_CATEGORY_LABELS } from './treatments';
 import type {
 	AdminDashboardStats,
 	ClientRanking,
@@ -141,6 +143,56 @@ function caseItems(caso: LabCase) {
 			subtotal: caso.costo
 		}
 	];
+}
+
+function resolveTreatmentKey(tipo: string): string {
+	return resolveRestauracionTipoTrabajo(tipo) ?? tipo;
+}
+
+function treatmentStatLabel(tipo: string): string {
+	const key = resolveTreatmentKey(tipo);
+	const t = getTreatmentByValue(key) ?? getTreatmentByValue(tipo);
+	if (!t) return getTipoTrabajoLabel(tipo);
+	return `${TREATMENT_CATEGORY_LABELS[t.categoria]} · ${t.label}`;
+}
+
+export interface TreatmentProductionStat {
+	tipo: string;
+	label: string;
+	piezas: number;
+	color: string;
+}
+
+/** Piezas totales por tipo de tratamiento (corona, carilla, férula, etc.) */
+export function getTreatmentProductionStats(casos: LabCase[]): TreatmentProductionStat[] {
+	const map = new Map<string, { tipo: string; label: string; piezas: number }>();
+
+	for (const caso of casos) {
+		for (const item of caseItems(caso)) {
+			const tipo = resolveTreatmentKey(item.tipo_trabajo);
+			const cur = map.get(tipo) ?? { tipo, label: treatmentStatLabel(item.tipo_trabajo), piezas: 0 };
+			cur.piezas += item.piezas;
+			map.set(tipo, cur);
+		}
+	}
+
+	return [...map.values()]
+		.sort((a, b) => b.piezas - a.piezas)
+		.map((row) => ({
+			...row,
+			color: getTipoColor(row.tipo)
+		}));
+}
+
+/** Piezas por doctor para un caso concreto (portal cliente / admin) */
+export function getTreatmentProductionStatsForDoctor(
+	casos: LabCase[],
+	doctor: { id: string; nombre: string }
+): TreatmentProductionStat[] {
+	const filtered = casos.filter(
+		(c) => c.doctor_id === doctor.id || c.doctor_name.trim() === doctor.nombre.trim()
+	);
+	return getTreatmentProductionStats(filtered);
 }
 
 export function getPipelineByEstado(casos: LabCase[]): PipelineStat[] {
@@ -406,43 +458,30 @@ export function getDoctorStats(casos: LabCase[], limit = 8): DoctorStat[] {
 }
 
 export interface DoctorTreatmentStat {
+	doctor_id?: string;
 	doctor_name: string;
 	totalPiezas: number;
-	treatments: { tipo: string; label: string; piezas: number; color: string }[];
+	treatments: TreatmentProductionStat[];
 }
 
 /** Piezas por doctor agrupadas por tipo de trabajo (corona, carilla, etc.) */
 export function getDoctorProductionStats(casos: LabCase[], limit = 12): DoctorTreatmentStat[] {
-	const byDoctor = new Map<string, Map<string, { tipo: string; label: string; piezas: number }>>();
+	const byDoctor = new Map<string, LabCase[]>();
 
 	for (const caso of casos) {
-		const doctor = caso.doctor_name?.trim() || 'Sin doctor';
-		const treatmentMap = byDoctor.get(doctor) ?? new Map();
-
-		for (const item of caseItems(caso)) {
-			const tipo = item.tipo_trabajo;
-			const cur = treatmentMap.get(tipo) ?? {
-				tipo,
-				label: getTipoTrabajoLabel(tipo, item.material ?? null),
-				piezas: 0
-			};
-			cur.piezas += item.piezas;
-			treatmentMap.set(tipo, cur);
-		}
-
-		byDoctor.set(doctor, treatmentMap);
+		const key = caso.doctor_id || caso.doctor_name?.trim() || 'sin-doctor';
+		const list = byDoctor.get(key) ?? [];
+		list.push(caso);
+		byDoctor.set(key, list);
 	}
 
 	return [...byDoctor.entries()]
-		.map(([doctor_name, treatmentMap]) => {
-			const treatments = [...treatmentMap.values()]
-				.sort((a, b) => b.piezas - a.piezas)
-				.map((row) => ({
-					...row,
-					color: getTipoColor(row.tipo)
-				}));
+		.map(([, doctorCasos]) => {
+			const treatments = getTreatmentProductionStats(doctorCasos);
+			const first = doctorCasos[0];
 			return {
-				doctor_name,
+				doctor_id: first?.doctor_id,
+				doctor_name: first?.doctor_name?.trim() || 'Sin doctor',
 				treatments,
 				totalPiezas: treatments.reduce((sum, row) => sum + row.piezas, 0)
 			};

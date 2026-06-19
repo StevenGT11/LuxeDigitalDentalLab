@@ -2,8 +2,9 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import ClientDoctorsEditor from '$lib/components/client/ClientDoctorsEditor.svelte';
+	import TreatmentProductionSummary from '$lib/components/lab/TreatmentProductionSummary.svelte';
 	import DoctorProductionSummary from '$lib/components/lab/DoctorProductionSummary.svelte';
-	import { getDoctorProductionStats } from '$lib/lab/analytics';
+	import { getDoctorProductionStats, getTreatmentProductionStats } from '$lib/lab/analytics';
 	import { hydrateClientSession, saveClientProfileRemote } from '$lib/lab/client-session';
 	import {
 		getCasesByClient,
@@ -29,6 +30,7 @@
 	let saving = $state(false);
 
 	let doctorProduction = $derived(getDoctorProductionStats(casos));
+	let treatmentProduction = $derived(getTreatmentProductionStats(casos));
 
 	onMount(async () => {
 		loading = true;
@@ -151,8 +153,16 @@
 
 		<ClientDoctorsEditor />
 
-		<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-xl);">
-			<DoctorProductionSummary stats={doctorProduction} />
-		</div>
+		{#if casos.length > 0}
+			<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-xl);">
+				<TreatmentProductionSummary stats={treatmentProduction} />
+			</div>
+
+			{#if doctorProduction.length > 0}
+				<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-lg);">
+					<DoctorProductionSummary stats={doctorProduction} />
+				</div>
+			{/if}
+		{/if}
 	{/if}
 </div>

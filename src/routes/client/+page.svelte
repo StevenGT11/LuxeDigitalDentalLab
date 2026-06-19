@@ -3,6 +3,9 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { hydrateClientSession } from '$lib/lab/client-session';
+	import TreatmentProductionSummary from '$lib/components/lab/TreatmentProductionSummary.svelte';
+	import DoctorProductionSummary from '$lib/components/lab/DoctorProductionSummary.svelte';
+	import { getDoctorProductionStats, getTreatmentProductionStats } from '$lib/lab/analytics';
 	import {
 		getCasesByClient,
 		getClientId,
@@ -27,6 +30,9 @@
 	});
 	let profile = $state(getClientProfile());
 	let savedNotice = $state('');
+
+	let treatmentProduction = $derived(getTreatmentProductionStats(casos));
+	let doctorProduction = $derived(getDoctorProductionStats(casos));
 
 	async function refresh() {
 		await hydrateCasesOnce();
@@ -119,6 +125,18 @@
 			</p>
 		</div>
 	</section>
+
+	{#if casos.length > 0}
+		<section class="dash-panel dash-panel--section" style="margin-bottom: 1.25rem;">
+			<TreatmentProductionSummary stats={treatmentProduction} />
+		</section>
+
+		{#if doctorProduction.length > 0}
+			<section class="dash-panel dash-panel--section" style="margin-bottom: 1.25rem;">
+				<DoctorProductionSummary stats={doctorProduction} />
+			</section>
+		{/if}
+	{/if}
 
 	<section>
 		<div

@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { Plus, Trash2 } from '@lucide/svelte';
+	import TreatmentProductionTags from '$lib/components/lab/TreatmentProductionTags.svelte';
+	import { getTreatmentProductionStatsForDoctor } from '$lib/lab/analytics';
 	import {
 		createDoctorForClient,
 		deactivateDoctor,
 		fetchDoctorsForClient,
 		type DbDoctor
 	} from '$lib/lab/clients-db';
+	import { getCasesByClient, hydrateCasesOnce, initializeLabStorage } from '$lib/lab/store';
+	import type { LabCase } from '$lib/lab/types';
 	import { onMount } from 'svelte';
 
 	interface Props {
@@ -15,16 +19,24 @@
 	let { clientId }: Props = $props();
 
 	let doctors = $state<DbDoctor[]>([]);
+	let casos = $state<LabCase[]>([]);
 	let newName = $state('');
 	let loading = $state(false);
 	let error = $state('');
+
+	function doctorStats(doc: DbDoctor) {
+		return getTreatmentProductionStatsForDoctor(casos, { id: doc.id, nombre: doc.nombre });
+	}
 
 	async function refresh() {
 		doctors = await fetchDoctorsForClient(clientId);
 	}
 
-	onMount(() => {
-		void refresh();
+	onMount(async () => {
+		initializeLabStorage();
+		await hydrateCasesOnce();
+		casos = getCasesByClient(clientId);
+		await refresh();
 	});
 
 	async function handleAdd(e: Event) {
@@ -63,7 +75,7 @@
 <section class="dash-panel dash-panel--section" style="margin-top: var(--spacing-xxl);">
 	<h3 class="type-tagline" style="margin: 0 0 var(--spacing-md);">Doctores de la clínica</h3>
 	<p class="type-fine-print" style="margin: 0 0 var(--spacing-md);">
-		Lista de doctores disponibles al enviar casos desde el portal de esta clínica.
+		Piezas enviadas por doctor y tipo de tratamiento (coronas, carillas, férulas, etc.).
 	</p>
 
 	{#if error}
@@ -72,8 +84,23 @@
 
 	<ul class="client-doctors-list">
 		{#each doctors as doc (doc.id)}
+			{@const stats = doctorStats(doc)}
 			<li class="client-doctors-list__item">
-				<span>{doc.nombre}</span>
+				<div class="client-doctors-list__main">
+					<div class="client-doctors-list__head">
+						<span class="client-doctors-list__name">{doc.nombre}</span>
+						{#if stats.length > 0}
+							<span class="client-doctors-list__total">
+								{stats.reduce((sum, row) => sum + row.piezas, 0)} piezas
+							</span>
+						{/if}
+					</div>
+					{#if stats.length > 0}
+						<TreatmentProductionTags treatments={stats} />
+					{:else}
+						<p class="type-caption client-doctors-list__empty">Sin casos registrados aún</p>
+					{/if}
+				</div>
 				<button
 					type="button"
 					class="text-link client-doctors-list__remove"
@@ -111,23 +138,52 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--spacing-xs);
+		gap: var(--spacing-sm);
 	}
 
 	.client-doctors-list__item {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: space-between;
+		gap: var(--spacing-md);
 		padding: var(--spacing-sm) var(--spacing-md);
 		border-radius: var(--radius-md);
 		background: var(--dash-table-head, rgba(255, 255, 255, 0.04));
 		border: 1px solid var(--dash-border, rgba(255, 255, 255, 0.08));
 	}
 
+	.client-doctors-list__main {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.client-doctors-list__head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--spacing-sm);
+		margin-bottom: 0.5rem;
+	}
+
+	.client-doctors-list__name {
+		font-weight: 600;
+	}
+
+	.client-doctors-list__total {
+		font-size: 0.8125rem;
+		color: var(--dash-text-secondary, #94a3b8);
+		white-space: nowrap;
+	}
+
+	.client-doctors-list__empty {
+		margin: 0;
+	}
+
 	.client-doctors-list__remove {
 		display: inline-flex;
 		padding: 4px;
 		opacity: 0.7;
+		flex-shrink: 0;
 	}
 
 	.client-doctors-list__remove:disabled {
