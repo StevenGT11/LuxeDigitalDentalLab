@@ -19,6 +19,7 @@
 		getMaterialLabel,
 		getCaseItemTipoLabel
 	} from '$lib/lab/constants';
+	import { formatImplantCrownDetails } from '$lib/lab/implant-crown';
 	import VitaColorChip from '$lib/components/admin/VitaColorChip.svelte';
 	import CaseFilesList from '$lib/components/lab/CaseFilesList.svelte';
 	import { formatCurrency, formatDateTime, formatLastEditedLine } from '$lib/lab/helpers';
@@ -178,23 +179,12 @@
 								</td>
 								<td>
 									{#if item.corona_sobre_implante}
-										<div class="implante-detail-cell">
-											{#if item.implante_marca}
-												<p class="implante-detail-cell__line">
-													<span class="type-fine-print">Marca</span>
-													<span>{item.implante_marca}</span>
-												</p>
-											{/if}
-											{#if item.implante_plataforma}
-												<p class="implante-detail-cell__line">
-													<span class="type-fine-print">Plataforma</span>
-													<span>{item.implante_plataforma}</span>
-												</p>
-											{/if}
-											{#if !item.implante_marca && !item.implante_plataforma}
-												<span class="type-caption">Sin datos</span>
-											{/if}
-										</div>
+										{@const implanteNotas = formatImplantCrownDetails(item)}
+										{#if implanteNotas}
+											<p class="implante-detail-cell__line">{implanteNotas}</p>
+										{:else}
+											<span class="type-caption">Sin datos</span>
+										{/if}
 									{:else}
 										—
 									{/if}

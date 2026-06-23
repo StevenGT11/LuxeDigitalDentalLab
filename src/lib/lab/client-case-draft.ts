@@ -1,3 +1,4 @@
+import { formatImplantCrownDetails } from './implant-crown';
 import { getTreatmentByValue, type TreatmentCategory } from './treatments';
 import type { ArcadaScope } from './types';
 import type { CaseItem, LabCase } from './types';
@@ -52,8 +53,13 @@ export function labCaseItemsToDraft(items: CaseItem[]): CaseDraftItem[] {
 			incluye_diseno: item.incluye_diseno,
 			incluye_fresado: item.incluye_fresado,
 			corona_sobre_implante: item.corona_sobre_implante ?? false,
-			implante_marca: item.implante_marca ?? '',
-			implante_plataforma: item.implante_plataforma ?? '',
+			implante_marca:
+				formatImplantCrownDetails({
+					corona_sobre_implante: item.corona_sobre_implante,
+					implante_marca: item.implante_marca,
+					implante_plataforma: item.implante_plataforma
+				}) ?? '',
+			implante_plataforma: '',
 			alcance_arcada: item.alcance_arcada ?? null
 		};
 	});

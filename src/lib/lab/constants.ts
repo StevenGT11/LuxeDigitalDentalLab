@@ -43,6 +43,8 @@ export {
 	type ArcadaScope
 } from './arcada-scope';
 
+export { treatmentRequiresVitaColor } from './vita-color';
+
 export function getCaseItemTipoLabel(item: {
 	tipo_trabajo: string;
 	material?: string | null;

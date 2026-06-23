@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { browser } from '$app/environment';
 	import CaseFileDropzone from '$lib/components/lab/CaseFileDropzone.svelte';
 	import DateTimeField from '$lib/components/lab/DateTimeField.svelte';
 	import ToothSelectionField from '$lib/components/lab/ToothSelectionField.svelte';
@@ -18,7 +19,8 @@
 		isCoronaRestauracion,
 		isGuiaQuirurgica,
 		isRestauracionTipoTrabajo,
-		treatmentRequiresTeeth
+		treatmentRequiresTeeth,
+		treatmentRequiresVitaColor
 	} from '$lib/lab/constants';
 	import type { MaterialRestauracion } from '$lib/lab/restoration-pricing';
 	import { getTreatmentByValue, type TreatmentCategory } from '$lib/lab/treatments';
@@ -149,6 +151,7 @@
 		const incluye_fresado = treatment.precio_fresado > 0;
 		const sinDientes = !treatmentRequiresTeeth(treatment.categoria);
 		const arcadaScope = isArcadaScopeTreatment(value);
+		const requiereVita = treatmentRequiresVitaColor(value);
 		patchRow(key, {
 			categoria_seleccionada: treatment.categoria,
 			tipo_trabajo: value,
@@ -157,6 +160,7 @@
 			incluye_diseno,
 			incluye_fresado,
 			material: '',
+			color: requiereVita ? items.find((r) => r.key === key)?.color ?? '' : '',
 			corona_sobre_implante: false,
 			implante_marca: '',
 			implante_plataforma: '',
@@ -190,7 +194,7 @@
 		if (
 			isCoronaRestauracion(row.tipo_trabajo) &&
 			row.corona_sobre_implante &&
-			(!row.implante_marca.trim() || !row.implante_plataforma.trim())
+			!row.implante_marca.trim()
 		) {
 			return false;
 		}
@@ -265,13 +269,18 @@
 		void submitCase();
 	}
 
+	function showFormError(message: string) {
+		error = message;
+		if (browser) window.scrollTo({ top: 0, behavior: 'smooth' });
+	}
+
 	async function submitCase() {
 		if (!paciente_name.trim()) {
-			error = 'El nombre del paciente es requerido';
+			showFormError('El nombre del paciente es requerido');
 			return;
 		}
 		if (!fecha_entrega) {
-			error = 'La fecha de entrega es requerida';
+			showFormError('La fecha de entrega es requerida');
 			return;
 		}
 
@@ -280,44 +289,44 @@
 			const row = items[i];
 			const n = i + 1;
 			if (!row.categoria_seleccionada) {
-				error = `Ítem ${n}: selecciona una categoría de tratamiento`;
+				showFormError(`Ítem ${n}: selecciona una categoría de tratamiento`);
 				return;
 			}
 			if (!row.tipo_trabajo) {
-				error = `Ítem ${n}: selecciona el tratamiento`;
+				showFormError(`Ítem ${n}: selecciona el tratamiento`);
 				return;
 			}
 			if (isGuiaRow(row)) {
 				if (!row.implantes_guia || row.implantes_guia < 1 || row.implantes_guia > 6) {
-					error = `Ítem ${n}: indica la cantidad de implantes (1 a 6)`;
+					showFormError(`Ítem ${n}: indica la cantidad de implantes (1 a 6)`);
 					return;
 				}
 			} else if (isArcadaScopeRow(row)) {
 				if (!row.alcance_arcada) {
-					error = `Ítem ${n}: selecciona una o ambas arcadas`;
+					showFormError(`Ítem ${n}: selecciona una o ambas arcadas`);
 					return;
 				}
 			} else if (itemRequiresTeeth(row) && row.piezas_dentales.length === 0) {
-				error = `Ítem ${n}: selecciona al menos un diente en el odontograma`;
+				showFormError(`Ítem ${n}: selecciona al menos un diente en el odontograma`);
 				return;
 			}
 			if (!row.incluye_diseno && !row.incluye_fresado) {
-				error = `Ítem ${n}: marca Diseño y/o Fresado`;
+				showFormError(`Ítem ${n}: marca Diseño y/o Fresado`);
 				return;
 			}
 			if (
 				isCoronaRestauracion(row.tipo_trabajo) &&
 				row.corona_sobre_implante &&
-				(!row.implante_marca.trim() || !row.implante_plataforma.trim())
+				!row.implante_marca.trim()
 			) {
-				error = `Ítem ${n}: indica marca y tamaño de plataforma del implante`;
+				showFormError(`Ítem ${n}: indica la marca y plataforma del implante`);
 				return;
 			}
 			payloadItems.push({
 				piezas_dentales: itemRequiresTeeth(row) ? row.piezas_dentales : [],
 				tipo_trabajo: row.tipo_trabajo,
 				material: row.material || null,
-				color: row.color || null,
+				color: treatmentRequiresVitaColor(row.tipo_trabajo) ? row.color || null : null,
 				piezas: itemPiezas(row),
 				incluye_diseno: row.incluye_diseno,
 				incluye_fresado: row.incluye_fresado,
@@ -330,28 +339,27 @@
 					isCoronaRestauracion(row.tipo_trabajo) && row.corona_sobre_implante
 						? row.implante_marca.trim()
 						: null,
-				implante_plataforma:
-					isCoronaRestauracion(row.tipo_trabajo) && row.corona_sobre_implante
-						? row.implante_plataforma.trim()
-						: null
+				implante_plataforma: null,
 			});
 		}
 
 		const profile = getClientProfile();
 		if (!profile.nombre.trim()) {
-			error = isEdit
-				? 'Completa tu perfil antes de guardar cambios'
-				: 'Completa tu perfil antes de enviar un caso';
+			showFormError(
+				isEdit
+					? 'Completa tu perfil antes de guardar cambios'
+					: 'Completa tu perfil antes de enviar un caso'
+			);
 			return;
 		}
 		if (!selectedDoctorId) {
-			error = 'Selecciona el doctor responsable del caso';
+			showFormError('Selecciona el doctor responsable del caso');
 			return;
 		}
 
 		const fileErr = validateCaseFileBatch([...escaneoFiles, ...disenoFiles]);
 		if (fileErr) {
-			error = fileErr;
+			showFormError(fileErr);
 			return;
 		}
 
@@ -374,15 +382,21 @@
 
 			if (isEdit && editCase) {
 				const updated = await updateCase(editCase.id, payload);
-				goto(`/client?updated=${encodeURIComponent(updated.case_number)}`);
+				await goto(`/client?updated=${encodeURIComponent(updated.case_number)}`, {
+					invalidateAll: true
+				});
 				return;
 			}
 
 			const created = await createCase(payload);
 			requestNewCaseAdminNotification(created.id);
-			goto(`/client?sent=${encodeURIComponent(created.case_number)}`);
+			await goto(`/client?sent=${encodeURIComponent(created.case_number)}`, {
+				invalidateAll: true
+			});
 		} catch (err) {
-			error = err instanceof Error ? err.message : isEdit ? 'Error al guardar cambios' : 'Error al enviar el caso';
+			showFormError(
+				err instanceof Error ? err.message : isEdit ? 'Error al guardar cambios' : 'Error al enviar el caso'
+			);
 			loading = false;
 		}
 	}
@@ -405,7 +419,19 @@
 		<div class="alert alert--error">{error}</div>
 	{/if}
 
-	<form class="case-form" onsubmit={handleSubmit}>
+	<div class="case-form-shell" class:case-form-shell--busy={loading}>
+		{#if loading}
+			<div class="case-form-shell__overlay" aria-live="polite" aria-busy="true">
+				<p class="case-form-shell__status">
+					{isEdit ? 'Guardando cambios…' : 'Enviando caso…'}
+				</p>
+				<p class="case-form-shell__hint type-fine-print">
+					No cierres esta ventana hasta que termine el envío.
+				</p>
+			</div>
+		{/if}
+
+		<form class="case-form" class:case-form--disabled={loading} novalidate onsubmit={handleSubmit}>
 		<section class="dash-panel dash-panel--section">
 			<h2 class="dash-panel__section-title">Paciente</h2>
 			<div class="case-form__stack">
@@ -479,18 +505,13 @@
 									oncoronaimplantechange={(activo) =>
 										patchRow(row.key, {
 											corona_sobre_implante: activo,
-											implante_marca: activo ? row.implante_marca : '',
-											implante_plataforma: activo ? row.implante_plataforma : ''
+											implante_marca: activo ? row.implante_marca : ''
 										})}
 								/>
 							</div>
 
 							{#if isTreatmentPickerComplete(row) && isCoronaRestauracion(row.tipo_trabajo) && row.corona_sobre_implante}
-								<ImplantCrownFields
-									id="implante-{row.key}"
-									bind:marca={row.implante_marca}
-									bind:plataforma={row.implante_plataforma}
-								/>
+								<ImplantCrownFields id="implante-{row.key}" bind:notas={row.implante_marca} />
 							{/if}
 
 							{#if isTreatmentPickerComplete(row) && isGuiaRow(row)}
@@ -568,14 +589,16 @@
 							{/if}
 
 							{#if isTreatmentPickerComplete(row) && !isGuiaRow(row)}
-								<div>
-									<label class="field-label" for="color-{row.key}">Color VITA</label>
-									<select id="color-{row.key}" class="field-select" bind:value={row.color}>
-										{#each COLORES_VITA as c}
-											<option value={c.value}>{c.label}</option>
-										{/each}
-									</select>
-								</div>
+								{#if treatmentRequiresVitaColor(row.tipo_trabajo)}
+									<div>
+										<label class="field-label" for="color-{row.key}">Color VITA</label>
+										<select id="color-{row.key}" class="field-select" bind:value={row.color}>
+											{#each COLORES_VITA as c}
+												<option value={c.value}>{c.label}</option>
+											{/each}
+										</select>
+									</div>
+								{/if}
 								{@const treatment = row.tipo_trabajo ? getTreatmentByValue(row.tipo_trabajo) : undefined}
 								{@const mat = row.material || null}
 								{@const rowRestOpts = restOpts(row)}
@@ -678,5 +701,6 @@
 				{/if}
 			</button>
 		</footer>
-	</form>
+		</form>
+	</div>
 </div>

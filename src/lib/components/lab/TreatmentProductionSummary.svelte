@@ -33,7 +33,7 @@
 	{#if stats.length === 0}
 		<p class="type-caption">{emptyMessage}</p>
 	{:else}
-		<TreatmentProductionTags {stats} />
+		<TreatmentProductionTags treatments={stats} />
 	{/if}
 </section>
 

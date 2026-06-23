@@ -1,5 +1,10 @@
 /** Tratamientos facturados por una o ambas arcadas */
-export const ARCADA_SCOPE_TREATMENTS = ['fundas_blanqueamiento', 'retenedores_ortodoncia'] as const;
+export const ARCADA_SCOPE_TREATMENTS = [
+	'ferula_diseno',
+	'ferula_impresa',
+	'fundas_blanqueamiento',
+	'retenedores_ortodoncia'
+] as const;
 
 export type ArcadaScopeTreatment = (typeof ARCADA_SCOPE_TREATMENTS)[number];
 export type ArcadaScope = 'una' | 'ambas';

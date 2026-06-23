@@ -68,7 +68,7 @@ export interface CaseItem {
 	incluye_fresado: boolean;
 	/** Implantes (1–6) cuando tipo_trabajo es guía quirúrgica */
 	implantes_guia?: number | null;
-	/** Una o ambas arcadas (fundas de blanqueamiento, retenedores) */
+	/** Una o ambas arcadas (férulas, fundas de blanqueamiento, retenedores) */
 	alcance_arcada?: ArcadaScope | null;
 	/** Add-on en Corona: corona sobre implante (ajusta tarifa) */
 	corona_sobre_implante?: boolean;

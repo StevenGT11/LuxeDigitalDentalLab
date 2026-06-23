@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getCaseItemTipoLabel, getMaterialLabel } from '$lib/lab/constants';
+	import { formatImplantCrownDetails } from '$lib/lab/implant-crown';
 	import type { CaseItem } from '$lib/lab/types';
 	import { getMaterialColor, getTipoColor } from '$lib/lab/visual';
 	import VitaColorChip from './VitaColorChip.svelte';
@@ -69,13 +70,12 @@
 				{/if}
 				{#if item.corona_sobre_implante}
 					<span class="work-tag work-tag--servicio work-tag--implante">Sobre implante</span>
-				{/if}
-				{#if item.corona_sobre_implante && (item.implante_marca || item.implante_plataforma)}
-					<span class="work-tag work-tag--implante-detail" title="Datos del implante">
-						{item.implante_marca}{#if item.implante_marca && item.implante_plataforma}
-							·
-						{/if}{item.implante_plataforma}
-					</span>
+					{@const implanteNotas = formatImplantCrownDetails(item)}
+					{#if implanteNotas}
+						<span class="work-tag work-tag--implante-detail" title="Datos del implante">
+							{implanteNotas}
+						</span>
+					{/if}
 				{/if}
 			{/if}
 			{#if item.material}
