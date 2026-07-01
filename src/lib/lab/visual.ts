@@ -6,6 +6,7 @@ export const VITA_SWATCHES: Record<string, string> = {
 	A2: '#e8d4bc',
 	A3: '#d9c4a8',
 	'A3.5': '#cfba9a',
+	A4: '#c4ad88',
 	B1: '#efe8dc',
 	B2: '#e2d6c4',
 	B3: '#d4c4ad',
@@ -37,6 +38,8 @@ export const MATERIAL_COLORS: Record<string, string> = {
 	zirconio: '#38bdf8',
 	disilicato: '#a78bfa',
 	impreso: '#34d399',
+	resina_larga_duracion: '#22c55e',
+	resina_provisional: '#fbbf24',
 	emax: '#a78bfa',
 	pmma: '#fbbf24',
 	resina: '#34d399',
@@ -51,6 +54,7 @@ export const ESTADO_COLORS: Record<LabCaseEstado, string> = {
 	fresado: '#06b6d4',
 	horneando: '#f97316',
 	maquillando: '#a855f7',
+	en_prueba: '#14b8a6',
 	finalizado: '#22c55e'
 };
 
@@ -61,6 +65,7 @@ export const ESTADO_ORDER: LabCaseEstado[] = [
 	'fresado',
 	'horneando',
 	'maquillando',
+	'en_prueba',
 	'finalizado'
 ];
 

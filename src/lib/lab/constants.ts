@@ -130,6 +130,7 @@ export const COLORES_VITA = [
 	{ value: 'A2', label: 'A2' },
 	{ value: 'A3', label: 'A3' },
 	{ value: 'A3.5', label: 'A3.5' },
+	{ value: 'A4', label: 'A4' },
 	{ value: 'B1', label: 'B1' },
 	{ value: 'B2', label: 'B2' },
 	{ value: 'B3', label: 'B3' },
@@ -169,6 +170,7 @@ export const ESTADOS: { value: LabCaseEstado | 'todos'; label: string }[] = [
 	{ value: 'fresado', label: 'Fresado' },
 	{ value: 'horneando', label: 'Horneando' },
 	{ value: 'maquillando', label: 'Maquillando' },
+	{ value: 'en_prueba', label: 'En prueba' },
 	{ value: 'finalizado', label: 'Finalizado' }
 ];
 
@@ -262,5 +264,6 @@ export const ESTADOS_EN_PROCESO: LabCaseEstado[] = [
 	'diseñado',
 	'fresado',
 	'horneando',
-	'maquillando'
+	'maquillando',
+	'en_prueba'
 ];

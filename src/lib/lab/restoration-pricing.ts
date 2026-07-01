@@ -9,11 +9,18 @@ import {
 } from './treatment-catalog';
 
 /** Materiales de restauración (definen tarifa de fresado/diseño) */
-export type MaterialRestauracion = 'zirconio' | 'disilicato' | 'impreso';
+export type MaterialRestauracion =
+	| 'zirconio'
+	| 'disilicato'
+	| 'impreso'
+	| 'resina_larga_duracion'
+	| 'resina_provisional';
 
 export const MATERIALES_RESTAURACION: { value: MaterialRestauracion; label: string }[] = [
 	{ value: 'zirconio', label: 'Zirconio' },
 	{ value: 'disilicato', label: 'Disilicato (silicato / vioclear)' },
+	{ value: 'resina_larga_duracion', label: 'Resina de larga duración' },
+	{ value: 'resina_provisional', label: 'Resina provisional' },
 	{ value: 'impreso', label: 'Impreso (resina)' }
 ];
 
@@ -22,7 +29,9 @@ export const DEPRECATED_RESTORATION_VALUES = new Set([
 	'rest_incrustacion',
 	'rest_veneer',
 	'rest_corona_implante',
-	'rest_ferula_impresa'
+	'rest_ferula_impresa',
+	'rest_resina_larga_duracion',
+	'rest_resina_provisional'
 ]);
 
 /** Orden de tipos en UI (categoría Restauración) */
@@ -36,8 +45,6 @@ export const RESTAURACION_VALUE_ORDER: string[] = [
 	'rest_estructura_zirconio',
 	'rest_modelo_resina',
 	'rest_completo_arc',
-	'rest_resina_larga_duracion',
-	'rest_resina_provisional',
 	'rest_provisional_aletas',
 	'rest_mockup_arcada'
 ];
@@ -64,13 +71,6 @@ export interface RestauracionPrecioOpciones {
 	corona_sobre_implante?: boolean;
 }
 
-const STD: RestauracionPrecio = {
-	precio_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_USD,
-	precio_fresado: PRECIO_FRESADO_RESTAURACION_USD,
-	precio_crc_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_CRC,
-	precio_crc_fresado: PRECIO_FRESADO_RESTAURACION_CRC
-};
-
 function soloFresado(usd: number, crc: number): RestauracionPrecio {
 	return { precio_diseno: 0, precio_fresado: usd, precio_crc_diseno: 0, precio_crc_fresado: crc };
 }
@@ -96,21 +96,43 @@ function getMatrixRow(tipo: string): Partial<Record<MaterialRestauracion, Restau
 	return MATRIX[tipo];
 }
 
+const ZIRCONIO: RestauracionPrecio = {
+	precio_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_USD,
+	precio_fresado: 90,
+	precio_crc_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_CRC,
+	precio_crc_fresado: 45_000
+};
+
+const DISILICATO: RestauracionPrecio = {
+	precio_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_USD,
+	precio_fresado: 100,
+	precio_crc_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_CRC,
+	precio_crc_fresado: 50_000
+};
+
+const RESINA_LARGA_DURACION = soloFresado(40, 20_000);
+const RESINA_PROVISIONAL = soloFresado(30, 10_000);
+
+const RESTAURACION_CON_RESINAS: Partial<Record<MaterialRestauracion, RestauracionPrecio>> = {
+	zirconio: ZIRCONIO,
+	disilicato: DISILICATO,
+	resina_larga_duracion: RESINA_LARGA_DURACION,
+	resina_provisional: RESINA_PROVISIONAL
+};
+
 /** Tarifa por tipo de pieza × material */
 const MATRIX: Record<string, Partial<Record<MaterialRestauracion, RestauracionPrecio>>> = {
-	rest_corona: { zirconio: STD, disilicato: STD },
-	rest_inlay: { zirconio: STD, disilicato: STD },
-	rest_onlay: { zirconio: STD, disilicato: STD },
-	rest_carilla: { zirconio: STD, disilicato: STD },
-	rest_puente: { zirconio: STD, disilicato: STD },
-	rest_pilar: { zirconio: STD, disilicato: STD },
+	rest_corona: RESTAURACION_CON_RESINAS,
+	rest_inlay: RESTAURACION_CON_RESINAS,
+	rest_onlay: RESTAURACION_CON_RESINAS,
+	rest_carilla: RESTAURACION_CON_RESINAS,
+	rest_puente: RESTAURACION_CON_RESINAS,
+	rest_pilar: { zirconio: ZIRCONIO, disilicato: DISILICATO },
 	rest_estructura_zirconio: {
 		zirconio: soloFresado(1800, 900_000)
 	},
 	rest_modelo_resina: { impreso: soloFresado(10, 5_000) },
 	rest_completo_arc: { impreso: soloFresado(500, 250_000) },
-	rest_resina_larga_duracion: { impreso: soloFresado(50, 20_000) },
-	rest_resina_provisional: { impreso: soloFresado(30, 10_000) },
 	rest_provisional_aletas: { impreso: soloFresado(50, 25_000) },
 	rest_mockup_arcada: { impreso: soloFresado(100, 50_000) }
 };
@@ -146,8 +168,10 @@ const LEGACY: Record<string, LegacyMap> = {
 	imp_ferula: { tipo: 'ferula_impresa', material: 'impreso' },
 	rest_ferula_impresa: { tipo: 'ferula_impresa', material: 'impreso' },
 	imp_completo_arc: { tipo: 'rest_completo_arc', material: 'impreso' },
-	imp_resina_larga_duracion: { tipo: 'rest_resina_larga_duracion', material: 'impreso' },
-	imp_resina_provisional: { tipo: 'rest_resina_provisional', material: 'impreso' },
+	rest_resina_larga_duracion: { tipo: 'rest_corona', material: 'resina_larga_duracion' },
+	rest_resina_provisional: { tipo: 'rest_corona', material: 'resina_provisional' },
+	imp_resina_larga_duracion: { tipo: 'rest_corona', material: 'resina_larga_duracion' },
+	imp_resina_provisional: { tipo: 'rest_corona', material: 'resina_provisional' },
 	imp_provisional_aletas: { tipo: 'rest_provisional_aletas', material: 'impreso' },
 	imp_arcada_mockup: { tipo: 'rest_mockup_arcada', material: 'impreso' }
 };
@@ -172,7 +196,13 @@ export function resolveRestauracionMaterial(
 ): MaterialRestauracion | null {
 	const legacy = LEGACY[tipoTrabajo];
 	if (legacy) return legacy.material;
-	if (material === 'zirconio' || material === 'disilicato' || material === 'impreso') {
+	if (
+		material === 'zirconio' ||
+		material === 'disilicato' ||
+		material === 'impreso' ||
+		material === 'resina_larga_duracion' ||
+		material === 'resina_provisional'
+	) {
 		return material;
 	}
 	if (material === 'emax') return 'disilicato';

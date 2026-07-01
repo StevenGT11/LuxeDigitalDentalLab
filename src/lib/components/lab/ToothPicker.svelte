@@ -39,9 +39,9 @@
 
 <div class="tooth-picker" class:tooth-picker--disabled={disabled}>
 	{#if !compact}
-		<p class="tooth-picker__hint">Haz clic en los dientes (notación FDI). Puedes elegir varios.</p>
+		<p class="tooth-picker__hint">Opcional — clic en cada diente · notación FDI</p>
 	{:else}
-		<p class="tooth-picker__hint tooth-picker__hint--compact">Clic en cada diente · FDI</p>
+		<p class="tooth-picker__hint tooth-picker__hint--compact">Opcional · clic en cada diente · FDI</p>
 	{/if}
 
 	<div class="tooth-picker__arch">

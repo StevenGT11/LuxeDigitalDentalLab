@@ -10,6 +10,7 @@ export type LabCaseEstado =
 	| 'fresado'
 	| 'horneando'
 	| 'maquillando'
+	| 'en_prueba'
 	| 'finalizado';
 
 export type InvoiceEstado = 'pendiente' | 'pagada' | 'cancelada';

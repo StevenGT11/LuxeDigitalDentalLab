@@ -28,6 +28,7 @@
 		precio_fresado: string;
 		precio_crc_diseno: string;
 		precio_crc_fresado: string;
+		por_arcadas: boolean;
 	}
 
 	let treatments = $state<LabTreatment[]>([]);
@@ -43,7 +44,8 @@
 		precio_diseno: '',
 		precio_fresado: '',
 		precio_crc_diseno: '',
-		precio_crc_fresado: ''
+		precio_crc_fresado: '',
+		por_arcadas: false
 	});
 
 	let activeCount = $derived(treatments.filter((t) => t.activo).length);
@@ -94,7 +96,8 @@
 			precio_diseno: '',
 			precio_fresado: '',
 			precio_crc_diseno: '',
-			precio_crc_fresado: ''
+			precio_crc_fresado: '',
+			por_arcadas: false
 		};
 		modalOpen = true;
 	}
@@ -145,7 +148,8 @@
 				precio_diseno,
 				precio_fresado,
 				precio_crc_diseno,
-				precio_crc_fresado
+				precio_crc_fresado,
+				por_arcadas: treatment.por_arcadas
 			});
 			clearRowError(treatment.id);
 			await refresh();
@@ -188,7 +192,8 @@
 					precio_diseno,
 					precio_fresado,
 					precio_crc_diseno,
-					precio_crc_fresado
+					precio_crc_fresado,
+					por_arcadas: form.por_arcadas
 				},
 				slugs
 			);
@@ -290,6 +295,7 @@
 							<th>Diseño CRC</th>
 							<th>Fresado USD</th>
 							<th>Fresado CRC</th>
+							<th>Arcadas</th>
 							<th>Estado</th>
 							<th></th>
 						</tr>
@@ -378,6 +384,22 @@
 											{formatColones(treatment.precio_crc_fresado)}
 										</p>
 									{/if}
+								</td>
+								<td>
+									<button
+										type="button"
+										class="treatments-table__arcadas-btn"
+										class:treatments-table__arcadas-btn--active={treatment.por_arcadas}
+										disabled={!treatment.activo}
+										aria-pressed={treatment.por_arcadas}
+										title="Sin odontograma: el cliente elige arcada superior, inferior o ambas"
+										onclick={() =>
+											patchTreatment(treatment.id, {
+												por_arcadas: !treatment.por_arcadas
+											})}
+									>
+										Por arcadas
+									</button>
 								</td>
 								<td>
 									<span
@@ -528,6 +550,11 @@
 					</div>
 				</div>
 
+				<label class="service-check treatments-form-arcadas">
+					<input type="checkbox" bind:checked={form.por_arcadas} />
+					<span>Por arcadas (sin odontograma; el cliente elige superior, inferior o ambas)</span>
+				</label>
+
 				<p class="type-caption">
 					Deja en 0 el precio que no aplique (solo diseño o solo fresado). El identificador interno se
 					genera automáticamente.
@@ -576,6 +603,33 @@
 
 	.treatments-table__crc-hint {
 		margin: 0.25rem 0 0;
+	}
+
+	.treatments-table__arcadas-btn {
+		padding: 0.35rem 0.65rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		border-radius: 999px;
+		border: 1px solid var(--dash-border);
+		background: var(--dash-card);
+		color: var(--dash-muted);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.treatments-table__arcadas-btn--active {
+		border-color: var(--dash-accent, #2563eb);
+		background: color-mix(in srgb, var(--dash-accent, #2563eb) 12%, transparent);
+		color: var(--dash-text);
+	}
+
+	.treatments-table__arcadas-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.treatments-form-arcadas {
+		margin-top: 0.25rem;
 	}
 
 	.treatments-table__name {

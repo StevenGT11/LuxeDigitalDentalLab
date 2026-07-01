@@ -24,6 +24,7 @@ type DbTreatment = {
 	precio_crc_diseno: number;
 	precio_crc_fresado: number;
 	activo: boolean;
+	por_arcadas: boolean;
 };
 
 type DbRestorationRow = {
@@ -54,7 +55,8 @@ function mapTreatment(row: DbTreatment): LabTreatment {
 		precio_crc_diseno,
 		precio_crc_fresado,
 		precio_crc: precio_crc_diseno + precio_crc_fresado,
-		activo: row.activo
+		activo: row.activo,
+		por_arcadas: row.por_arcadas === true
 	};
 }
 
@@ -71,7 +73,7 @@ export async function fetchCatalogFromDb(): Promise<CatalogSnapshot> {
 		supabase
 			.from('treatments')
 			.select(
-				'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo'
+				'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas'
 			)
 			.order('categoria')
 			.order('sort_order')
@@ -143,6 +145,7 @@ export interface UpsertTreatmentInput {
 	precio_crc_diseno?: number;
 	precio_crc_fresado?: number;
 	activo?: boolean;
+	por_arcadas?: boolean;
 }
 
 export async function createTreatmentInDb(
@@ -168,10 +171,11 @@ export async function createTreatmentInDb(
 			precio_fresado: Math.max(0, input.precio_fresado),
 			precio_crc_diseno,
 			precio_crc_fresado,
-			activo: input.activo !== false
+			activo: input.activo !== false,
+			por_arcadas: input.por_arcadas === true
 		})
 		.select(
-			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo'
+			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas'
 		)
 		.single();
 
@@ -185,7 +189,14 @@ export async function updateTreatmentInDb(
 	patch: Partial<
 		Pick<
 			LabTreatment,
-			'label' | 'categoria' | 'precio_diseno' | 'precio_fresado' | 'precio_crc_diseno' | 'precio_crc_fresado' | 'activo'
+			| 'label'
+			| 'categoria'
+			| 'precio_diseno'
+			| 'precio_fresado'
+			| 'precio_crc_diseno'
+			| 'precio_crc_fresado'
+			| 'activo'
+			| 'por_arcadas'
 		>
 	>
 ): Promise<LabTreatment> {
@@ -199,13 +210,14 @@ export async function updateTreatmentInDb(
 	if (patch.precio_crc_diseno !== undefined) payload.precio_crc_diseno = Math.max(0, patch.precio_crc_diseno);
 	if (patch.precio_crc_fresado !== undefined) payload.precio_crc_fresado = Math.max(0, patch.precio_crc_fresado);
 	if (patch.activo !== undefined) payload.activo = patch.activo;
+	if (patch.por_arcadas !== undefined) payload.por_arcadas = patch.por_arcadas;
 
 	const { data, error } = await supabase
 		.from('treatments')
 		.update(payload)
 		.eq('id', id)
 		.select(
-			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo'
+			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas'
 		)
 		.single();
 

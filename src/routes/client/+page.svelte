@@ -20,6 +20,7 @@
 	import type { ClientStats, LabCase } from '$lib/lab/types';
 
 	let casos = $state<LabCase[]>([]);
+	let searchQuery = $state('');
 	let stats = $state<ClientStats>({
 		totalCasos: 0,
 		pendientes: 0,
@@ -33,6 +34,28 @@
 
 	let treatmentProduction = $derived(getTreatmentProductionStats(casos));
 	let doctorProduction = $derived(getDoctorProductionStats(casos));
+
+	let filteredCasos = $derived.by(() => {
+		const q = searchQuery.trim().toLowerCase();
+		if (!q) return casos;
+		return casos.filter(
+			(c) =>
+				c.case_number.toLowerCase().includes(q) ||
+				c.paciente_name.toLowerCase().includes(q) ||
+				getTipoTrabajoLabel(c.tipo_trabajo).toLowerCase().includes(q) ||
+				getEstadoLabel(c.estado).toLowerCase().includes(q) ||
+				(c.material && getMaterialLabel(c.material).toLowerCase().includes(q)) ||
+				(c.doctor_name?.toLowerCase().includes(q) ?? false) ||
+				(c.color?.toLowerCase().includes(q) ?? false) ||
+				c.items.some(
+					(i) =>
+						getTipoTrabajoLabel(i.tipo_trabajo).toLowerCase().includes(q) ||
+						(i.color?.toLowerCase().includes(q) ?? false)
+				)
+		);
+	});
+
+	let filteredTotal = $derived(filteredCasos.reduce((sum, c) => sum + c.costo, 0));
 
 	async function refresh() {
 		await hydrateCasesOnce();
@@ -140,10 +163,16 @@
 
 	<section>
 		<div
-			style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem;"
+			style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: 1rem;"
 		>
 			<h2 class="dash-panel__title" style="margin: 0;">Historial de casos</h2>
-			<span class="type-fine-print">{casos.length} caso(s)</span>
+			<span class="type-fine-print">
+				{#if searchQuery.trim() && filteredCasos.length !== casos.length}
+					{filteredCasos.length} de {casos.length} caso(s)
+				{:else}
+					{casos.length} caso(s)
+				{/if}
+			</span>
 		</div>
 
 		{#if casos.length === 0}
@@ -154,6 +183,25 @@
 				</button>
 			</div>
 		{:else}
+			<div class="dash-toolbar" style="margin-bottom: 1rem;">
+				<input
+					type="search"
+					class="search-input"
+					style="flex: 1; min-width: 200px;"
+					bind:value={searchQuery}
+					placeholder="Buscar por número, paciente, trabajo, tono…"
+					aria-label="Buscar casos"
+				/>
+			</div>
+
+			{#if filteredCasos.length === 0}
+				<div class="dash-panel empty-state">
+					<p>Ningún caso coincide con «{searchQuery.trim()}»</p>
+					<button type="button" class="btn-secondary-pill" onclick={() => (searchQuery = '')}>
+						Limpiar búsqueda
+					</button>
+				</div>
+			{:else}
 			<div class="data-table-wrap">
 				<table class="data-table">
 					<thead>
@@ -169,7 +217,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each casos as caso}
+						{#each filteredCasos as caso}
 							{@const editLine = formatLastEditedLine(caso)}
 							<tr>
 								<td>
@@ -209,13 +257,18 @@
 					</tbody>
 					<tfoot>
 						<tr>
-							<td colspan="4" style="text-align: right;">Total acumulado</td>
-							<td>{formatCurrency(stats.totalGastado)}</td>
+							<td colspan="4" style="text-align: right;">
+								{searchQuery.trim() ? 'Total filtrado' : 'Total acumulado'}
+							</td>
+							<td>
+								{formatCurrency(searchQuery.trim() ? filteredTotal : stats.totalGastado)}
+							</td>
 							<td colspan="3"></td>
 						</tr>
 					</tfoot>
 				</table>
 			</div>
+			{/if}
 		{/if}
 	</section>
 </div>

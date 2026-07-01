@@ -1,4 +1,10 @@
 import { formatImplantCrownDetails } from './implant-crown';
+import {
+	getPrecioDiseno,
+	getPrecioFresado,
+	isGuiaQuirurgica,
+	isRestauracionTipoTrabajo
+} from './constants';
 import { getTreatmentByValue, type TreatmentCategory } from './treatments';
 import type { ArcadaScope } from './types';
 import type { CaseItem, LabCase } from './types';
@@ -67,4 +73,41 @@ export function labCaseItemsToDraft(items: CaseItem[]): CaseDraftItem[] {
 
 export function canClientEditCase(caso: LabCase, clientId: string): boolean {
 	return caso.client_id === clientId && caso.estado === 'pendiente';
+}
+
+/** Diseño/fresado según categoría y material — el cliente no elige servicios sueltos. */
+export function resolveItemServices(row: {
+	tipo_trabajo: string;
+	categoria_seleccionada: TreatmentCategory | '';
+	material: string;
+	corona_sobre_implante: boolean;
+}): { incluye_diseno: boolean; incluye_fresado: boolean } {
+	if (!row.tipo_trabajo) return { incluye_diseno: false, incluye_fresado: false };
+
+	if (isGuiaQuirurgica(row.tipo_trabajo)) {
+		return { incluye_diseno: true, incluye_fresado: false };
+	}
+
+	const categoria =
+		row.categoria_seleccionada || getTreatmentByValue(row.tipo_trabajo)?.categoria || '';
+	const restOpts = { corona_sobre_implante: row.corona_sobre_implante };
+	const material = row.material || null;
+
+	if (categoria === 'restauracion' || isRestauracionTipoTrabajo(row.tipo_trabajo)) {
+		if (!material) return { incluye_diseno: false, incluye_fresado: false };
+		return {
+			incluye_diseno: getPrecioDiseno(row.tipo_trabajo, material, restOpts) > 0,
+			incluye_fresado: true
+		};
+	}
+
+	if (categoria === 'diseno') {
+		return { incluye_diseno: true, incluye_fresado: false };
+	}
+
+	const treatment = getTreatmentByValue(row.tipo_trabajo);
+	return {
+		incluye_diseno: (treatment?.precio_diseno ?? 0) > 0,
+		incluye_fresado: (treatment?.precio_fresado ?? 0) > 0
+	};
 }

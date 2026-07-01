@@ -13,8 +13,6 @@
 		IMPLANTES_GUIA_OPTIONS,
 		calcularCostoItem,
 		getMaterialesRestauracion,
-		getPrecioDiseno,
-		getPrecioFresado,
 		isArcadaScopeTreatment,
 		isCoronaRestauracion,
 		isGuiaQuirurgica,
@@ -49,6 +47,7 @@
 	import {
 		labCaseItemsToDraft,
 		newCaseDraftItem,
+		resolveItemServices,
 		type CaseDraftItem
 	} from '$lib/lab/client-case-draft';
 	import type { LabCase } from '$lib/lab/types';
@@ -65,10 +64,6 @@
 
 	function newDraftItem(): DraftItem {
 		return newCaseDraftItem();
-	}
-
-	function restOpts(row: DraftItem) {
-		return { corona_sobre_implante: row.corona_sobre_implante };
 	}
 
 	function isGuiaRow(row: DraftItem): boolean {
@@ -107,8 +102,9 @@
 		return row.tipo_trabajo ? isRestauracionTipoTrabajo(row.tipo_trabajo) : false;
 	}
 
-	function itemRequiresTeeth(row: DraftItem): boolean {
+	function itemShowsTeethPicker(row: DraftItem): boolean {
 		if (isGuiaRow(row)) return false;
+		if (row.tipo_trabajo && isArcadaScopeTreatment(row.tipo_trabajo)) return false;
 		const cat =
 			row.categoria_seleccionada ||
 			(row.tipo_trabajo ? getTreatmentByValue(row.tipo_trabajo)?.categoria : '');
@@ -135,8 +131,6 @@
 				tipo_trabajo: value,
 				implantes_guia: 1,
 				piezas_dentales: [],
-				incluye_diseno: true,
-				incluye_fresado: false,
 				material: '',
 				color: '',
 				corona_sobre_implante: false,
@@ -147,24 +141,19 @@
 			return;
 		}
 
-		const incluye_diseno = treatment.precio_diseno > 0;
-		const incluye_fresado = treatment.precio_fresado > 0;
-		const sinDientes = !treatmentRequiresTeeth(treatment.categoria);
-		const arcadaScope = isArcadaScopeTreatment(value);
+		const sinDientes = !treatmentRequiresTeeth(treatment.categoria) || treatment.por_arcadas === true;
 		const requiereVita = treatmentRequiresVitaColor(value);
 		patchRow(key, {
 			categoria_seleccionada: treatment.categoria,
 			tipo_trabajo: value,
 			implantes_guia: null,
 			piezas_dentales: sinDientes ? [] : items.find((r) => r.key === key)?.piezas_dentales ?? [],
-			incluye_diseno,
-			incluye_fresado,
 			material: '',
 			color: requiereVita ? items.find((r) => r.key === key)?.color ?? '' : '',
 			corona_sobre_implante: false,
 			implante_marca: '',
 			implante_plataforma: '',
-			alcance_arcada: arcadaScope ? 'ambas' : null
+			alcance_arcada: treatment.por_arcadas ? 'ambas' : null
 		});
 	}
 
@@ -174,12 +163,13 @@
 
 	function itemCost(row: DraftItem): number {
 		if (!row.tipo_trabajo) return 0;
+		const services = resolveItemServices(row);
 		return calcularCostoItem({
 			tipo_trabajo: row.tipo_trabajo,
 			material: row.material || null,
 			piezas: itemPiezas(row),
-			incluye_diseno: row.incluye_diseno,
-			incluye_fresado: row.incluye_fresado,
+			incluye_diseno: services.incluye_diseno,
+			incluye_fresado: services.incluye_fresado,
 			implantes_guia: row.implantes_guia,
 			alcance_arcada: row.alcance_arcada,
 			corona_sobre_implante: row.corona_sobre_implante
@@ -188,8 +178,11 @@
 
 	function rowIsComplete(row: DraftItem): boolean {
 		if (!row.tipo_trabajo) return false;
+		const services = resolveItemServices(row);
 		if (isGuiaRow(row)) return row.implantes_guia !== null && row.implantes_guia >= 1;
-		if (isArcadaScopeRow(row)) return !!row.alcance_arcada && (row.incluye_diseno || row.incluye_fresado);
+		if (isArcadaScopeRow(row)) {
+			return !!row.alcance_arcada && (services.incluye_diseno || services.incluye_fresado);
+		}
 		if (isRestauracionRow(row) && !row.material) return false;
 		if (
 			isCoronaRestauracion(row.tipo_trabajo) &&
@@ -198,8 +191,7 @@
 		) {
 			return false;
 		}
-		if (!itemRequiresTeeth(row)) return row.incluye_diseno || row.incluye_fresado;
-		return row.piezas_dentales.length > 0;
+		return services.incluye_diseno || services.incluye_fresado;
 	}
 
 	let items = $state<DraftItem[]>([newDraftItem()]);
@@ -249,8 +241,8 @@
 	});
 
 	function itemPiezas(row: DraftItem): number {
-		if (!itemRequiresTeeth(row)) return 1;
-		return Math.max(1, row.piezas_dentales.length);
+		if (row.piezas_dentales.length > 0) return row.piezas_dentales.length;
+		return 1;
 	}
 
 	let costoEstimado = $derived(items.reduce((sum, row) => sum + itemCost(row), 0));
@@ -306,13 +298,6 @@
 					showFormError(`Ítem ${n}: selecciona una o ambas arcadas`);
 					return;
 				}
-			} else if (itemRequiresTeeth(row) && row.piezas_dentales.length === 0) {
-				showFormError(`Ítem ${n}: selecciona al menos un diente en el odontograma`);
-				return;
-			}
-			if (!row.incluye_diseno && !row.incluye_fresado) {
-				showFormError(`Ítem ${n}: marca Diseño y/o Fresado`);
-				return;
 			}
 			if (
 				isCoronaRestauracion(row.tipo_trabajo) &&
@@ -322,14 +307,19 @@
 				showFormError(`Ítem ${n}: indica la marca y plataforma del implante`);
 				return;
 			}
+			const services = resolveItemServices(row);
+			if (!services.incluye_diseno && !services.incluye_fresado) {
+				showFormError(`Ítem ${n}: completa el tratamiento y el material`);
+				return;
+			}
 			payloadItems.push({
-				piezas_dentales: itemRequiresTeeth(row) ? row.piezas_dentales : [],
+				piezas_dentales: row.piezas_dentales,
 				tipo_trabajo: row.tipo_trabajo,
 				material: row.material || null,
 				color: treatmentRequiresVitaColor(row.tipo_trabajo) ? row.color || null : null,
 				piezas: itemPiezas(row),
-				incluye_diseno: row.incluye_diseno,
-				incluye_fresado: row.incluye_fresado,
+				incluye_diseno: services.incluye_diseno,
+				incluye_fresado: services.incluye_fresado,
 				implantes_guia: isGuiaRow(row) ? row.implantes_guia : null,
 				alcance_arcada: isArcadaScopeRow(row) ? row.alcance_arcada : null,
 				corona_sobre_implante: isCoronaRestauracion(row.tipo_trabajo)
@@ -407,7 +397,7 @@
 		{#if isEdit}
 			Modifica los datos del caso {editCase?.case_number}. Solo puedes editar casos en estado pendiente.
 		{:else}
-			Selecciona los dientes en el odontograma (notación FDI) para cada trabajo del caso.
+			Indica el tratamiento de cada ítem. El odontograma es opcional cuando el servicio no requiere piezas concretas.
 		{/if}
 	</p>
 
@@ -472,7 +462,7 @@
 		<section class="dash-panel dash-panel--section">
 			<h2 class="dash-panel__section-title">Piezas / trabajos</h2>
 			<p class="type-fine-print case-items-editor__intro">
-				Cada ítem = un trabajo sobre uno o más dientes. Ej. corona 16, carillas 11-21.
+				Cada ítem es un trabajo del caso. Si aplica, puedes marcar dientes en el odontograma (FDI); no es obligatorio para todos los servicios.
 			</p>
 
 			<div class="case-items-editor">
@@ -559,7 +549,7 @@
 									<span class="field-label">Cantidad</span>
 									<p class="case-item-draft__qty-display">1 servicio</p>
 								</div>
-							{:else if isTreatmentPickerComplete(row) && !itemRequiresTeeth(row)}
+							{:else if isTreatmentPickerComplete(row) && !itemShowsTeethPicker(row)}
 								<div class="case-item-draft__guia-note">
 									<span class="field-label">Alcance</span>
 									<p class="type-body">Servicio por caso (no requiere selección de dientes en el odontograma).</p>
@@ -577,7 +567,11 @@
 									<p class="case-item-draft__qty-display">
 										{itemPiezas(row)}
 										{itemPiezas(row) === 1 ? 'pieza' : 'piezas'}
-										<span class="type-fine-print">(según dientes seleccionados)</span>
+										{#if row.piezas_dentales.length === 0}
+											<span class="type-fine-print">(sin dientes en odontograma)</span>
+										{:else}
+											<span class="type-fine-print">(según dientes seleccionados)</span>
+										{/if}
 									</p>
 								</div>
 								{#if !isRestauracionRow(row)}
@@ -588,45 +582,15 @@
 								{/if}
 							{/if}
 
-							{#if isTreatmentPickerComplete(row) && !isGuiaRow(row)}
-								{#if treatmentRequiresVitaColor(row.tipo_trabajo)}
-									<div>
-										<label class="field-label" for="color-{row.key}">Color VITA</label>
-										<select id="color-{row.key}" class="field-select" bind:value={row.color}>
-											{#each COLORES_VITA as c}
-												<option value={c.value}>{c.label}</option>
-											{/each}
-										</select>
-									</div>
-								{/if}
-								{@const treatment = row.tipo_trabajo ? getTreatmentByValue(row.tipo_trabajo) : undefined}
-								{@const mat = row.material || null}
-								{@const rowRestOpts = restOpts(row)}
-								{@const precioDiseno = row.tipo_trabajo
-									? getPrecioDiseno(row.tipo_trabajo, mat, rowRestOpts)
-									: 0}
-								{@const precioFresado = row.tipo_trabajo
-									? getPrecioFresado(row.tipo_trabajo, mat, rowRestOpts)
-									: 0}
-								{#if treatment && (precioDiseno > 0 || precioFresado > 0) && (!isRestauracionRow(row) || row.material)}
-									<div class="case-item-draft__services">
-										<span class="field-label">Servicios *</span>
-										<div class="service-checks">
-											{#if precioDiseno > 0}
-												<label class="service-check">
-													<input type="checkbox" bind:checked={row.incluye_diseno} />
-													<span>Diseño</span>
-												</label>
-											{/if}
-											{#if precioFresado > 0}
-												<label class="service-check">
-													<input type="checkbox" bind:checked={row.incluye_fresado} />
-													<span>Fresado</span>
-												</label>
-											{/if}
-										</div>
-									</div>
-								{/if}
+							{#if isTreatmentPickerComplete(row) && !isGuiaRow(row) && treatmentRequiresVitaColor(row.tipo_trabajo)}
+								<div>
+									<label class="field-label" for="color-{row.key}">Color VITA</label>
+									<select id="color-{row.key}" class="field-select" bind:value={row.color}>
+										{#each COLORES_VITA as c}
+											<option value={c.value}>{c.label}</option>
+										{/each}
+									</select>
+								</div>
 							{/if}
 
 							{#if rowIsComplete(row)}
@@ -663,7 +627,7 @@
 				<CaseFileDropzone
 					id="escaneos"
 					label="Escaneos"
-					description="STL, PLY, OBJ, ZIP o imágenes del escaneo intraoral / modelo."
+					description="STL, PLY, OBJ o imágenes del escaneo intraoral / modelo."
 					bind:files={escaneoFiles}
 				/>
 				<CaseFileDropzone

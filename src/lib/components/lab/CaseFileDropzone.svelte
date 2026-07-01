@@ -110,7 +110,7 @@
 			</button>
 		</p>
 		<p class="case-file-zone__formats">
-			STL, PLY, OBJ, ZIP, PDF, JPG, PNG · máx. {formatFileSize(MAX_CASE_FILE_BYTES)} por archivo
+			STL, PLY, OBJ, PDF, JPG, PNG · máx. {formatFileSize(MAX_CASE_FILE_BYTES)} por archivo
 		</p>
 		<input
 			bind:this={inputEl}

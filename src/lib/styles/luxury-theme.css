@@ -2012,12 +2012,6 @@
 	grid-column: 1 / -1;
 }
 
-@media (min-width: 700px) {
-	.case-form__tooth-cell {
-		grid-column: span 1;
-	}
-}
-
 .case-item-draft__qty-display {
 	margin: 0;
 	padding: 0.65rem 0;
@@ -2274,8 +2268,8 @@
 	font-weight: 400;
 }
 
-.tooth-selection-field__panel {
-	margin-top: 0.5rem;
+.tooth-selection-field__picker {
+	margin-top: 0.35rem;
 	padding: 0.75rem;
 	border: 1px solid var(--dash-border);
 	border-radius: var(--dash-radius);
@@ -2339,11 +2333,6 @@
 
 .tooth-picker__hint--compact {
 	margin-bottom: 0.5rem;
-}
-
-/* Panel abierto: ocupa ancho completo del ítem en móvil */
-.case-form__tooth-cell:has(.tooth-selection-field__panel) {
-	grid-column: 1 / -1;
 }
 
 .case-files-section {
@@ -3039,6 +3028,12 @@
 	background: color-mix(in srgb, #a855f7 15%, var(--dash-card));
 	border-color: #a855f7;
 	color: #7e22ce;
+}
+
+.dash-content .status-chip--estado-en-prueba {
+	background: color-mix(in srgb, #14b8a6 15%, var(--dash-card));
+	border-color: #14b8a6;
+	color: #0f766e;
 }
 
 .dash-content .status-chip--estado-finalizado {

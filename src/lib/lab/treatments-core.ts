@@ -20,6 +20,8 @@ export interface LabTreatment {
 	precio_crc_fresado: number;
 	precio_crc: number;
 	activo: boolean;
+	/** Sin odontograma: el cliente elige arcada superior, inferior o ambas */
+	por_arcadas: boolean;
 }
 
 export const DEFAULT_TREATMENTS: LabTreatment[] = LUXE_TREATMENT_CATALOG.map((t) => ({
@@ -32,7 +34,8 @@ export const DEFAULT_TREATMENTS: LabTreatment[] = LUXE_TREATMENT_CATALOG.map((t)
 	precio_crc_diseno: t.precio_crc_diseno,
 	precio_crc_fresado: t.precio_crc_fresado,
 	precio_crc: t.precio_crc,
-	activo: t.activo
+	activo: t.activo,
+	por_arcadas: t.por_arcadas ?? false
 }));
 
 const DEPRECATED_TREATMENT_VALUES = new Set([...DEPRECATED_RESTORATION_VALUES, 'unidad_restauracion']);

@@ -1,3 +1,5 @@
+import { getCatalogSnapshot } from './catalog-cache';
+
 /** Tratamientos que no requieren tono VITA al crear el caso */
 export const TREATMENTS_WITHOUT_VITA_COLOR = [
 	'ferula_diseno',
@@ -7,5 +9,10 @@ export const TREATMENTS_WITHOUT_VITA_COLOR = [
 ] as const;
 
 export function treatmentRequiresVitaColor(tipoTrabajo: string): boolean {
-	return !(TREATMENTS_WITHOUT_VITA_COLOR as readonly string[]).includes(tipoTrabajo);
+	if ((TREATMENTS_WITHOUT_VITA_COLOR as readonly string[]).includes(tipoTrabajo)) {
+		return false;
+	}
+	const treatment = getCatalogSnapshot().treatments.find((t) => t.value === tipoTrabajo);
+	if (treatment?.categoria === 'diseno') return false;
+	return true;
 }

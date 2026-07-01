@@ -1,5 +1,5 @@
 /** Versión del catálogo — incrementar para volver a cargar tarifas por defecto */
-export const TREATMENT_CATALOG_VERSION = 11;
+export const TREATMENT_CATALOG_VERSION = 13;
 
 /** Recargo corona sobre implante (add-on dentro de Corona) */
 export const PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD = 15;
@@ -27,6 +27,7 @@ export interface CatalogTreatment {
 	precio_crc_fresado: number;
 	precio_crc: number;
 	activo: boolean;
+	por_arcadas?: boolean;
 }
 
 export const TREATMENT_CATEGORY_ORDER: TreatmentCategory[] = [
@@ -57,7 +58,8 @@ function catalogEntry(
 	categoria: TreatmentCategory,
 	usd: number,
 	crc: number,
-	billing: Billing
+	billing: Billing,
+	por_arcadas = false
 ): CatalogTreatment {
 	const precio_diseno =
 		billing === 'diseno' || billing === 'ambos'
@@ -81,7 +83,8 @@ function catalogEntry(
 		precio_crc_diseno,
 		precio_crc_fresado,
 		precio_crc,
-		activo: true
+		activo: true,
+		por_arcadas
 	};
 }
 
@@ -153,20 +156,6 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 		250_000
 	),
 	catalogEntryRestauracionSoloFresado(
-		'tr-rest-resina-larga',
-		'rest_resina_larga_duracion',
-		'Restauración resina de larga duración (unidad)',
-		50,
-		20_000
-	),
-	catalogEntryRestauracionSoloFresado(
-		'tr-rest-resina-prov',
-		'rest_resina_provisional',
-		'Restauración resina provisional',
-		30,
-		10_000
-	),
-	catalogEntryRestauracionSoloFresado(
 		'tr-rest-prov-aletas',
 		'rest_provisional_aletas',
 		'Provisional con aletas (unidad)',
@@ -185,8 +174,8 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 	catalogEntry('tr-guia-quirurgica', 'guia_quirurgica', 'Guía quirúrgica', 'guias', 0, 0, 'diseno'),
 
 	// ——— OTROS ———
-	catalogEntry('tr-ferula-diseno', 'ferula_diseno', 'Férula', 'otros', 30, 15_000, 'diseno'),
-	catalogEntry('tr-ferula-impresa', 'ferula_impresa', 'Férula impresa', 'otros', 100, 50_000, 'fresado'),
+	catalogEntry('tr-ferula-diseno', 'ferula_diseno', 'Férula', 'otros', 30, 15_000, 'diseno', true),
+	catalogEntry('tr-ferula-impresa', 'ferula_impresa', 'Férula impresa', 'otros', 100, 50_000, 'fresado', true),
 	catalogEntry(
 		'tr-fundas-blanqueamiento',
 		'fundas_blanqueamiento',
@@ -194,7 +183,8 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 		'otros',
 		40,
 		20_000,
-		'diseno'
+		'diseno',
+		true
 	),
 	catalogEntry(
 		'tr-retenedores-ortodoncia',
@@ -203,6 +193,7 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 		'otros',
 		60,
 		30_000,
-		'diseno'
+		'diseno',
+		true
 	)
 ];

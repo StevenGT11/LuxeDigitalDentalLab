@@ -1,13 +1,12 @@
 import type { CaseFile, CaseFileCategory } from './types';
 
 export const CASE_FILE_ACCEPT =
-	'.stl,.ply,.obj,.zip,.pdf,.jpg,.jpeg,.png,.3mf,.dcm,application/octet-stream,application/zip,application/pdf,image/*';
+	'.stl,.ply,.obj,.pdf,.jpg,.jpeg,.png,.3mf,.dcm,application/octet-stream,application/pdf,image/*';
 
 const ALLOWED_EXTENSIONS = new Set([
 	'stl',
 	'ply',
 	'obj',
-	'zip',
 	'pdf',
 	'jpg',
 	'jpeg',
@@ -39,7 +38,7 @@ export function getFileExtension(name: string): string {
 export function validateCaseFile(file: File): string | null {
 	const ext = getFileExtension(file.name);
 	if (!ALLOWED_EXTENSIONS.has(ext)) {
-		return `"${file.name}": formato no admitido. Usa STL, PLY, OBJ, ZIP, PDF o imágenes.`;
+		return `"${file.name}": formato no admitido. Usa STL, PLY, OBJ, PDF o imágenes.`;
 	}
 	if (file.size > MAX_CASE_FILE_BYTES) {
 		return `"${file.name}" supera ${formatFileSize(MAX_CASE_FILE_BYTES)}.`;
