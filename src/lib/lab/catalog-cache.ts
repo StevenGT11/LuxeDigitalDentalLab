@@ -1,4 +1,5 @@
 import type { MaterialRestauracion, RestauracionPrecio } from './restoration-pricing';
+import type { TreatmentMaterialOption } from './treatment-materials';
 import type { GuiaPrecioTier, ImplantesGuia } from './surgical-guide';
 import type { LabTreatment, TreatmentCategory } from './treatments';
 import { DEFAULT_TREATMENTS, sortTreatmentsList } from './treatments-core';
@@ -15,7 +16,9 @@ export interface CatalogAddon {
 
 export interface CatalogSnapshot {
 	treatments: LabTreatment[];
+	/** @deprecated Prefer treatmentMaterials */
 	restorationMatrix: Map<string, Partial<Record<MaterialRestauracion, RestauracionPrecio>>>;
+	treatmentMaterials: Map<string, TreatmentMaterialOption[]>;
 	guidePrices: Record<ImplantesGuia, GuiaPrecioTier>;
 	addons: Map<string, CatalogAddon>;
 }
@@ -27,6 +30,7 @@ function emptySnapshot(): CatalogSnapshot {
 	return {
 		treatments: DEFAULT_TREATMENTS,
 		restorationMatrix: new Map(),
+		treatmentMaterials: new Map(),
 		guidePrices: {} as Record<ImplantesGuia, GuiaPrecioTier>,
 		addons: new Map()
 	};
@@ -52,12 +56,14 @@ export function clearCatalogCache(): void {
 export function applyCatalogToSnapshot(data: {
 	treatments: LabTreatment[];
 	restorationMatrix: Map<string, Partial<Record<MaterialRestauracion, RestauracionPrecio>>>;
+	treatmentMaterials: Map<string, TreatmentMaterialOption[]>;
 	guidePrices: Record<ImplantesGuia, GuiaPrecioTier>;
 	addons: CatalogAddon[];
 }): CatalogSnapshot {
 	const next: CatalogSnapshot = {
 		treatments: sortTreatmentsList(data.treatments),
 		restorationMatrix: data.restorationMatrix,
+		treatmentMaterials: data.treatmentMaterials,
 		guidePrices: data.guidePrices,
 		addons: new Map(data.addons.map((a) => [a.code, a]))
 	};

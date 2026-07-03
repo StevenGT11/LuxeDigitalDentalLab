@@ -17,7 +17,8 @@
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
 		getMaterialLabel,
-		getCaseItemTipoLabel
+		getCaseItemTipoLabel,
+		isRestauracionTipoTrabajo
 	} from '$lib/lab/constants';
 	import { formatImplantCrownDetails } from '$lib/lab/implant-crown';
 	import VitaColorChip from '$lib/components/admin/VitaColorChip.svelte';
@@ -153,7 +154,7 @@
 									{/if}
 								</td>
 								<td class="type-body-strong">{getCaseItemTipoLabel(item)}</td>
-								<td>{getMaterialLabel(item.material)}</td>
+								<td>{getMaterialLabel(item.material, item.tipo_trabajo)}</td>
 								<td>
 									{#if item.color}
 										<VitaColorChip shade={item.color} />
@@ -163,16 +164,16 @@
 								</td>
 								<td>
 									<div class="item-services-inline">
-										{#if item.incluye_diseno}
+										{#if !isRestauracionTipoTrabajo(item.tipo_trabajo) && item.incluye_diseno}
 											<span class="work-tag work-tag--servicio work-tag--diseno">Diseño</span>
 										{/if}
-										{#if item.incluye_fresado}
+										{#if !isRestauracionTipoTrabajo(item.tipo_trabajo) && item.incluye_fresado}
 											<span class="work-tag work-tag--servicio work-tag--fresado">Fresado</span>
 										{/if}
 										{#if item.corona_sobre_implante}
 											<span class="work-tag work-tag--servicio work-tag--implante">Sobre implante</span>
 										{/if}
-										{#if !item.incluye_diseno && !item.incluye_fresado && !item.corona_sobre_implante}
+										{#if !isRestauracionTipoTrabajo(item.tipo_trabajo) && !item.incluye_diseno && !item.incluye_fresado && !item.corona_sobre_implante}
 											—
 										{/if}
 									</div>

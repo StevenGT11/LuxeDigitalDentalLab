@@ -4,6 +4,7 @@ import {
 	isGuiaQuirurgica
 } from './constants';
 import { formatArcadaScopeLabel, isArcadaScopeTreatment, normalizeArcadaScope } from './arcada-scope';
+import { isSobreImplanteTreatment } from './sobre-implante';
 import { normalizeGuiaTipoTrabajo } from './surgical-guide';
 import { normalizeRestauracionItem } from './restoration-pricing';
 import {
@@ -86,9 +87,9 @@ export function buildCaseItem(
 		incluye_fresado,
 		implantes_guia: esGuia ? implantes_guia : null,
 		alcance_arcada: esArcadaScope ? alcance_arcada : null,
-		corona_sobre_implante: tipo_trabajo === 'rest_corona' ? corona_sobre_implante : false,
-		implante_marca: tipo_trabajo === 'rest_corona' ? implante_marca : null,
-		implante_plataforma: tipo_trabajo === 'rest_corona' ? implante_plataforma : null,
+		corona_sobre_implante: isSobreImplanteTreatment(tipo_trabajo) ? corona_sobre_implante : false,
+		implante_marca: isSobreImplanteTreatment(tipo_trabajo) ? implante_marca : null,
+		implante_plataforma: isSobreImplanteTreatment(tipo_trabajo) ? implante_plataforma : null,
 		descripcion: options?.descripcion ?? null,
 		unit_price: Math.round(subtotal * 100) / 100,
 		subtotal
@@ -241,7 +242,7 @@ export function migrateCaseRow(raw: LabCase): LabCase {
 			...item,
 			tipo_trabajo,
 			material,
-			corona_sobre_implante: tipo_trabajo === 'rest_corona' ? corona_sobre_implante : false,
+			corona_sobre_implante: isSobreImplanteTreatment(tipo_trabajo) ? corona_sobre_implante : false,
 			implantes_guia,
 			alcance_arcada,
 			piezas_dentales,

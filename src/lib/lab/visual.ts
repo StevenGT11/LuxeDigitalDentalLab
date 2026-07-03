@@ -62,10 +62,10 @@ export const ESTADO_ORDER: LabCaseEstado[] = [
 	'pendiente',
 	'en_diseño',
 	'diseñado',
+	'en_prueba',
 	'fresado',
 	'horneando',
 	'maquillando',
-	'en_prueba',
 	'finalizado'
 ];
 

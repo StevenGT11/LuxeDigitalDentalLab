@@ -1,4 +1,10 @@
 import { getCatalogSnapshot, isCatalogHydrated } from './catalog-cache';
+import { isSobreImplanteTreatment } from './sobre-implante';
+import {
+	getTreatmentMaterialPriceUsd,
+	getTreatmentMaterials,
+	treatmentHasMaterials
+} from './treatment-materials';
 import {
 	PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC,
 	PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD,
@@ -42,7 +48,7 @@ export const RESTAURACION_VALUE_ORDER: string[] = [
 	'rest_inlay',
 	'rest_onlay',
 	'rest_pilar',
-	'rest_estructura_zirconio',
+	'rest_estructura',
 	'rest_modelo_resina',
 	'rest_completo_arc',
 	'rest_provisional_aletas',
@@ -55,9 +61,16 @@ export function restauracionSortIndex(value: string): number {
 	return i >= 0 ? i : RESTAURACION_VALUE_ORDER.length + 1;
 }
 
-export function getMaterialRestauracionLabel(value: string | null | undefined): string {
+export function getMaterialRestauracionLabel(
+	value: string | null | undefined,
+	treatmentSlug?: string | null
+): string {
 	if (!value) return '—';
-	return MATERIALES_RESTAURACION.find((m) => m.value === value)?.label ?? value;
+	if (treatmentSlug) {
+		const fromTreatment = getTreatmentMaterials(treatmentSlug).find((m) => m.key === value);
+		if (fromTreatment) return fromTreatment.label;
+	}
+	return MATERIALES_RESTAURACION.find((m) => m.value === value)?.label ?? value.replace(/_/g, ' ');
 }
 
 export interface RestauracionPrecio {
@@ -81,12 +94,47 @@ function withCoronaImplante(base: RestauracionPrecio): RestauracionPrecio {
 	const fUsd = addon?.precio_fresado_usd ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD;
 	const dCrc = addon?.precio_diseno_crc ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC;
 	const fCrc = addon?.precio_fresado_crc ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC;
+	if (base.precio_diseno === 0 && base.precio_crc_diseno === 0) {
+		return {
+			...base,
+			precio_fresado: base.precio_fresado + dUsd + fUsd,
+			precio_crc_fresado: base.precio_crc_fresado + dCrc + fCrc
+		};
+	}
 	return {
 		precio_diseno: base.precio_diseno + dUsd,
 		precio_fresado: base.precio_fresado + fUsd,
 		precio_crc_diseno: base.precio_crc_diseno + dCrc,
 		precio_crc_fresado: base.precio_crc_fresado + fCrc
 	};
+}
+
+/** Precio único por pieza (diseño incluido en restauraciones). */
+export function normalizeRestauracionPrecio(p: RestauracionPrecio): RestauracionPrecio {
+	if (p.precio_diseno === 0 && p.precio_crc_diseno === 0) return p;
+	return soloFresado(
+		p.precio_diseno + p.precio_fresado,
+		p.precio_crc_diseno + p.precio_crc_fresado
+	);
+}
+
+export function getRestauracionPrecioUnitarioUsd(
+	tipoTrabajo: string,
+	material: string | null | undefined,
+	opciones?: RestauracionPrecioOpciones
+): number {
+	if (treatmentHasMaterials(tipoTrabajo) && material) {
+		return getTreatmentMaterialPriceUsd(tipoTrabajo, material, opciones);
+	}
+	return getRestauracionPrecio(tipoTrabajo, material, opciones)?.precio_fresado ?? 0;
+}
+
+export function getRestauracionPrecioUnitarioCrc(
+	tipoTrabajo: string,
+	material: string | null | undefined,
+	opciones?: RestauracionPrecioOpciones
+): number {
+	return getRestauracionPrecio(tipoTrabajo, material, opciones)?.precio_crc_fresado ?? 0;
 }
 
 function getMatrixRow(tipo: string): Partial<Record<MaterialRestauracion, RestauracionPrecio>> | undefined {
@@ -96,21 +144,14 @@ function getMatrixRow(tipo: string): Partial<Record<MaterialRestauracion, Restau
 	return MATRIX[tipo];
 }
 
-const ZIRCONIO: RestauracionPrecio = {
-	precio_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_USD,
-	precio_fresado: 90,
-	precio_crc_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_CRC,
-	precio_crc_fresado: 45_000
-};
+const ZIRCONIO = soloFresado(
+	PRECIO_DISENO_UNIDAD_RESTAURACION_USD + PRECIO_FRESADO_RESTAURACION_USD,
+	PRECIO_DISENO_UNIDAD_RESTAURACION_CRC + PRECIO_FRESADO_RESTAURACION_CRC
+);
 
-const DISILICATO: RestauracionPrecio = {
-	precio_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_USD,
-	precio_fresado: 100,
-	precio_crc_diseno: PRECIO_DISENO_UNIDAD_RESTAURACION_CRC,
-	precio_crc_fresado: 50_000
-};
+const DISILICATO = soloFresado(108, 54_000);
 
-const RESINA_LARGA_DURACION = soloFresado(40, 20_000);
+const RESINA_LARGA_DURACION = soloFresado(50, 20_000);
 const RESINA_PROVISIONAL = soloFresado(30, 10_000);
 
 const RESTAURACION_CON_RESINAS: Partial<Record<MaterialRestauracion, RestauracionPrecio>> = {
@@ -128,8 +169,9 @@ const MATRIX: Record<string, Partial<Record<MaterialRestauracion, RestauracionPr
 	rest_carilla: RESTAURACION_CON_RESINAS,
 	rest_puente: RESTAURACION_CON_RESINAS,
 	rest_pilar: { zirconio: ZIRCONIO, disilicato: DISILICATO },
-	rest_estructura_zirconio: {
-		zirconio: soloFresado(1800, 900_000)
+	rest_estructura: {
+		zirconio: soloFresado(1800, 900_000),
+		resina_larga_duracion: soloFresado(500, 250_000)
 	},
 	rest_modelo_resina: { impreso: soloFresado(10, 5_000) },
 	rest_completo_arc: { impreso: soloFresado(500, 250_000) },
@@ -154,7 +196,7 @@ const LEGACY: Record<string, LegacyMap> = {
 	rest_veneer: { tipo: 'rest_carilla', material: 'zirconio' },
 	zirconio_unidad_puente: { tipo: 'rest_puente', material: 'zirconio' },
 	zirconio_pilar_personalizado: { tipo: 'rest_pilar', material: 'zirconio' },
-	zirconio_estructura_sin_tibases: { tipo: 'rest_estructura_zirconio', material: 'zirconio' },
+	zirconio_estructura_sin_tibases: { tipo: 'rest_estructura', material: 'zirconio' },
 	silicato_corona: { tipo: 'rest_corona', material: 'disilicato' },
 	silicato_carilla: { tipo: 'rest_carilla', material: 'disilicato' },
 	silicato_veneer: { tipo: 'rest_carilla', material: 'disilicato' },
@@ -186,8 +228,13 @@ export function isRestauracionTipoTrabajo(tipoTrabajo: string): boolean {
 	return tipoTrabajo in LEGACY;
 }
 
+const TIPO_TRABAJO_ALIASES: Record<string, string> = {
+	rest_estructura_zirconio: 'rest_estructura'
+};
+
 export function resolveRestauracionTipoTrabajo(tipoTrabajo: string): string {
-	return LEGACY[tipoTrabajo]?.tipo ?? tipoTrabajo;
+	if (LEGACY[tipoTrabajo]) return LEGACY[tipoTrabajo].tipo;
+	return TIPO_TRABAJO_ALIASES[tipoTrabajo] ?? tipoTrabajo;
 }
 
 export function resolveRestauracionMaterial(
@@ -245,7 +292,9 @@ export function normalizeRestauracionItem(input: {
 	return { tipo_trabajo: tipo, material, corona_sobre_implante: sobreImplante };
 }
 
-export function getMaterialesRestauracion(tipoTrabajo: string): MaterialRestauracion[] {
+export function getMaterialesRestauracion(tipoTrabajo: string): string[] {
+	const fromCatalog = getTreatmentMaterials(tipoTrabajo).map((m) => m.key);
+	if (fromCatalog.length > 0) return fromCatalog;
 	const tipo = resolveRestauracionTipoTrabajo(tipoTrabajo);
 	const row = getMatrixRow(tipo);
 	if (!row) return ['zirconio', 'disilicato'];
@@ -262,10 +311,11 @@ export function getRestauracionPrecio(
 	if (!mat) return null;
 	const base = getMatrixRow(tipo)?.[mat];
 	if (!base) return null;
+	const normalized = normalizeRestauracionPrecio(base);
 	const sobreImplante =
-		tipo === 'rest_corona' &&
+		isSobreImplanteTreatment(tipoTrabajo) &&
 		resolveCoronaSobreImplante(tipoTrabajo, opciones?.corona_sobre_implante);
-	return sobreImplante ? withCoronaImplante(base) : base;
+	return sobreImplante ? withCoronaImplante(normalized) : normalized;
 }
 
 /** Sin material por defecto: el usuario debe elegir en el paso «Material». */

@@ -11,19 +11,23 @@ import {
 	getArcadaScopePriceMultiplier,
 	isArcadaScopeTreatment
 } from './arcada-scope';
+import { isSobreImplanteTreatment } from './sobre-implante';
+import { treatmentHasMaterials, getTreatmentMaterialPriceUsd, findTreatmentMaterialLabelGlobally, getTreatmentMaterialLabel } from './treatment-materials';
 import {
 	getMaterialRestauracionLabel,
+	getRestauracionPrecioUnitarioUsd,
 	isRestauracionTipoTrabajo,
 	normalizeRestauracionItem
 } from './restoration-pricing';
-import {
-	getPrecioDiseno,
+import { getPrecioDiseno,
 	getPrecioDisenoCrc,
 	getPrecioFresado,
 	getPrecioFresadoCrc,
 	getTipoTrabajoLabel,
 	getTiposTrabajo
 } from './treatments';
+import { getCatalogSnapshot } from './catalog-cache';
+import { PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD } from './treatment-catalog';
 
 export {
 	GUIA_QUIRURGICA_VALUE,
@@ -42,6 +46,17 @@ export {
 	isArcadaScopeTreatment,
 	type ArcadaScope
 } from './arcada-scope';
+
+export { isSobreImplanteTreatment } from './sobre-implante';
+
+export {
+	getTreatmentMaterialLabel,
+	getTreatmentMaterialPriceUsd,
+	getTreatmentMaterials,
+	slugifyMaterialKey,
+	treatmentHasMaterials,
+	type TreatmentMaterialOption
+} from './treatment-materials';
 
 export { treatmentRequiresVitaColor } from './vita-color';
 
@@ -62,7 +77,7 @@ export function getCaseItemTipoLabel(item: {
 		? rest.tipo_trabajo
 		: normalized.tipo_trabajo;
 	let base = getTipoTrabajoLabel(tipo, rest.material ?? item.material);
-	if (rest.corona_sobre_implante && tipo === 'rest_corona') {
+	if (rest.corona_sobre_implante && isSobreImplanteTreatment(tipo)) {
 		base = `${base} · sobre implante`;
 	}
 	const implantes = item.implantes_guia ?? normalized.implantes_guia;
@@ -89,6 +104,7 @@ export {
 	getDefaultMaterialRestauracion,
 	getMaterialRestauracionLabel,
 	getMaterialesRestauracion,
+	getRestauracionPrecioUnitarioUsd,
 	isCoronaRestauracion,
 	isRestauracionTipoTrabajo
 } from './restoration-pricing';
@@ -167,15 +183,20 @@ export const ESTADOS: { value: LabCaseEstado | 'todos'; label: string }[] = [
 	{ value: 'pendiente', label: 'Pendiente' },
 	{ value: 'en_diseño', label: 'En Diseño' },
 	{ value: 'diseñado', label: 'Diseñado' },
+	{ value: 'en_prueba', label: 'En prueba' },
 	{ value: 'fresado', label: 'Fresado' },
 	{ value: 'horneando', label: 'Horneando' },
 	{ value: 'maquillando', label: 'Maquillando' },
-	{ value: 'en_prueba', label: 'En prueba' },
 	{ value: 'finalizado', label: 'Finalizado' }
 ];
 
-export function getMaterialLabel(value: string | null): string {
+export function getMaterialLabel(value: string | null, treatmentSlug?: string | null): string {
 	if (!value) return '—';
+	if (treatmentSlug) {
+		return getTreatmentMaterialLabel(treatmentSlug, value);
+	}
+	const global = findTreatmentMaterialLabelGlobally(value);
+	if (global) return global;
 	const rest = getMaterialRestauracionLabel(value);
 	if (rest !== '—' && (value === 'zirconio' || value === 'disilicato' || value === 'impreso')) {
 		return rest;
@@ -209,8 +230,25 @@ export function calcularCostoItem(input: {
 
 	const p = Math.max(1, input.piezas);
 	let porPieza = 0;
-	if (input.incluye_diseno) porPieza += getPrecioDiseno(tipo, material, restOpts);
-	if (input.incluye_fresado) porPieza += getPrecioFresado(tipo, material, restOpts);
+
+	if (treatmentHasMaterials(tipo) && material) {
+		porPieza = getTreatmentMaterialPriceUsd(tipo, material, restOpts);
+	} else if (isRestauracionTipoTrabajo(input.tipo_trabajo) || isRestauracionTipoTrabajo(tipo)) {
+		porPieza = getRestauracionPrecioUnitarioUsd(tipo, material, restOpts);
+	} else {
+		if (input.incluye_diseno) porPieza += getPrecioDiseno(tipo, material, restOpts);
+		if (input.incluye_fresado) porPieza += getPrecioFresado(tipo, material, restOpts);
+		if (
+			rest.corona_sobre_implante &&
+			isSobreImplanteTreatment(input.tipo_trabajo)
+		) {
+			const addon = getCatalogSnapshot().addons.get('corona_sobre_implante');
+			const addonUsd =
+				(addon?.precio_diseno_usd ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD) +
+				(addon?.precio_fresado_usd ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD);
+			porPieza += addonUsd;
+		}
+	}
 	if (isArcadaScopeTreatment(tipo)) {
 		porPieza *= getArcadaScopePriceMultiplier(input.alcance_arcada ?? 'ambas');
 	}
@@ -262,8 +300,8 @@ export function getInvoiceEstadoClass(estado: string): string {
 export const ESTADOS_EN_PROCESO: LabCaseEstado[] = [
 	'en_diseño',
 	'diseñado',
+	'en_prueba',
 	'fresado',
 	'horneando',
-	'maquillando',
-	'en_prueba'
+	'maquillando'
 ];

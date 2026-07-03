@@ -205,6 +205,46 @@
 		{/if}
 	</section>
 
+	<section class="dash-panel dash-panel--deliveries">
+		<div class="dash-panel__header-row">
+			<div>
+				<h3 class="dash-panel__title">Próximas entregas</h3>
+				<p class="dash-panel__subtitle">Compromisos más urgentes</p>
+			</div>
+			<a href="/admin/calendario" class="btn-secondary-pill">Ver calendario</a>
+		</div>
+		{#if upcomingDeliveries.length === 0}
+			<p class="type-caption">No hay entregas pendientes.</p>
+		{:else}
+			<ul class="dash-delivery-preview">
+				{#each upcomingDeliveries as caso}
+					<li>
+						<button
+							type="button"
+							class="dash-delivery-preview__item"
+							onclick={() => goto(`/admin/casos/${caso.id}`)}
+						>
+							<div class="dash-delivery-preview__main">
+								<span class="dash-delivery-preview__case">{caso.case_number}</span>
+								<span class="dash-delivery-preview__patient">{caso.paciente_name}</span>
+								<span class="type-fine-print">{caso.client_name}</span>
+							</div>
+							<div class="dash-delivery-preview__aside">
+								<span class={deliveryUrgencyClass(caso.fecha_entrega, caso.estado)}>
+									{formatDeliveryCountdown(caso.fecha_entrega, caso.estado)}
+								</span>
+								<span class="type-caption">{formatDateTime(caso.fecha_entrega)}</span>
+								<span class={getEstadoBadgeClass(caso.estado)}>
+									{getEstadoLabel(caso.estado)}
+								</span>
+							</div>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
+
 	<section class="dash-insights" aria-labelledby="dash-insights-title">
 		<header class="dash-insights__head">
 			<div>
@@ -213,7 +253,6 @@
 					{deliveriesWeek} entrega{deliveriesWeek === 1 ? '' : 's'} en los próximos 7 días
 				</p>
 			</div>
-			<a href="/admin/calendario" class="btn-secondary-pill">Ver calendario</a>
 		</header>
 
 		<div class="dash-chart-grid dash-chart-grid--home">
@@ -268,76 +307,35 @@
 			</div>
 		</div>
 
-		<div class="dash-two-col dash-two-col--home">
-			<div class="dash-panel">
-				<div class="dash-panel__header-row">
-					<div>
-						<h3 class="dash-panel__title">Próximas entregas</h3>
-						<p class="dash-panel__subtitle">Compromisos más urgentes</p>
-					</div>
-				</div>
-				{#if upcomingDeliveries.length === 0}
-					<p class="type-caption">No hay entregas pendientes.</p>
-				{:else}
-					<ul class="dash-delivery-preview">
-						{#each upcomingDeliveries as caso}
-							<li>
-								<button
-									type="button"
-									class="dash-delivery-preview__item"
-									onclick={() => goto(`/admin/casos/${caso.id}`)}
-								>
-									<div class="dash-delivery-preview__main">
-										<span class="dash-delivery-preview__case">{caso.case_number}</span>
-										<span class="dash-delivery-preview__patient">{caso.paciente_name}</span>
-										<span class="type-fine-print">{caso.client_name}</span>
-									</div>
-									<div class="dash-delivery-preview__aside">
-										<span class={deliveryUrgencyClass(caso.fecha_entrega, caso.estado)}>
-											{formatDeliveryCountdown(caso.fecha_entrega, caso.estado)}
-										</span>
-										<span class="type-caption">{formatDateTime(caso.fecha_entrega)}</span>
-										<span class={getEstadoBadgeClass(caso.estado)}>
-											{getEstadoLabel(caso.estado)}
-										</span>
-									</div>
-								</button>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</div>
-
-			<div class="dash-panel">
-				<h3 class="dash-panel__title">
-					{showFinancial ? 'Clientes con más volumen' : 'Clientes con más casos'}
-				</h3>
-				<p class="dash-panel__subtitle">
-					{showFinancial ? 'Por facturación acumulada' : 'Por cantidad de casos enviados'}
-				</p>
-				{#if rankings.length === 0}
-					<p class="type-caption">Sin datos</p>
-				{:else}
-					<ol class="admin-ranking">
-						{#each rankings as row, i}
-							<li class="admin-ranking__item">
-								<span class="admin-ranking__pos">{i + 1}</span>
-								<div class="admin-ranking__body">
-									<a href="/admin/clientes/{row.client.id}" class="text-link type-body-strong">
-										{row.client.nombre}
-									</a>
-									<p class="type-fine-print">
-										{row.totalCasos} casos · {row.totalPiezas} piezas
-									</p>
-								</div>
-								{#if showFinancial}
-									<span class="type-body-strong">{formatCurrency(row.totalGastado)}</span>
-								{/if}
-							</li>
-						{/each}
-					</ol>
-				{/if}
-			</div>
+		<div class="dash-panel">
+			<h3 class="dash-panel__title">
+				{showFinancial ? 'Clientes con más volumen' : 'Clientes con más casos'}
+			</h3>
+			<p class="dash-panel__subtitle">
+				{showFinancial ? 'Por facturación acumulada' : 'Por cantidad de casos enviados'}
+			</p>
+			{#if rankings.length === 0}
+				<p class="type-caption">Sin datos</p>
+			{:else}
+				<ol class="admin-ranking">
+					{#each rankings as row, i}
+						<li class="admin-ranking__item">
+							<span class="admin-ranking__pos">{i + 1}</span>
+							<div class="admin-ranking__body">
+								<a href="/admin/clientes/{row.client.id}" class="text-link type-body-strong">
+									{row.client.nombre}
+								</a>
+								<p class="type-fine-print">
+									{row.totalCasos} casos · {row.totalPiezas} piezas
+								</p>
+							</div>
+							{#if showFinancial}
+								<span class="type-body-strong">{formatCurrency(row.totalGastado)}</span>
+							{/if}
+						</li>
+					{/each}
+				</ol>
+			{/if}
 		</div>
 	</section>
 </div>

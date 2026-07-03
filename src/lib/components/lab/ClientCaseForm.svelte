@@ -14,13 +14,13 @@
 		calcularCostoItem,
 		getMaterialesRestauracion,
 		isArcadaScopeTreatment,
-		isCoronaRestauracion,
+		isSobreImplanteTreatment,
 		isGuiaQuirurgica,
 		isRestauracionTipoTrabajo,
+		treatmentHasMaterials,
 		treatmentRequiresTeeth,
 		treatmentRequiresVitaColor
 	} from '$lib/lab/constants';
-	import type { MaterialRestauracion } from '$lib/lab/restoration-pricing';
 	import { getTreatmentByValue, type TreatmentCategory } from '$lib/lab/treatments';
 	import {
 		getCachedDoctors,
@@ -111,9 +111,14 @@
 		return treatmentRequiresTeeth(cat ?? '');
 	}
 
+	function treatmentNeedsMaterial(row: DraftItem): boolean {
+		return row.tipo_trabajo ? treatmentHasMaterials(row.tipo_trabajo) : false;
+	}
+
 	function isTreatmentPickerComplete(row: DraftItem): boolean {
 		if (!row.categoria_seleccionada || !row.tipo_trabajo) return false;
 		if (isGuiaRow(row)) return true;
+		if (treatmentNeedsMaterial(row) && !row.material) return false;
 		if (isRestauracionRow(row)) {
 			const mats = getMaterialesRestauracion(row.tipo_trabajo);
 			if (mats.length > 0 && !row.material) return false;
@@ -157,7 +162,7 @@
 		});
 	}
 
-	function onMaterialChange(key: string, material: MaterialRestauracion) {
+	function onMaterialChange(key: string, material: string) {
 		patchRow(key, { material });
 	}
 
@@ -184,8 +189,9 @@
 			return !!row.alcance_arcada && (services.incluye_diseno || services.incluye_fresado);
 		}
 		if (isRestauracionRow(row) && !row.material) return false;
+		if (treatmentNeedsMaterial(row) && !row.material) return false;
 		if (
-			isCoronaRestauracion(row.tipo_trabajo) &&
+			isSobreImplanteTreatment(row.tipo_trabajo) &&
 			row.corona_sobre_implante &&
 			!row.implante_marca.trim()
 		) {
@@ -300,7 +306,7 @@
 				}
 			}
 			if (
-				isCoronaRestauracion(row.tipo_trabajo) &&
+				isSobreImplanteTreatment(row.tipo_trabajo) &&
 				row.corona_sobre_implante &&
 				!row.implante_marca.trim()
 			) {
@@ -322,11 +328,11 @@
 				incluye_fresado: services.incluye_fresado,
 				implantes_guia: isGuiaRow(row) ? row.implantes_guia : null,
 				alcance_arcada: isArcadaScopeRow(row) ? row.alcance_arcada : null,
-				corona_sobre_implante: isCoronaRestauracion(row.tipo_trabajo)
+				corona_sobre_implante: isSobreImplanteTreatment(row.tipo_trabajo)
 					? row.corona_sobre_implante
 					: false,
 				implante_marca:
-					isCoronaRestauracion(row.tipo_trabajo) && row.corona_sobre_implante
+					isSobreImplanteTreatment(row.tipo_trabajo) && row.corona_sobre_implante
 						? row.implante_marca.trim()
 						: null,
 				implante_plataforma: null,
@@ -500,7 +506,7 @@
 								/>
 							</div>
 
-							{#if isTreatmentPickerComplete(row) && isCoronaRestauracion(row.tipo_trabajo) && row.corona_sobre_implante}
+							{#if isTreatmentPickerComplete(row) && isSobreImplanteTreatment(row.tipo_trabajo) && row.corona_sobre_implante}
 								<ImplantCrownFields id="implante-{row.key}" bind:notas={row.implante_marca} />
 							{/if}
 

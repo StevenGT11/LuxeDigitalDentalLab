@@ -5,6 +5,10 @@ import {
 	type CatalogSnapshot
 } from './catalog-cache';
 import type { MaterialRestauracion, RestauracionPrecio } from './restoration-pricing';
+import {
+	materialOptionToDbPrecio,
+	type TreatmentMaterialOption
+} from './treatment-materials';
 import type { GuiaPrecioTier, ImplantesGuia } from './surgical-guide';
 import {
 	type LabTreatment,
@@ -25,11 +29,13 @@ type DbTreatment = {
 	precio_crc_fresado: number;
 	activo: boolean;
 	por_arcadas: boolean;
+	sobre_implante: boolean;
 };
 
 type DbRestorationRow = {
 	treatment_id: string;
-	material: MaterialRestauracion;
+	material: string;
+	material_label: string;
 	precio_diseno: number;
 	precio_fresado: number;
 	precio_crc_diseno: number;
@@ -56,7 +62,8 @@ function mapTreatment(row: DbTreatment): LabTreatment {
 		precio_crc_fresado,
 		precio_crc: precio_crc_diseno + precio_crc_fresado,
 		activo: row.activo,
-		por_arcadas: row.por_arcadas === true
+		por_arcadas: row.por_arcadas === true,
+		sobre_implante: row.sobre_implante === true
 	};
 }
 
@@ -73,7 +80,7 @@ export async function fetchCatalogFromDb(): Promise<CatalogSnapshot> {
 		supabase
 			.from('treatments')
 			.select(
-				'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas'
+				'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas, sobre_implante'
 			)
 			.order('categoria')
 			.order('sort_order')
@@ -81,7 +88,7 @@ export async function fetchCatalogFromDb(): Promise<CatalogSnapshot> {
 		supabase
 			.from('restoration_prices')
 			.select(
-				'treatment_id, material, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, treatments(slug)'
+				'treatment_id, material, material_label, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, treatments(slug)'
 			),
 		supabase.from('surgical_guide_prices').select('implantes, precio_usd, precio_crc').order('implantes'),
 		supabase
@@ -98,18 +105,38 @@ export async function fetchCatalogFromDb(): Promise<CatalogSnapshot> {
 
 	const treatments = (tRes.data as DbTreatment[]).map(mapTreatment);
 
+	const treatmentMaterials = new Map<string, TreatmentMaterialOption[]>();
 	const restorationMatrix = new Map<string, Partial<Record<MaterialRestauracion, RestauracionPrecio>>>();
 	for (const row of (rRes.data ?? []) as DbRestorationRow[]) {
 		const slug = treatmentSlugFromJoin(row.treatments);
 		if (!slug) continue;
-		const cur = restorationMatrix.get(slug) ?? {};
-		cur[row.material] = {
-			precio_diseno: num(row.precio_diseno),
-			precio_fresado: num(row.precio_fresado),
-			precio_crc_diseno: num(row.precio_crc_diseno),
-			precio_crc_fresado: num(row.precio_crc_fresado)
+		const option: TreatmentMaterialOption = {
+			key: row.material,
+			label: row.material_label?.trim() || row.material,
+			precio_usd: num(row.precio_fresado) || num(row.precio_diseno),
+			precio_crc: num(row.precio_crc_fresado) || num(row.precio_crc_diseno)
 		};
-		restorationMatrix.set(slug, cur);
+		const list = treatmentMaterials.get(slug) ?? [];
+		list.push(option);
+		treatmentMaterials.set(slug, list);
+
+		const preset = row.material as MaterialRestauracion;
+		if (
+			preset === 'zirconio' ||
+			preset === 'disilicato' ||
+			preset === 'impreso' ||
+			preset === 'resina_larga_duracion' ||
+			preset === 'resina_provisional'
+		) {
+			const cur = restorationMatrix.get(slug) ?? {};
+			cur[preset] = {
+				precio_diseno: num(row.precio_diseno),
+				precio_fresado: num(row.precio_fresado),
+				precio_crc_diseno: num(row.precio_crc_diseno),
+				precio_crc_fresado: num(row.precio_crc_fresado)
+			};
+			restorationMatrix.set(slug, cur);
+		}
 	}
 
 	const guidePrices = {} as Record<ImplantesGuia, GuiaPrecioTier>;
@@ -130,7 +157,7 @@ export async function fetchCatalogFromDb(): Promise<CatalogSnapshot> {
 		precio_fresado_crc: num(row.precio_fresado_crc)
 	}));
 
-	return applyCatalogToSnapshot({ treatments, restorationMatrix, guidePrices, addons });
+	return applyCatalogToSnapshot({ treatments, restorationMatrix, treatmentMaterials, guidePrices, addons });
 }
 
 export async function hydrateTreatmentsCatalog(): Promise<CatalogSnapshot> {
@@ -146,6 +173,7 @@ export interface UpsertTreatmentInput {
 	precio_crc_fresado?: number;
 	activo?: boolean;
 	por_arcadas?: boolean;
+	sobre_implante?: boolean;
 }
 
 export async function createTreatmentInDb(
@@ -167,15 +195,17 @@ export async function createTreatmentInDb(
 			label,
 			categoria: input.categoria ?? 'otros',
 			sort_order: 999,
-			precio_diseno: Math.max(0, input.precio_diseno),
+			precio_diseno:
+				input.categoria === 'restauracion' ? 0 : Math.max(0, input.precio_diseno),
 			precio_fresado: Math.max(0, input.precio_fresado),
-			precio_crc_diseno,
+			precio_crc_diseno: input.categoria === 'restauracion' ? 0 : precio_crc_diseno,
 			precio_crc_fresado,
 			activo: input.activo !== false,
-			por_arcadas: input.por_arcadas === true
+			por_arcadas: input.por_arcadas === true,
+			sobre_implante: input.sobre_implante === true
 		})
 		.select(
-			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas'
+			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas, sobre_implante'
 		)
 		.single();
 
@@ -197,6 +227,7 @@ export async function updateTreatmentInDb(
 			| 'precio_crc_fresado'
 			| 'activo'
 			| 'por_arcadas'
+			| 'sobre_implante'
 		>
 	>
 ): Promise<LabTreatment> {
@@ -211,13 +242,14 @@ export async function updateTreatmentInDb(
 	if (patch.precio_crc_fresado !== undefined) payload.precio_crc_fresado = Math.max(0, patch.precio_crc_fresado);
 	if (patch.activo !== undefined) payload.activo = patch.activo;
 	if (patch.por_arcadas !== undefined) payload.por_arcadas = patch.por_arcadas;
+	if (patch.sobre_implante !== undefined) payload.sobre_implante = patch.sobre_implante;
 
 	const { data, error } = await supabase
 		.from('treatments')
 		.update(payload)
 		.eq('id', id)
 		.select(
-			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas'
+			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas, sobre_implante'
 		)
 		.single();
 
@@ -228,6 +260,69 @@ export async function updateTreatmentInDb(
 
 export async function setTreatmentActiveInDb(id: string, activo: boolean): Promise<LabTreatment> {
 	return updateTreatmentInDb(id, { activo });
+}
+
+export async function deleteTreatmentInDb(id: string): Promise<void> {
+	const supabase = createSupabaseBrowserClient();
+	const { error } = await supabase.from('treatments').delete().eq('id', id);
+	if (error) throw error;
+	await fetchCatalogFromDb();
+}
+
+export async function upsertTreatmentMaterialInDb(
+	treatmentId: string,
+	option: TreatmentMaterialOption
+): Promise<void> {
+	const supabase = createSupabaseBrowserClient();
+	const prices = materialOptionToDbPrecio(option);
+	const { error } = await supabase.from('restoration_prices').upsert(
+		{
+			treatment_id: treatmentId,
+			material: option.key,
+			material_label: option.label.trim(),
+			...prices
+		},
+		{ onConflict: 'treatment_id,material' }
+	);
+	if (error) throw error;
+	await fetchCatalogFromDb();
+}
+
+/** @deprecated Use upsertTreatmentMaterialInDb */
+export async function upsertRestorationPriceInDb(
+	treatmentId: string,
+	material: string,
+	prices: RestauracionPrecio,
+	label?: string
+): Promise<void> {
+	await upsertTreatmentMaterialInDb(treatmentId, {
+		key: material,
+		label: label ?? material,
+		precio_usd: prices.precio_fresado || prices.precio_diseno,
+		precio_crc: prices.precio_crc_fresado || prices.precio_crc_diseno
+	});
+}
+
+export async function deleteTreatmentMaterialInDb(
+	treatmentId: string,
+	materialKey: string
+): Promise<void> {
+	const supabase = createSupabaseBrowserClient();
+	const { error } = await supabase
+		.from('restoration_prices')
+		.delete()
+		.eq('treatment_id', treatmentId)
+		.eq('material', materialKey);
+	if (error) throw error;
+	await fetchCatalogFromDb();
+}
+
+/** @deprecated Use deleteTreatmentMaterialInDb */
+export async function deleteRestorationPriceInDb(
+	treatmentId: string,
+	material: string
+): Promise<void> {
+	return deleteTreatmentMaterialInDb(treatmentId, material);
 }
 
 export async function updateSurgicalGuidePriceInDb(

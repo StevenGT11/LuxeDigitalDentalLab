@@ -1,17 +1,13 @@
 <script lang="ts">
 	import {
 		getActiveTreatmentsByCategory,
-		getMaterialesRestauracion,
 		getTreatmentByValue,
+		getTreatmentMaterials,
 		TREATMENT_CATEGORY_LABELS,
 		type TreatmentCategory
 	} from '$lib/lab/treatments';
-	import {
-		getMaterialRestauracionLabel,
-		isCoronaRestauracion,
-		MATERIALES_RESTAURACION,
-		type MaterialRestauracion
-	} from '$lib/lab/restoration-pricing';
+	import { getTreatmentMaterialLabel, treatmentHasMaterials } from '$lib/lab/treatment-materials';
+	import { isSobreImplanteTreatment } from '$lib/lab/sobre-implante';
 
 	type PickerStep = 'categoria' | 'tratamiento' | 'material';
 
@@ -23,7 +19,7 @@
 		coronaSobreImplante?: boolean;
 		oncategorychange?: (categoria: TreatmentCategory) => void;
 		ontreatmentchange?: (value: string) => void;
-		onmaterialchange?: (material: MaterialRestauracion) => void;
+		onmaterialchange?: (material: string) => void;
 		oncoronaimplantechange?: (activo: boolean) => void;
 	}
 
@@ -58,24 +54,22 @@
 	);
 
 	const materialLabel = $derived(
-		selectedMaterial ? getMaterialRestauracionLabel(selectedMaterial) : ''
+		selectedValue && selectedMaterial
+			? getTreatmentMaterialLabel(selectedValue, selectedMaterial)
+			: ''
 	);
 
 	const optionsInCategory = $derived(
 		catalog.find((g) => g.categoria === activeCategory)?.items ?? []
 	);
 
-	const isRestauracion = $derived(activeCategory === 'restauracion');
-
 	const materialesDisponibles = $derived(
-		selectedValue ? getMaterialesRestauracion(selectedValue) : []
+		selectedValue ? getTreatmentMaterials(selectedValue) : []
 	);
 
-	const materialLabels = $derived(
-		MATERIALES_RESTAURACION.filter((m) => materialesDisponibles.includes(m.value))
+	const needsMaterial = $derived(
+		selectedValue ? treatmentHasMaterials(selectedValue) && materialesDisponibles.length > 0 : false
 	);
-
-	const needsMaterial = $derived(isRestauracion && materialLabels.length > 0);
 
 	const autoStep = $derived.by((): PickerStep | null => {
 		if (!activeCategory) return 'categoria';
@@ -86,12 +80,13 @@
 
 	const openStep = $derived(manualStep ?? autoStep);
 
-	const showCoronaAddon = $derived(
-		isRestauracion &&
-			isCoronaRestauracion(selectedValue) &&
-			!!selectedMaterial &&
-			openStep === null
-	);
+	const showSobreImplanteAddon = $derived.by(() => {
+		if (!selectedValue || !isSobreImplanteTreatment(selectedValue) || openStep !== null) {
+			return false;
+		}
+		if (needsMaterial) return !!selectedMaterial;
+		return true;
+	});
 
 	function selectCategory(categoria: TreatmentCategory) {
 		manualStep = null;
@@ -103,7 +98,7 @@
 		ontreatmentchange?.(value);
 	}
 
-	function selectMaterial(material: MaterialRestauracion) {
+	function selectMaterial(material: string) {
 		manualStep = null;
 		onmaterialchange?.(material);
 	}
@@ -193,14 +188,14 @@
 	{#if openStep === 'material'}
 		<fieldset class="treatment-picker__fieldset">
 			<legend class="field-label">Material *</legend>
-			<div class="treatment-picker__categories" role="group" aria-label="Material de restauración">
-				{#each materialLabels as m (m.value)}
+			<div class="treatment-picker__categories" role="group" aria-label="Material">
+				{#each materialesDisponibles as m (m.key)}
 					<button
 						type="button"
 						class="treatment-picker__cat-btn"
-						class:is-active={selectedMaterial === m.value}
-						aria-pressed={selectedMaterial === m.value}
-						onclick={() => selectMaterial(m.value)}
+						class:is-active={selectedMaterial === m.key}
+						aria-pressed={selectedMaterial === m.key}
+						onclick={() => selectMaterial(m.key)}
 					>
 						{m.label}
 					</button>
@@ -209,16 +204,18 @@
 		</fieldset>
 	{/if}
 
-	{#if showCoronaAddon}
-		<div class="treatment-picker__addon-inline">
-			<label class="service-check">
-				<input
-					type="checkbox"
-					checked={coronaSobreImplante}
-					onchange={(e) => oncoronaimplantechange?.((e.currentTarget as HTMLInputElement).checked)}
-				/>
-				<span>Corona sobre implante</span>
-			</label>
+	{#if showSobreImplanteAddon}
+		<div class="treatment-picker__implante-addons">
+			<span class="field-label">¿Este trabajo va sobre implante?</span>
+			<button
+				type="button"
+				class="treatment-picker__implante-toggle"
+				class:is-active={coronaSobreImplante}
+				aria-pressed={coronaSobreImplante}
+				onclick={() => oncoronaimplantechange?.(!coronaSobreImplante)}
+			>
+				Sobre implante
+			</button>
 		</div>
 	{/if}
 

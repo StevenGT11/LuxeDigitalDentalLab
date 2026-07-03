@@ -11,10 +11,13 @@ import {
 	getMaterialRestauracionLabel,
 	getMaterialesRestauracion,
 	getRestauracionPrecio,
+	getRestauracionPrecioUnitarioUsd,
 	isRestauracionTipoTrabajo,
 	normalizeRestauracionItem,
+	normalizeRestauracionPrecio,
 	resolveRestauracionTipoTrabajo
 } from './restoration-pricing';
+import { isSobreImplanteTreatment } from './sobre-implante';
 import {
 	DEFAULT_TREATMENTS,
 	isDeprecatedTreatment,
@@ -36,8 +39,10 @@ export {
 	getDefaultMaterialRestauracion,
 	getMaterialRestauracionLabel,
 	getMaterialesRestauracion,
+	getRestauracionPrecioUnitarioUsd,
 	isRestauracionTipoTrabajo,
 	normalizeRestauracionItem,
+	normalizeRestauracionPrecio,
 	resolveRestauracionTipoTrabajo
 } from './restoration-pricing';
 
@@ -121,7 +126,7 @@ export function getTipoTrabajoLabel(
 	const mat = material ? getMaterialRestauracionLabel(material) : '';
 	const parts = [TREATMENT_CATEGORY_LABELS[t.categoria], t.label];
 	if (mat && mat !== '—') parts.push(mat);
-	if (opciones?.corona_sobre_implante && resolved === 'rest_corona') {
+	if (opciones?.corona_sobre_implante && isSobreImplanteTreatment(resolved)) {
 		parts.push('sobre implante');
 	}
 	return parts.join(' · ');
@@ -133,8 +138,7 @@ export function getPrecioDiseno(
 	opciones?: RestauracionPrecioOpciones
 ): number {
 	if (isRestauracionTipoTrabajo(tipoTrabajo)) {
-		const p = getRestauracionPrecio(tipoTrabajo, material, opciones);
-		if (p) return p.precio_diseno;
+		return 0;
 	}
 	const resolved = resolveRestauracionTipoTrabajo(tipoTrabajo);
 	const t = getTreatmentByValue(resolved) ?? getTreatmentByValue(tipoTrabajo);
@@ -184,7 +188,19 @@ export function getPrecioFresadoCrc(
 export type { UpsertTreatmentInput } from './treatments-db';
 export {
 	createTreatmentInDb as createTreatment,
+	deleteRestorationPriceInDb as deleteRestorationPrice,
+	deleteTreatmentInDb as deleteTreatment,
+	deleteTreatmentMaterialInDb,
 	hydrateTreatmentsCatalog,
 	setTreatmentActiveInDb as setTreatmentActive,
-	updateTreatmentInDb as updateTreatment
+	updateTreatmentInDb as updateTreatment,
+	upsertRestorationPriceInDb as upsertRestorationPrice,
+	upsertTreatmentMaterialInDb
 } from './treatments-db';
+
+export {
+	getTreatmentMaterials,
+	slugifyMaterialKey,
+	treatmentHasMaterials,
+	type TreatmentMaterialOption
+} from './treatment-materials';

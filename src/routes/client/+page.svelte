@@ -44,7 +44,7 @@
 				c.paciente_name.toLowerCase().includes(q) ||
 				getTipoTrabajoLabel(c.tipo_trabajo).toLowerCase().includes(q) ||
 				getEstadoLabel(c.estado).toLowerCase().includes(q) ||
-				(c.material && getMaterialLabel(c.material).toLowerCase().includes(q)) ||
+				(c.material && getMaterialLabel(c.material, c.tipo_trabajo).toLowerCase().includes(q)) ||
 				(c.doctor_name?.toLowerCase().includes(q) ?? false) ||
 				(c.color?.toLowerCase().includes(q) ?? false) ||
 				c.items.some(
@@ -230,7 +230,7 @@
 								<td>
 									{getTipoTrabajoLabel(caso.tipo_trabajo)}
 									{#if caso.material}
-										<br /><span class="type-fine-print">{getMaterialLabel(caso.material)}</span>
+										<br /><span class="type-fine-print">{getMaterialLabel(caso.material, caso.tipo_trabajo)}</span>
 									{/if}
 								</td>
 								<td>{caso.piezas}</td>

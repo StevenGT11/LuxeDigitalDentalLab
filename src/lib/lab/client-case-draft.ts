@@ -2,8 +2,11 @@ import { formatImplantCrownDetails } from './implant-crown';
 import {
 	getPrecioDiseno,
 	getPrecioFresado,
+	getRestauracionPrecioUnitarioUsd,
 	isGuiaQuirurgica,
-	isRestauracionTipoTrabajo
+	isRestauracionTipoTrabajo,
+	treatmentHasMaterials,
+	getTreatmentMaterialPriceUsd
 } from './constants';
 import { getTreatmentByValue, type TreatmentCategory } from './treatments';
 import type { ArcadaScope } from './types';
@@ -95,10 +98,20 @@ export function resolveItemServices(row: {
 
 	if (categoria === 'restauracion' || isRestauracionTipoTrabajo(row.tipo_trabajo)) {
 		if (!material) return { incluye_diseno: false, incluye_fresado: false };
-		return {
-			incluye_diseno: getPrecioDiseno(row.tipo_trabajo, material, restOpts) > 0,
-			incluye_fresado: true
-		};
+		const unitario =
+			treatmentHasMaterials(row.tipo_trabajo)
+				? getTreatmentMaterialPriceUsd(row.tipo_trabajo, material, restOpts)
+				: getRestauracionPrecioUnitarioUsd(row.tipo_trabajo, material, restOpts);
+		return { incluye_diseno: false, incluye_fresado: unitario > 0 };
+	}
+
+	if (treatmentHasMaterials(row.tipo_trabajo)) {
+		if (!material) return { incluye_diseno: false, incluye_fresado: false };
+		const unitario = getTreatmentMaterialPriceUsd(row.tipo_trabajo, material, restOpts);
+		if (categoria === 'diseno') {
+			return { incluye_diseno: unitario > 0, incluye_fresado: false };
+		}
+		return { incluye_diseno: false, incluye_fresado: unitario > 0 };
 	}
 
 	if (categoria === 'diseno') {

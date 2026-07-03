@@ -28,6 +28,7 @@ export interface CatalogTreatment {
 	precio_crc: number;
 	activo: boolean;
 	por_arcadas?: boolean;
+	sobre_implante?: boolean;
 }
 
 export const TREATMENT_CATEGORY_ORDER: TreatmentCategory[] = [
@@ -59,7 +60,8 @@ function catalogEntry(
 	usd: number,
 	crc: number,
 	billing: Billing,
-	por_arcadas = false
+	por_arcadas = false,
+	sobre_implante = false
 ): CatalogTreatment {
 	const precio_diseno =
 		billing === 'diseno' || billing === 'ambos'
@@ -84,12 +86,18 @@ function catalogEntry(
 		precio_crc_fresado,
 		precio_crc,
 		activo: true,
-		por_arcadas
+		por_arcadas,
+		sobre_implante
 	};
 }
 
 /** Pieza estándar (tarifa zirconio de referencia en catálogo; el material ajusta el precio) */
-function catalogEntryRestauracion(id: string, value: string, label: string): CatalogTreatment {
+function catalogEntryRestauracion(
+	id: string,
+	value: string,
+	label: string,
+	sobre_implante = false
+): CatalogTreatment {
 	return catalogEntry(
 		id,
 		value,
@@ -97,7 +105,9 @@ function catalogEntryRestauracion(id: string, value: string, label: string): Cat
 		'restauracion',
 		PRECIO_FRESADO_RESTAURACION_USD,
 		PRECIO_FRESADO_RESTAURACION_CRC,
-		'ambos'
+		'ambos',
+		false,
+		sobre_implante
 	);
 }
 
@@ -134,7 +144,7 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 	),
 
 	// ——— RESTAURACIÓN (orden: corona → carilla → puente → inlay → onlay → …) ———
-	catalogEntryRestauracion('tr-rest-corona', 'rest_corona', 'Corona'),
+	catalogEntryRestauracion('tr-rest-corona', 'rest_corona', 'Corona', true),
 	catalogEntryRestauracion('tr-rest-carilla', 'rest_carilla', 'Carilla'),
 	catalogEntryRestauracion('tr-rest-puente', 'rest_puente', 'Puente'),
 	catalogEntryRestauracion('tr-rest-inlay', 'rest_inlay', 'Inlay'),
@@ -142,8 +152,8 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 	catalogEntryRestauracion('tr-rest-pilar', 'rest_pilar', 'Pilar personalizado'),
 	catalogEntryRestauracionSoloFresado(
 		'tr-rest-estructura',
-		'rest_estructura_zirconio',
-		'Estructura de zirconio (sin tibases)',
+		'rest_estructura',
+		'Estructura (sin tibases)',
 		1800,
 		900_000
 	),

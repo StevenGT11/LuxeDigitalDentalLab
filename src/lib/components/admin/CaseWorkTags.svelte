@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getCaseItemTipoLabel, getMaterialLabel } from '$lib/lab/constants';
+	import { getCaseItemTipoLabel, getMaterialLabel, isRestauracionTipoTrabajo } from '$lib/lab/constants';
 	import { formatImplantCrownDetails } from '$lib/lab/implant-crown';
 	import type { CaseItem } from '$lib/lab/types';
 	import { getMaterialColor, getTipoColor } from '$lib/lab/visual';
@@ -62,10 +62,10 @@
 					{getCaseItemTipoLabel(item)}
 					<span class="work-tag__qty">×{item.piezas}</span>
 				</span>
-				{#if item.incluye_diseno}
+				{#if !isRestauracionTipoTrabajo(item.tipo_trabajo) && item.incluye_diseno}
 					<span class="work-tag work-tag--servicio work-tag--diseno">Diseño</span>
 				{/if}
-				{#if item.incluye_fresado}
+				{#if !isRestauracionTipoTrabajo(item.tipo_trabajo) && item.incluye_fresado}
 					<span class="work-tag work-tag--servicio work-tag--fresado">Fresado</span>
 				{/if}
 				{#if item.corona_sobre_implante}
@@ -83,7 +83,7 @@
 					class="work-tag work-tag--material"
 					style="--tag-color: {getMaterialColor(item.material)}"
 				>
-					{getMaterialLabel(item.material)}
+					{getMaterialLabel(item.material, item.tipo_trabajo)}
 				</span>
 			{/if}
 			{#if item.color}

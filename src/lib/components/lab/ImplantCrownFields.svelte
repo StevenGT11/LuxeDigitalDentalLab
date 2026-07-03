@@ -8,7 +8,7 @@
 </script>
 
 <div class="implant-crown-panel">
-	<p class="implant-crown-panel__title">Corona sobre implante</p>
+	<p class="implant-crown-panel__title">Sobre implante</p>
 	<p class="implant-crown-panel__lead type-fine-print">
 		Indica la marca del implante y el tamaño de plataforma (ej. Straumann · 4.1 mm).
 	</p>
