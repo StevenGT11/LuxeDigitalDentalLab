@@ -14,12 +14,12 @@
 		calcularCostoItem,
 		getMaterialesRestauracion,
 		isArcadaScopeTreatment,
-		isSobreImplanteTreatment,
 		isGuiaQuirurgica,
 		isRestauracionTipoTrabajo,
+		isSobreImplanteTreatment,
 		treatmentHasMaterials,
-		treatmentRequiresTeeth,
-		treatmentRequiresVitaColor
+		treatmentRequiresVitaColor,
+		treatmentUsesOdontogram
 	} from '$lib/lab/constants';
 	import { getTreatmentByValue, type TreatmentCategory } from '$lib/lab/treatments';
 	import {
@@ -104,11 +104,8 @@
 
 	function itemShowsTeethPicker(row: DraftItem): boolean {
 		if (isGuiaRow(row)) return false;
-		if (row.tipo_trabajo && isArcadaScopeTreatment(row.tipo_trabajo)) return false;
-		const cat =
-			row.categoria_seleccionada ||
-			(row.tipo_trabajo ? getTreatmentByValue(row.tipo_trabajo)?.categoria : '');
-		return treatmentRequiresTeeth(cat ?? '');
+		if (!row.tipo_trabajo) return false;
+		return treatmentUsesOdontogram(row.tipo_trabajo);
 	}
 
 	function treatmentNeedsMaterial(row: DraftItem): boolean {
@@ -146,7 +143,8 @@
 			return;
 		}
 
-		const sinDientes = !treatmentRequiresTeeth(treatment.categoria) || treatment.por_arcadas === true;
+		const mode = treatment.modo_seleccion_piezas;
+		const sinDientes = mode !== 'odontograma';
 		const requiereVita = treatmentRequiresVitaColor(value);
 		patchRow(key, {
 			categoria_seleccionada: treatment.categoria,
@@ -158,7 +156,7 @@
 			corona_sobre_implante: false,
 			implante_marca: '',
 			implante_plataforma: '',
-			alcance_arcada: treatment.por_arcadas ? 'ambas' : null
+			alcance_arcada: mode === 'arcadas' ? 'ambas' : null
 		});
 	}
 

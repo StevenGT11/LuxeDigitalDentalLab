@@ -10,12 +10,8 @@ import {
 	type TreatmentMaterialOption
 } from './treatment-materials';
 import type { GuiaPrecioTier, ImplantesGuia } from './surgical-guide';
-import {
-	type LabTreatment,
-	type TreatmentCategory,
-	slugifyTreatmentLabel,
-	uniqueTreatmentSlug
-} from './treatments-core';
+import type { ToothSelectionMode } from './tooth-selection-mode';
+import { normalizeToothSelectionMode } from './tooth-selection-mode';
 
 type DbTreatment = {
 	id: string;
@@ -28,7 +24,8 @@ type DbTreatment = {
 	precio_crc_diseno: number;
 	precio_crc_fresado: number;
 	activo: boolean;
-	por_arcadas: boolean;
+	modo_seleccion_piezas?: string | null;
+	por_arcadas?: boolean | null;
 	sobre_implante: boolean;
 };
 
@@ -62,7 +59,10 @@ function mapTreatment(row: DbTreatment): LabTreatment {
 		precio_crc_fresado,
 		precio_crc: precio_crc_diseno + precio_crc_fresado,
 		activo: row.activo,
-		por_arcadas: row.por_arcadas === true,
+		modo_seleccion_piezas: normalizeToothSelectionMode(row.modo_seleccion_piezas, {
+			por_arcadas: row.por_arcadas === true,
+			categoria: row.categoria
+		}),
 		sobre_implante: row.sobre_implante === true
 	};
 }
@@ -80,7 +80,7 @@ export async function fetchCatalogFromDb(): Promise<CatalogSnapshot> {
 		supabase
 			.from('treatments')
 			.select(
-				'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas, sobre_implante'
+				'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante'
 			)
 			.order('categoria')
 			.order('sort_order')
@@ -172,7 +172,7 @@ export interface UpsertTreatmentInput {
 	precio_crc_diseno?: number;
 	precio_crc_fresado?: number;
 	activo?: boolean;
-	por_arcadas?: boolean;
+	modo_seleccion_piezas?: ToothSelectionMode;
 	sobre_implante?: boolean;
 }
 
@@ -201,11 +201,11 @@ export async function createTreatmentInDb(
 			precio_crc_diseno: input.categoria === 'restauracion' ? 0 : precio_crc_diseno,
 			precio_crc_fresado,
 			activo: input.activo !== false,
-			por_arcadas: input.por_arcadas === true,
+			modo_seleccion_piezas: input.modo_seleccion_piezas ?? 'ninguno',
 			sobre_implante: input.sobre_implante === true
 		})
 		.select(
-			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas, sobre_implante'
+			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante'
 		)
 		.single();
 
@@ -226,7 +226,7 @@ export async function updateTreatmentInDb(
 			| 'precio_crc_diseno'
 			| 'precio_crc_fresado'
 			| 'activo'
-			| 'por_arcadas'
+			| 'modo_seleccion_piezas'
 			| 'sobre_implante'
 		>
 	>
@@ -241,7 +241,7 @@ export async function updateTreatmentInDb(
 	if (patch.precio_crc_diseno !== undefined) payload.precio_crc_diseno = Math.max(0, patch.precio_crc_diseno);
 	if (patch.precio_crc_fresado !== undefined) payload.precio_crc_fresado = Math.max(0, patch.precio_crc_fresado);
 	if (patch.activo !== undefined) payload.activo = patch.activo;
-	if (patch.por_arcadas !== undefined) payload.por_arcadas = patch.por_arcadas;
+	if (patch.modo_seleccion_piezas !== undefined) payload.modo_seleccion_piezas = patch.modo_seleccion_piezas;
 	if (patch.sobre_implante !== undefined) payload.sobre_implante = patch.sobre_implante;
 
 	const { data, error } = await supabase
@@ -249,7 +249,7 @@ export async function updateTreatmentInDb(
 		.update(payload)
 		.eq('id', id)
 		.select(
-			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, por_arcadas, sobre_implante'
+			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante'
 		)
 		.single();
 

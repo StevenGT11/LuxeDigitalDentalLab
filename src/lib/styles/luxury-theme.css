@@ -438,25 +438,30 @@
 }
 
 .dash-sidebar__mark {
-	width: 36px;
-	height: 36px;
+	width: 44px;
+	height: 44px;
+	flex-shrink: 0;
 	border-radius: var(--dash-radius);
-	background: transparent;
-	color: var(--luxe-gold-accent);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border: 1px solid var(--luxe-gold-accent);
-	box-shadow: none;
-}
-
-.dash-sidebar__mark svg {
-	width: 18px;
-	height: 18px;
+	object-fit: contain;
 }
 
 .dash-sidebar__mark--client {
-	background: transparent;
+	/* reservado por compatibilidad */
+}
+
+.luxe-logo {
+	display: block;
+	object-fit: contain;
+	flex-shrink: 0;
+}
+
+.luxe-sign-in__logo {
+	margin-bottom: 0.25rem;
+}
+
+.luxe-sign-in__hero-logo {
+	margin-bottom: 1.25rem;
+	opacity: 0.95;
 }
 
 .dash-sidebar__name {
@@ -2862,6 +2867,46 @@
 
 .case-preview-modal {
 	max-width: 32rem;
+}
+
+.case-preview-modal--detail {
+	width: min(56rem, calc(100vw - 2rem));
+	max-width: none;
+	max-height: min(92dvh, 52rem);
+}
+
+.case-preview-modal--detail .case-preview-modal__body {
+	overflow-y: auto;
+	padding-right: 0.15rem;
+}
+
+.case-preview-modal__edited {
+	margin: 0.25rem 0 0;
+}
+
+.case-preview-modal__section {
+	display: flex;
+	flex-direction: column;
+	gap: 0.65rem;
+}
+
+.case-preview-modal__section-title {
+	margin: 0;
+	font-family: 'Outfit', sans-serif;
+	font-size: 0.75rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--dash-muted);
+}
+
+.case-preview-modal__table-wrap {
+	max-height: 16rem;
+	overflow: auto;
+}
+
+.case-preview-modal__meta--invoice {
+	margin-top: 0;
 }
 
 .case-preview-modal__body {

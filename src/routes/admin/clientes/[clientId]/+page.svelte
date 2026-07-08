@@ -8,6 +8,7 @@
 	import { Trash2 } from '@lucide/svelte';
 	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
 	import AdminClientDoctorsEditor from '$lib/components/admin/AdminClientDoctorsEditor.svelte';
+	import CasePreviewModal from '$lib/components/admin/CasePreviewModal.svelte';
 	import DoctorProductionSummary from '$lib/components/lab/DoctorProductionSummary.svelte';
 	import { getDoctorProductionStats } from '$lib/lab/analytics';
 	import { loadClientForAdmin } from '$lib/lab/client-session';
@@ -39,6 +40,7 @@
 	let deleting = $state(false);
 	let deleteError = $state('');
 	let createdNotice = $state(false);
+	let previewCase = $state<LabCase | null>(null);
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 	let canManage = $derived(canManageClients($page.data.staffRole ?? $page.data.profile?.role));
@@ -81,6 +83,14 @@
 		return caso.items
 			.map((i) => `${getTipoTrabajoLabel(i.tipo_trabajo)} ×${i.piezas}`)
 			.join(' · ');
+	}
+
+	function openCasePreview(caso: LabCase) {
+		previewCase = caso;
+	}
+
+	function closeCasePreview() {
+		previewCase = null;
 	}
 </script>
 
@@ -178,7 +188,9 @@
 										<span class={getEstadoBadgeClass(caso.estado)}>{getEstadoLabel(caso.estado)}</span>
 									</td>
 									<td>
-										<a href="/admin/casos/{caso.id}" class="text-link">Ver</a>
+										<button type="button" class="text-link" onclick={() => openCasePreview(caso)}>
+											Ver
+										</button>
 									</td>
 								</tr>
 							{/each}
@@ -309,6 +321,8 @@
 		</form>
 	</div>
 {/if}
+
+<CasePreviewModal caso={previewCase} detailed onClose={closeCasePreview} />
 
 <style>
 	.client-detail-header {

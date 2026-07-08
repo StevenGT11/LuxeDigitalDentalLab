@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { signOut } from '$lib/auth/auth';
 	import { canViewFinancial, getStaffPanelLabel } from '$lib/auth/roles';
+	import LuxeLogo from '$lib/components/ui/LuxeLogo.svelte';
 	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
 	import {
 		BarChart3,
@@ -66,17 +67,7 @@
 <div class="dash-layout">
 	<aside class="dash-sidebar">
 		<div class="dash-sidebar__brand">
-			<div class="dash-sidebar__mark" aria-hidden="true">
-				<svg viewBox="0 0 32 32" fill="none">
-					<path
-						d="M8 24V12l8-6 8 6v12l-8 6-8-6z"
-						stroke="currentColor"
-						stroke-width="1.5"
-						stroke-linejoin="round"
-					/>
-					<path d="M16 6v20M8 12l16 12M24 12L8 24" stroke="currentColor" stroke-width="1.5" />
-				</svg>
-			</div>
+			<LuxeLogo surface="dark" size={44} class="dash-sidebar__mark" />
 			<div>
 				<p class="dash-sidebar__name">Luxe Digital</p>
 				<p class="dash-sidebar__sub">Dental Lab</p>

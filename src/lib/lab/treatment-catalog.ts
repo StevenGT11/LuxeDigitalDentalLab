@@ -1,5 +1,7 @@
+import type { ToothSelectionMode } from './tooth-selection-mode';
+
 /** Versión del catálogo — incrementar para volver a cargar tarifas por defecto */
-export const TREATMENT_CATALOG_VERSION = 13;
+export const TREATMENT_CATALOG_VERSION = 14;
 
 /** Recargo corona sobre implante (add-on dentro de Corona) */
 export const PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD = 15;
@@ -27,7 +29,7 @@ export interface CatalogTreatment {
 	precio_crc_fresado: number;
 	precio_crc: number;
 	activo: boolean;
-	por_arcadas?: boolean;
+	modo_seleccion_piezas?: ToothSelectionMode;
 	sobre_implante?: boolean;
 }
 
@@ -45,7 +47,7 @@ export const TREATMENT_CATEGORY_LABELS: Record<TreatmentCategory, string> = {
 	otros: 'Otros'
 };
 
-/** Solo restauración usa odontograma (pieza a pieza) */
+/** @deprecated Usar modo_seleccion_piezas === 'odontograma' */
 export function treatmentRequiresTeeth(categoria: TreatmentCategory | ''): boolean {
 	return categoria === 'restauracion';
 }
@@ -60,7 +62,7 @@ function catalogEntry(
 	usd: number,
 	crc: number,
 	billing: Billing,
-	por_arcadas = false,
+	modo_seleccion_piezas: ToothSelectionMode = 'ninguno',
 	sobre_implante = false
 ): CatalogTreatment {
 	const precio_diseno =
@@ -86,7 +88,7 @@ function catalogEntry(
 		precio_crc_fresado,
 		precio_crc,
 		activo: true,
-		por_arcadas,
+		modo_seleccion_piezas,
 		sobre_implante
 	};
 }
@@ -106,7 +108,7 @@ function catalogEntryRestauracion(
 		PRECIO_FRESADO_RESTAURACION_USD,
 		PRECIO_FRESADO_RESTAURACION_CRC,
 		'ambos',
-		false,
+		'odontograma',
 		sobre_implante
 	);
 }
@@ -184,8 +186,8 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 	catalogEntry('tr-guia-quirurgica', 'guia_quirurgica', 'Guía quirúrgica', 'guias', 0, 0, 'diseno'),
 
 	// ——— OTROS ———
-	catalogEntry('tr-ferula-diseno', 'ferula_diseno', 'Férula', 'otros', 30, 15_000, 'diseno', true),
-	catalogEntry('tr-ferula-impresa', 'ferula_impresa', 'Férula impresa', 'otros', 100, 50_000, 'fresado', true),
+	catalogEntry('tr-ferula-diseno', 'ferula_diseno', 'Férula', 'otros', 30, 15_000, 'diseno', 'arcadas'),
+	catalogEntry('tr-ferula-impresa', 'ferula_impresa', 'Férula impresa', 'otros', 100, 50_000, 'fresado', 'arcadas'),
 	catalogEntry(
 		'tr-fundas-blanqueamiento',
 		'fundas_blanqueamiento',
@@ -194,7 +196,7 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 		40,
 		20_000,
 		'diseno',
-		true
+		'arcadas'
 	),
 	catalogEntry(
 		'tr-retenedores-ortodoncia',
@@ -204,6 +206,6 @@ export const LUXE_TREATMENT_CATALOG: CatalogTreatment[] = [
 		60,
 		30_000,
 		'diseno',
-		true
+		'arcadas'
 	)
 ];

@@ -4,6 +4,10 @@
 	import { onMount } from 'svelte';
 	import { ChevronDown, Plus, Trash2, X } from '@lucide/svelte';
 	import { formatColones, formatCurrency } from '$lib/lab/helpers';
+	import {
+		TOOTH_SELECTION_MODE_OPTIONS,
+		defaultToothSelectionModeForCategory
+	} from '$lib/lab/constants';
 	import { initializeLabStorage } from '$lib/lab/store';
 	import {
 		GUIA_PRECIOS_POR_IMPLANTES,
@@ -25,6 +29,7 @@
 		type TreatmentCategory,
 		type TreatmentMaterialOption
 	} from '$lib/lab/treatments';
+	import type { ToothSelectionMode } from '$lib/lab/tooth-selection-mode';
 
 	interface DraftRow {
 		label: string;
@@ -33,7 +38,7 @@
 		precio_fresado: string;
 		precio_crc_diseno: string;
 		precio_crc_fresado: string;
-		por_arcadas: boolean;
+		modo_seleccion_piezas: ToothSelectionMode;
 		sobre_implante: boolean;
 	}
 
@@ -55,7 +60,7 @@
 		precio_fresado: '',
 		precio_crc_diseno: '',
 		precio_crc_fresado: '',
-		por_arcadas: false,
+		modo_seleccion_piezas: 'ninguno',
 		sobre_implante: false
 	});
 
@@ -206,7 +211,7 @@
 			precio_fresado: '',
 			precio_crc_diseno: '',
 			precio_crc_fresado: '',
-			por_arcadas: false,
+			modo_seleccion_piezas: defaultToothSelectionModeForCategory('otros'),
 			sobre_implante: false
 		};
 		modalOpen = true;
@@ -321,7 +326,7 @@
 				precio_fresado,
 				precio_crc_diseno,
 				precio_crc_fresado,
-				por_arcadas: treatment.por_arcadas,
+				modo_seleccion_piezas: treatment.modo_seleccion_piezas,
 				sobre_implante: treatment.sobre_implante
 			});
 
@@ -417,7 +422,7 @@
 					precio_fresado,
 					precio_crc_diseno,
 					precio_crc_fresado,
-					por_arcadas: form.por_arcadas,
+					modo_seleccion_piezas: form.modo_seleccion_piezas,
 					sobre_implante: form.sobre_implante
 				},
 				slugs
@@ -554,19 +559,22 @@
 							</div>
 
 							<div class="treatment-card__flags">
-								<button
-									type="button"
-									class="treatments-table__arcadas-btn"
-									class:treatments-table__arcadas-btn--active={treatment.por_arcadas}
-									aria-pressed={treatment.por_arcadas}
-									title="Sin odontograma: el cliente elige arcada superior, inferior o ambas"
-									onclick={() =>
-										patchTreatment(treatment.id, {
-											por_arcadas: !treatment.por_arcadas
-										})}
-								>
-									Por arcadas
-								</button>
+								<label class="treatment-card__mode">
+									<span class="treatment-card__mode-label">Selección de piezas</span>
+									<select
+										class="field-select treatment-card__mode-select"
+										value={treatment.modo_seleccion_piezas}
+										onchange={(e) =>
+											patchTreatment(treatment.id, {
+												modo_seleccion_piezas: (e.currentTarget as HTMLSelectElement)
+													.value as ToothSelectionMode
+											})}
+									>
+										{#each TOOTH_SELECTION_MODE_OPTIONS as option (option.value)}
+											<option value={option.value}>{option.label}</option>
+										{/each}
+									</select>
+								</label>
 								<button
 									type="button"
 									class="treatments-table__arcadas-btn"
@@ -863,7 +871,12 @@
 
 					<div>
 						<label class="field-label" for="treatment-categoria">Categoría *</label>
-						<select id="treatment-categoria" class="field-select" bind:value={form.categoria}>
+						<select id="treatment-categoria" class="field-select" bind:value={form.categoria} onchange={() => {
+							form = {
+								...form,
+								modo_seleccion_piezas: defaultToothSelectionModeForCategory(form.categoria)
+							};
+						}}>
 							{#each TREATMENT_CATEGORY_ORDER as cat (cat)}
 								<option value={cat}>{TREATMENT_CATEGORY_LABELS[cat]}</option>
 							{/each}
@@ -991,10 +1004,21 @@
 						</div>
 					{/if}
 
-					<label class="service-check treatments-form-arcadas">
-						<input type="checkbox" bind:checked={form.por_arcadas} />
-						<span>Por arcadas (sin odontograma; el cliente elige superior, inferior o ambas)</span>
-					</label>
+					<div class="treatments-form-mode">
+						<label class="field-label" for="treatment-modo-piezas">Selección de piezas</label>
+						<select
+							id="treatment-modo-piezas"
+							class="field-select"
+							bind:value={form.modo_seleccion_piezas}
+						>
+							{#each TOOTH_SELECTION_MODE_OPTIONS as option (option.value)}
+								<option value={option.value}>{option.label}</option>
+							{/each}
+						</select>
+						<p class="type-caption treatments-form-mode__hint">
+							Define si el cliente elige arcadas, piezas en el odontograma o no necesita indicar piezas.
+						</p>
+					</div>
 
 					<label class="service-check treatments-form-arcadas">
 						<input type="checkbox" bind:checked={form.sobre_implante} />
@@ -1285,8 +1309,35 @@
 		cursor: not-allowed;
 	}
 
-	.treatments-form-arcadas {
+	.treatment-card__mode {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 10rem;
+	}
+
+	.treatment-card__mode-label {
+		font-size: 0.625rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--dash-muted);
+	}
+
+	.treatment-card__mode-select {
+		min-width: 10rem;
+		font-size: 0.8125rem;
+	}
+
+	.treatments-form-mode {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
 		margin-top: 0.25rem;
+	}
+
+	.treatments-form-mode__hint {
+		margin: 0;
 	}
 
 	.treatments-table__price {

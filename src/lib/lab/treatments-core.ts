@@ -5,6 +5,7 @@ import {
 	TREATMENT_CATEGORY_ORDER,
 	type TreatmentCategory
 } from './treatment-catalog';
+import type { ToothSelectionMode } from './tooth-selection-mode';
 
 export type { TreatmentCategory };
 export { TREATMENT_CATEGORY_LABELS, TREATMENT_CATEGORY_ORDER };
@@ -20,8 +21,8 @@ export interface LabTreatment {
 	precio_crc_fresado: number;
 	precio_crc: number;
 	activo: boolean;
-	/** Sin odontograma: el cliente elige arcada superior, inferior o ambas */
-	por_arcadas: boolean;
+	/** Cómo el cliente indica piezas: arcadas, odontograma o no necesario */
+	modo_seleccion_piezas: ToothSelectionMode;
 	/** Puede marcarse como sobre implante al crear el caso */
 	sobre_implante: boolean;
 }
@@ -37,7 +38,7 @@ export const DEFAULT_TREATMENTS: LabTreatment[] = LUXE_TREATMENT_CATALOG.map((t)
 	precio_crc_fresado: t.precio_crc_fresado,
 	precio_crc: t.precio_crc,
 	activo: t.activo,
-	por_arcadas: t.por_arcadas ?? false,
+	modo_seleccion_piezas: t.modo_seleccion_piezas ?? 'ninguno',
 	sobre_implante: t.sobre_implante ?? false
 }));
 

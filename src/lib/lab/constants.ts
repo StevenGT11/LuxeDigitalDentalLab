@@ -47,6 +47,16 @@ export {
 	type ArcadaScope
 } from './arcada-scope';
 
+export {
+	TOOTH_SELECTION_MODE_OPTIONS,
+	defaultToothSelectionModeForCategory,
+	getToothSelectionModeForTreatment,
+	toothSelectionModeLabel,
+	treatmentSkipsToothSelection,
+	treatmentUsesOdontogram,
+	type ToothSelectionMode
+} from './tooth-selection-mode';
+
 export { isSobreImplanteTreatment } from './sobre-implante';
 
 export {

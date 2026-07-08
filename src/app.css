@@ -368,6 +368,9 @@
 }
 
 .global-nav__brand {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.625rem;
 	font-family: var(--font-display);
 	font-size: 14px;
 	font-weight: 600;
@@ -377,6 +380,14 @@
 	border: none;
 	cursor: pointer;
 	padding: 0;
+}
+
+.global-nav__brand-text {
+	line-height: 1;
+}
+
+.global-nav__brand-mark {
+	flex-shrink: 0;
 }
 
 .global-nav__brand:active {

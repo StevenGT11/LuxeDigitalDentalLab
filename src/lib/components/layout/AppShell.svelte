@@ -2,6 +2,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { signOut } from '$lib/auth/auth';
+	import LuxeLogo from '$lib/components/ui/LuxeLogo.svelte';
 
 	interface NavLink {
 		href: string;
@@ -33,7 +34,8 @@
 				class="global-nav__brand"
 				onclick={() => goto(mode === 'admin' ? '/admin' : '/client')}
 			>
-				Luxe Dental Lab
+				<LuxeLogo surface="dark" size={34} class="global-nav__brand-mark" />
+				<span class="global-nav__brand-text">Luxe Dental Lab</span>
 			</button>
 			<nav class="global-nav__links global-nav__links--hide-mobile">
 				{#if mode === 'admin'}

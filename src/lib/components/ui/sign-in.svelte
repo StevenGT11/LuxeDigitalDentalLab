@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Eye, EyeOff } from '@lucide/svelte';
+	import LuxeLogo from '$lib/components/ui/LuxeLogo.svelte';
 
 	export interface Testimonial {
 		initials: string;
@@ -59,6 +60,7 @@
 	<section class="flex flex-1 items-center justify-center p-8">
 		<div class="w-full max-w-md">
 			<div class="flex flex-col gap-6">
+				<LuxeLogo surface="auto" size={68} class="luxe-sign-in__logo animate-element animate-delay-50" />
 				<h1
 					class="animate-element animate-delay-100 luxe-sign-in__heading text-4xl leading-tight font-semibold md:text-5xl"
 				>
@@ -168,6 +170,7 @@
 			<div class="luxe-sign-in__hero-grid" aria-hidden="true"></div>
 
 			<div class="luxe-sign-in__hero-content">
+				<LuxeLogo surface="dark" size={80} class="luxe-sign-in__hero-logo" />
 				<p class="luxe-sign-in__hero-eyebrow">Laboratorio dental digital</p>
 				<h2 class="luxe-sign-in__hero-headline">
 					Precisión CAD/CAM,<br />seguimiento en tiempo real

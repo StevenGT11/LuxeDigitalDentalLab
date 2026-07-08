@@ -2,6 +2,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { signOut } from '$lib/auth/auth';
+	import LuxeLogo from '$lib/components/ui/LuxeLogo.svelte';
 	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
 	import { ClipboardList, LogOut, PlusCircle, User } from '@lucide/svelte';
 
@@ -43,14 +44,7 @@
 <div class="dash-layout">
 	<aside class="dash-sidebar">
 		<div class="dash-sidebar__brand">
-			<div class="dash-sidebar__mark dash-sidebar__mark--client" aria-hidden="true">
-				<svg viewBox="0 0 32 32" fill="none">
-					<path
-						d="M16 6c-4 0-7 3-7 7v2H7v12h18V15h-2v-2c0-4-3-7-7-7zm0 3c2.2 0 4 1.8 4 4v2h-8v-2c0-2.2 1.8-4 4-4z"
-						fill="currentColor"
-					/>
-				</svg>
-			</div>
+			<LuxeLogo surface="dark" size={44} class="dash-sidebar__mark" />
 			<div>
 				<p class="dash-sidebar__name">Luxe Digital</p>
 				<p class="dash-sidebar__sub">Portal cliente</p>
