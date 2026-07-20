@@ -32,6 +32,7 @@
 		getClientId,
 		getClientProfile,
 		initializeLabStorage,
+		revalidateLabDataFromDb,
 		updateCase
 	} from '$lib/lab/store';
 	import { requestNewCaseAdminNotification } from '$lib/lab/notify-client';
@@ -376,6 +377,7 @@
 
 			if (isEdit && editCase) {
 				const updated = await updateCase(editCase.id, payload);
+				await revalidateLabDataFromDb();
 				await goto(`/client?updated=${encodeURIComponent(updated.case_number)}`, {
 					invalidateAll: true
 				});
@@ -384,6 +386,7 @@
 
 			const created = await createCase(payload);
 			requestNewCaseAdminNotification(created.id);
+			await revalidateLabDataFromDb();
 			await goto(`/client?sent=${encodeURIComponent(created.case_number)}`, {
 				invalidateAll: true
 			});
@@ -397,20 +400,20 @@
 </script>
 
 <div class="dash-page">
-	<p class="dash-lead">
+	<div class="alert alert--info" role="status">
 		{#if isEdit}
 			Modifica los datos del caso {editCase?.case_number}. Solo puedes editar casos en estado pendiente.
 		{:else}
 			Indica el tratamiento de cada ítem. El odontograma es opcional cuando el servicio no requiere piezas concretas.
 		{/if}
-	</p>
+	</div>
 
 	{#if lastEditedLine}
 		<p class="type-fine-print case-edit-meta">{lastEditedLine}</p>
 	{/if}
 
 	{#if error}
-		<div class="alert alert--error">{error}</div>
+		<div class="alert alert--error" role="alert">{error}</div>
 	{/if}
 
 	<div class="case-form-shell" class:case-form-shell--busy={loading}>
@@ -465,9 +468,9 @@
 
 		<section class="dash-panel dash-panel--section">
 			<h2 class="dash-panel__section-title">Piezas / trabajos</h2>
-			<p class="type-fine-print case-items-editor__intro">
+			<div class="alert alert--info alert--compact case-items-editor__intro" role="status">
 				Cada ítem es un trabajo del caso. Si aplica, puedes marcar dientes en el odontograma (FDI); no es obligatorio para todos los servicios.
-			</p>
+			</div>
 
 			<div class="case-items-editor">
 				{#each items as row, index (row.key)}

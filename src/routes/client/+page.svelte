@@ -12,7 +12,8 @@
 		getClientProfile,
 		getClientStats,
 		hydrateCasesOnce,
-		initializeLabStorage
+		initializeLabStorage,
+		revalidateLabDataFromDb
 	} from '$lib/lab/store';
 	import { getEstadoBadgeClass, getEstadoLabel, getMaterialLabel, getTipoTrabajoLabel } from '$lib/lab/constants';
 	import { canClientEditCase } from '$lib/lab/client-case-draft';
@@ -57,8 +58,17 @@
 
 	let filteredTotal = $derived(filteredCasos.reduce((sum, c) => sum + c.costo, 0));
 
-	async function refresh() {
-		await hydrateCasesOnce();
+	async function refresh(options?: { force?: boolean }) {
+		try {
+			await hydrateClientSession();
+		} catch {
+			/* ignore */
+		}
+		if (options?.force) {
+			await revalidateLabDataFromDb();
+		} else {
+			await hydrateCasesOnce();
+		}
 		const id = getClientId();
 		profile = getClientProfile();
 		casos = getCasesByClient(id);
@@ -67,25 +77,25 @@
 
 	onMount(async () => {
 		initializeLabStorage({ linkClientPortal: true });
-		try {
-			await hydrateClientSession();
-		} catch {
-			/* ignore */
-		}
 		await refresh();
 	});
 
 	afterNavigate(() => {
-		void refresh();
-		const sent = $page.url.searchParams.get('sent');
-		const updated = $page.url.searchParams.get('updated');
-		if (sent) {
-			savedNotice = `Caso ${sent} registrado correctamente.`;
-			goto('/client', { replaceState: true });
-		} else if (updated) {
-			savedNotice = `Caso ${updated} actualizado correctamente.`;
-			goto('/client', { replaceState: true });
-		}
+		void (async () => {
+			const sent = $page.url.searchParams.get('sent');
+			const updated = $page.url.searchParams.get('updated');
+			if (sent || updated) {
+				await refresh({ force: true });
+				if (sent) {
+					savedNotice = `Caso ${sent} registrado correctamente.`;
+				} else if (updated) {
+					savedNotice = `Caso ${updated} actualizado correctamente.`;
+				}
+				goto('/client', { replaceState: true });
+				return;
+			}
+			await refresh();
+		})();
 	});
 </script>
 

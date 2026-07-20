@@ -12,14 +12,19 @@ import {
 	updateCaseCostInDb,
 	updateCaseStatusInDb
 } from './cases-db';
-import { getCachedCases, isCasesHydrated, runCasesHydrate } from './cases-cache';
+import {
+	clearCasesCache,
+	getCachedCases,
+	isCasesHydrated,
+	runCasesHydrate
+} from './cases-cache';
 import {
 	createInvoiceInDb,
 	fetchInvoiceByCaseId,
 	hydrateInvoicesFromDb,
 	updateInvoiceStatusInDb
 } from './invoices-db';
-import { getCachedInvoices, isInvoicesHydrated, runInvoicesHydrate } from './invoices-cache';
+import { clearInvoicesCache, getCachedInvoices, isInvoicesHydrated, runInvoicesHydrate } from './invoices-cache';
 import { initializeTreatmentsStorage } from './treatments';
 import type { CreateCaseInput } from './store-types';
 import type {
@@ -112,9 +117,23 @@ export async function hydrateCasesOnce(): Promise<void> {
 	await runCasesHydrate(() => hydrateCasesFromDb());
 }
 
+/** Vuelve a cargar casos desde Supabase (invalida caché en memoria). */
+export async function revalidateCasesFromDb(): Promise<void> {
+	if (!browser) return;
+	clearCasesCache();
+	await runCasesHydrate(() => hydrateCasesFromDb());
+}
+
 /** Carga facturas desde Supabase (idempotente). */
 export async function hydrateInvoicesOnce(): Promise<void> {
 	if (!browser) return;
+	await runInvoicesHydrate(() => hydrateInvoicesFromDb());
+}
+
+/** Vuelve a cargar facturas desde Supabase (invalida caché en memoria). */
+export async function revalidateInvoicesFromDb(): Promise<void> {
+	if (!browser) return;
+	clearInvoicesCache();
 	await runInvoicesHydrate(() => hydrateInvoicesFromDb());
 }
 
@@ -122,6 +141,23 @@ export async function hydrateInvoicesOnce(): Promise<void> {
 export async function hydrateLabDataOnce(): Promise<void> {
 	if (!browser) return;
 	await Promise.all([hydrateCasesOnce(), hydrateInvoicesOnce()]);
+	if (isSupabaseClientLinked() && isCasesHydrated() && isInvoicesHydrated()) {
+		localStorage.removeItem(CASES_KEY);
+		localStorage.removeItem(INVOICES_KEY);
+		localStorage.removeItem(COUNTER_KEY);
+		localStorage.removeItem(INVOICE_COUNTER_KEY);
+	}
+}
+
+/** Casos + facturas desde Supabase, forzando datos frescos (p. ej. tras crear un caso). */
+export async function revalidateLabDataFromDb(): Promise<void> {
+	if (!browser) return;
+	clearCasesCache();
+	clearInvoicesCache();
+	await Promise.all([
+		runCasesHydrate(() => hydrateCasesFromDb()),
+		runInvoicesHydrate(() => hydrateInvoicesFromDb())
+	]);
 	if (isSupabaseClientLinked() && isCasesHydrated() && isInvoicesHydrated()) {
 		localStorage.removeItem(CASES_KEY);
 		localStorage.removeItem(INVOICES_KEY);

@@ -9,9 +9,9 @@
 
 <div class="implant-crown-panel">
 	<p class="implant-crown-panel__title">Sobre implante</p>
-	<p class="implant-crown-panel__lead type-fine-print">
+	<div class="implant-crown-panel__lead alert alert--info alert--compact" role="status">
 		Indica la marca del implante y el tamaño de plataforma (ej. Straumann · 4.1 mm).
-	</p>
+	</div>
 	<div>
 		<label class="field-label" for="{id}-notas">Datos del implante *</label>
 		<textarea
@@ -42,6 +42,7 @@
 
 	.implant-crown-panel__lead {
 		margin: 0 0 var(--spacing-md);
+		box-shadow: none;
 	}
 
 	.implant-crown-panel__notas {

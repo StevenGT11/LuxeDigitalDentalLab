@@ -9,6 +9,8 @@ import {
 	upsertOwnClient,
 	type DbDoctor
 } from './clients-db';
+import { remapCachedCaseClientId } from './cases-cache';
+import { remapCachedInvoiceClientId } from './invoices-cache';
 import type { ClientProfile, LabClient } from './types';
 
 const PROFILE_KEY = 'luxe-lab-profile';
@@ -156,6 +158,8 @@ export async function hydrateClientSession(): Promise<LabClient | null> {
 
 		if (previousId && previousId !== client.id) {
 			remapLocalClientId(previousId, client.id);
+			remapCachedCaseClientId(previousId, client.id);
+			remapCachedInvoiceClientId(previousId, client.id);
 		}
 
 		cachedClient = client;

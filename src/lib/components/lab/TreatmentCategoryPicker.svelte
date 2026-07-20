@@ -220,6 +220,8 @@
 	{/if}
 
 	{#if !activeCategory && openStep === null}
-		<p class="treatment-picker__hint type-fine-print">Elige una categoría para continuar.</p>
+		<div class="alert alert--info alert--compact treatment-picker__hint" role="status">
+			Elige una categoría para continuar.
+		</div>
 	{/if}
 </div>

@@ -25,6 +25,7 @@
 		getEstadoLabel,
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
+		getMaterialLabel,
 		getTipoTrabajoLabel
 	} from '$lib/lab/constants';
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
@@ -41,10 +42,31 @@
 	let deleteError = $state('');
 	let createdNotice = $state(false);
 	let previewCase = $state<LabCase | null>(null);
+	let searchQuery = $state('');
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 	let canManage = $derived(canManageClients($page.data.staffRole ?? $page.data.profile?.role));
 	let doctorProduction = $derived(getDoctorProductionStats(casos));
+
+	let filteredCasos = $derived.by(() => {
+		const q = searchQuery.trim().toLowerCase();
+		if (!q) return casos;
+		return casos.filter(
+			(c) =>
+				c.case_number.toLowerCase().includes(q) ||
+				c.paciente_name.toLowerCase().includes(q) ||
+				getTipoTrabajoLabel(c.tipo_trabajo).toLowerCase().includes(q) ||
+				getEstadoLabel(c.estado).toLowerCase().includes(q) ||
+				(c.material && getMaterialLabel(c.material, c.tipo_trabajo).toLowerCase().includes(q)) ||
+				(c.doctor_name?.toLowerCase().includes(q) ?? false) ||
+				(c.color?.toLowerCase().includes(q) ?? false) ||
+				c.items.some(
+					(i) =>
+						getTipoTrabajoLabel(i.tipo_trabajo).toLowerCase().includes(q) ||
+						(i.color?.toLowerCase().includes(q) ?? false)
+				)
+		);
+	});
 
 	let deleteModeLabel = $derived(
 		stats.totalCasos === 0
@@ -62,6 +84,7 @@
 		initializeLabStorage();
 		await hydrateCasesOnce();
 		loading = true;
+		searchQuery = '';
 		try {
 			const fromDb = await loadClientForAdmin(clientId);
 			client = fromDb ?? getClientById(clientId);
@@ -161,10 +184,39 @@
 		</section>
 
 		<section style="margin-top: var(--spacing-xxl);">
-			<h3 class="type-tagline" style="margin: 0 0 var(--spacing-lg);">Casos de este cliente</h3>
+			<div class="client-cases-section__head">
+				<h3 class="type-tagline" style="margin: 0;">Casos de este cliente</h3>
+				{#if casos.length > 0}
+					<span class="type-fine-print">
+						{#if searchQuery.trim() && filteredCasos.length !== casos.length}
+							{filteredCasos.length} de {casos.length} caso(s)
+						{:else}
+							{casos.length} caso(s)
+						{/if}
+					</span>
+				{/if}
+			</div>
 			{#if casos.length === 0}
 				<p class="type-caption">Sin casos registrados</p>
 			{:else}
+				<div class="dash-toolbar client-cases-section__toolbar">
+					<input
+						type="search"
+						class="search-input"
+						bind:value={searchQuery}
+						placeholder="Buscar por número, paciente, doctor, trabajo, tono…"
+						aria-label="Buscar casos del cliente"
+					/>
+				</div>
+
+				{#if filteredCasos.length === 0}
+					<div class="dash-panel empty-state client-cases-section__empty">
+						<p>Ningún caso coincide con «{searchQuery.trim()}»</p>
+						<button type="button" class="btn-secondary-pill" onclick={() => (searchQuery = '')}>
+							Limpiar búsqueda
+						</button>
+					</div>
+				{:else}
 				<div class="data-table-wrap">
 					<table class="data-table">
 						<thead>
@@ -178,7 +230,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each casos as caso}
+							{#each filteredCasos as caso}
 								<tr>
 									<td class="type-body-strong">{caso.case_number}</td>
 									<td>{caso.paciente_name}</td>
@@ -197,6 +249,7 @@
 						</tbody>
 					</table>
 				</div>
+				{/if}
 			{/if}
 		</section>
 
@@ -337,5 +390,27 @@
 		display: flex;
 		gap: var(--spacing-lg);
 		align-items: flex-start;
+	}
+
+	.client-cases-section__head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.75rem 1rem;
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.client-cases-section__toolbar {
+		margin-bottom: 1rem;
+	}
+
+	.client-cases-section__toolbar .search-input {
+		flex: 1;
+		min-width: min(100%, 220px);
+	}
+
+	.client-cases-section__empty {
+		margin-top: 0;
 	}
 </style>
