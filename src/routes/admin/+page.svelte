@@ -31,8 +31,8 @@
 		getAllCases,
 		getAllClients,
 		getAllInvoices,
-		hydrateLabDataOnce,
-		initializeLabStorage
+		initializeLabStorage,
+		revalidateLabDataFromDb
 	} from '$lib/lab/store';
 	import type { LabCase } from '$lib/lab/types';
 
@@ -61,7 +61,7 @@
 	async function refresh() {
 		if (!browser) return;
 		initializeLabStorage();
-		await hydrateLabDataOnce();
+		await revalidateLabDataFromDb();
 
 		const casos = getAllCases();
 		const clients = getAllClients();

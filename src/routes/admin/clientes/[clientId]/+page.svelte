@@ -17,8 +17,8 @@
 		getClientStats,
 		getCasesByClient,
 		getInvoicesByClient,
-		hydrateCasesOnce,
-		initializeLabStorage
+		initializeLabStorage,
+		revalidateLabDataFromDb
 	} from '$lib/lab/store';
 	import {
 		getEstadoBadgeClass,
@@ -82,7 +82,7 @@
 		if (!browser) return;
 		createdNotice = $page.url.searchParams.get('created') === '1';
 		initializeLabStorage();
-		await hydrateCasesOnce();
+		await revalidateLabDataFromDb();
 		loading = true;
 		searchQuery = '';
 		try {

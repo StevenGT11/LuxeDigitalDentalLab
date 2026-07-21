@@ -11,7 +11,6 @@
 		getClientId,
 		getClientProfile,
 		getClientStats,
-		hydrateCasesOnce,
 		initializeLabStorage,
 		revalidateLabDataFromDb
 	} from '$lib/lab/store';
@@ -58,17 +57,13 @@
 
 	let filteredTotal = $derived(filteredCasos.reduce((sum, c) => sum + c.costo, 0));
 
-	async function refresh(options?: { force?: boolean }) {
+	async function refresh() {
 		try {
 			await hydrateClientSession();
 		} catch {
 			/* ignore */
 		}
-		if (options?.force) {
-			await revalidateLabDataFromDb();
-		} else {
-			await hydrateCasesOnce();
-		}
+		await revalidateLabDataFromDb();
 		const id = getClientId();
 		profile = getClientProfile();
 		casos = getCasesByClient(id);
@@ -84,17 +79,14 @@
 		void (async () => {
 			const sent = $page.url.searchParams.get('sent');
 			const updated = $page.url.searchParams.get('updated');
-			if (sent || updated) {
-				await refresh({ force: true });
-				if (sent) {
-					savedNotice = `Caso ${sent} registrado correctamente.`;
-				} else if (updated) {
-					savedNotice = `Caso ${updated} actualizado correctamente.`;
-				}
-				goto('/client', { replaceState: true });
-				return;
-			}
 			await refresh();
+			if (sent) {
+				savedNotice = `Caso ${sent} registrado correctamente.`;
+				goto('/client', { replaceState: true });
+			} else if (updated) {
+				savedNotice = `Caso ${updated} actualizado correctamente.`;
+				goto('/client', { replaceState: true });
+			}
 		})();
 	});
 </script>

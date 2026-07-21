@@ -1,6 +1,6 @@
 import { createSupabaseBrowserClient } from '$lib/supabase/client';
 import { buildInvoiceDraft } from './invoice-builder';
-import { setCachedInvoices, upsertCachedInvoice } from './invoices-cache';
+import { upsertCachedInvoice } from './invoices-cache';
 import type { Invoice, InvoiceEstado, LabCase, LabClient } from './types';
 
 type DbLine = {
@@ -96,9 +96,7 @@ export async function fetchAllInvoicesFromDb(): Promise<Invoice[]> {
 		.order('fecha_emision', { ascending: false });
 
 	if (error) throw error;
-	const list = ((data ?? []) as DbInvoice[]).map(mapInvoice);
-	setCachedInvoices(list);
-	return list;
+	return ((data ?? []) as DbInvoice[]).map(mapInvoice);
 }
 
 export async function hydrateInvoicesFromDb(): Promise<Invoice[]> {

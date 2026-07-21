@@ -1,7 +1,7 @@
 import { createSupabaseBrowserClient } from '$lib/supabase/client';
 import { mapDbCaseFile } from './case-files-db';
 import { assembleLabCase, buildCaseItemsFromInput, uid } from './case-builder';
-import { setCachedCases, upsertCachedCase } from './cases-cache';
+import { upsertCachedCase } from './cases-cache';
 import type { CreateCaseInput } from './store-types';
 import type { CaseFile, CaseItem, LabCase, LabCaseEstado, LabClient } from './types';
 
@@ -202,9 +202,7 @@ export async function fetchAllCasesFromDb(): Promise<LabCase[]> {
 		.order('fecha_creacion', { ascending: false });
 
 	if (error) throw error;
-	const list = ((data ?? []) as DbCase[]).map(mapCase);
-	setCachedCases(list);
-	return list;
+	return ((data ?? []) as DbCase[]).map(mapCase);
 }
 
 export async function fetchCaseByIdFromDb(id: string): Promise<LabCase | null> {

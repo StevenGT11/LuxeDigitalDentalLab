@@ -3,6 +3,7 @@ import type { Invoice } from './types';
 let invoices: Invoice[] = [];
 let hydrated = false;
 let hydratePromise: Promise<Invoice[]> | null = null;
+let hydrateGeneration = 0;
 
 function sortInvoicesByNewest(list: Invoice[]): Invoice[] {
 	return [...list].sort(
@@ -49,20 +50,36 @@ export function clearInvoicesCache(): void {
 	invoices = [];
 	hydrated = false;
 	hydratePromise = null;
+	hydrateGeneration += 1;
 }
 
 export function runInvoicesHydrate(fetcher: () => Promise<Invoice[]>): Promise<Invoice[]> {
 	if (hydrated) return Promise.resolve(invoices);
 	if (!hydratePromise) {
+		const gen = hydrateGeneration;
 		hydratePromise = fetcher()
 			.then((list) => {
+				if (gen !== hydrateGeneration) return invoices;
 				mergeCachedInvoices(list);
 				return invoices;
 			})
 			.catch((err) => {
-				hydratePromise = null;
+				if (gen === hydrateGeneration) hydratePromise = null;
 				throw err;
 			});
 	}
 	return hydratePromise;
+}
+
+export async function forceInvoicesHydrate(fetcher: () => Promise<Invoice[]>): Promise<Invoice[]> {
+	const gen = ++hydrateGeneration;
+	hydratePromise = null;
+	hydrated = false;
+	const list = await fetcher();
+	if (gen !== hydrateGeneration) {
+		mergeCachedInvoices(list);
+		return invoices;
+	}
+	mergeCachedInvoices(list);
+	return invoices;
 }

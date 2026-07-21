@@ -32,7 +32,6 @@
 		getClientId,
 		getClientProfile,
 		initializeLabStorage,
-		revalidateLabDataFromDb,
 		updateCase
 	} from '$lib/lab/store';
 	import { requestNewCaseAdminNotification } from '$lib/lab/notify-client';
@@ -377,7 +376,6 @@
 
 			if (isEdit && editCase) {
 				const updated = await updateCase(editCase.id, payload);
-				await revalidateLabDataFromDb();
 				await goto(`/client?updated=${encodeURIComponent(updated.case_number)}`, {
 					invalidateAll: true
 				});
@@ -386,7 +384,6 @@
 
 			const created = await createCase(payload);
 			requestNewCaseAdminNotification(created.id);
-			await revalidateLabDataFromDb();
 			await goto(`/client?sent=${encodeURIComponent(created.case_number)}`, {
 				invalidateAll: true
 			});

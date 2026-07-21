@@ -3,6 +3,7 @@ import type { LabCase } from './types';
 let cases: LabCase[] = [];
 let hydrated = false;
 let hydratePromise: Promise<LabCase[]> | null = null;
+let hydrateGeneration = 0;
 
 function sortCasesByNewest(list: LabCase[]): LabCase[] {
 	return [...list].sort(
@@ -50,20 +51,37 @@ export function clearCasesCache(): void {
 	cases = [];
 	hydrated = false;
 	hydratePromise = null;
+	hydrateGeneration += 1;
 }
 
 export function runCasesHydrate(fetcher: () => Promise<LabCase[]>): Promise<LabCase[]> {
 	if (hydrated) return Promise.resolve(cases);
 	if (!hydratePromise) {
+		const gen = hydrateGeneration;
 		hydratePromise = fetcher()
 			.then((list) => {
+				if (gen !== hydrateGeneration) return cases;
 				mergeCachedCases(list);
 				return cases;
 			})
 			.catch((err) => {
-				hydratePromise = null;
+				if (gen === hydrateGeneration) hydratePromise = null;
 				throw err;
 			});
 	}
 	return hydratePromise;
+}
+
+/** Siempre vuelve a pedir la lista; no borra casos upsertados mientras llega la respuesta. */
+export async function forceCasesHydrate(fetcher: () => Promise<LabCase[]>): Promise<LabCase[]> {
+	const gen = ++hydrateGeneration;
+	hydratePromise = null;
+	hydrated = false;
+	const list = await fetcher();
+	if (gen !== hydrateGeneration) {
+		mergeCachedCases(list);
+		return cases;
+	}
+	mergeCachedCases(list);
+	return cases;
 }

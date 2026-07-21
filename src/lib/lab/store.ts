@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { DOCTORS, ESTADOS_EN_PROCESO, getCaseItemTipoLabel, isGuiaQuirurgica } from './constants';
-import { getClientProfileFromCache, getDoctorDisplayName, isSupabaseClientLinked } from './client-session';
+import { getClientProfileFromCache, getDoctorDisplayName, isSupabaseClientLinked, syncCachedClient } from './client-session';
 import { fetchClientById, fetchOwnClient } from './clients-db';
 import { buildCaseItem, migrateCaseRow } from './case-builder';
 import { uploadCaseFilesFromInputs } from './case-files-db';
@@ -13,18 +13,23 @@ import {
 	updateCaseStatusInDb
 } from './cases-db';
 import {
-	clearCasesCache,
+	forceCasesHydrate,
 	getCachedCases,
 	isCasesHydrated,
 	runCasesHydrate
 } from './cases-cache';
+import {
+	forceInvoicesHydrate,
+	getCachedInvoices,
+	isInvoicesHydrated,
+	runInvoicesHydrate
+} from './invoices-cache';
 import {
 	createInvoiceInDb,
 	fetchInvoiceByCaseId,
 	hydrateInvoicesFromDb,
 	updateInvoiceStatusInDb
 } from './invoices-db';
-import { clearInvoicesCache, getCachedInvoices, isInvoicesHydrated, runInvoicesHydrate } from './invoices-cache';
 import { initializeTreatmentsStorage } from './treatments';
 import type { CreateCaseInput } from './store-types';
 import type {
@@ -117,11 +122,10 @@ export async function hydrateCasesOnce(): Promise<void> {
 	await runCasesHydrate(() => hydrateCasesFromDb());
 }
 
-/** Vuelve a cargar casos desde Supabase (invalida caché en memoria). */
+/** Vuelve a cargar casos desde Supabase (conserva upserts locales mientras llega la respuesta). */
 export async function revalidateCasesFromDb(): Promise<void> {
 	if (!browser) return;
-	clearCasesCache();
-	await runCasesHydrate(() => hydrateCasesFromDb());
+	await forceCasesHydrate(() => hydrateCasesFromDb());
 }
 
 /** Carga facturas desde Supabase (idempotente). */
@@ -130,11 +134,10 @@ export async function hydrateInvoicesOnce(): Promise<void> {
 	await runInvoicesHydrate(() => hydrateInvoicesFromDb());
 }
 
-/** Vuelve a cargar facturas desde Supabase (invalida caché en memoria). */
+/** Vuelve a cargar facturas desde Supabase. */
 export async function revalidateInvoicesFromDb(): Promise<void> {
 	if (!browser) return;
-	clearInvoicesCache();
-	await runInvoicesHydrate(() => hydrateInvoicesFromDb());
+	await forceInvoicesHydrate(() => hydrateInvoicesFromDb());
 }
 
 /** Casos + facturas en paralelo. */
@@ -149,14 +152,12 @@ export async function hydrateLabDataOnce(): Promise<void> {
 	}
 }
 
-/** Casos + facturas desde Supabase, forzando datos frescos (p. ej. tras crear un caso). */
+/** Casos + facturas desde Supabase, forzando datos frescos. */
 export async function revalidateLabDataFromDb(): Promise<void> {
 	if (!browser) return;
-	clearCasesCache();
-	clearInvoicesCache();
 	await Promise.all([
-		runCasesHydrate(() => hydrateCasesFromDb()),
-		runInvoicesHydrate(() => hydrateInvoicesFromDb())
+		forceCasesHydrate(() => hydrateCasesFromDb()),
+		forceInvoicesHydrate(() => hydrateInvoicesFromDb())
 	]);
 	if (isSupabaseClientLinked() && isCasesHydrated() && isInvoicesHydrated()) {
 		localStorage.removeItem(CASES_KEY);
@@ -496,7 +497,10 @@ async function resolveClientForCase(clientId: string): Promise<LabClient> {
 	const profile = getClientProfile();
 	if (clientId === profile.id) {
 		const own = await fetchOwnClient();
-		if (own) return own;
+		if (own) {
+			syncCachedClient(own);
+			return own;
+		}
 	}
 	const remote = await fetchClientById(clientId);
 	if (remote) return remote;

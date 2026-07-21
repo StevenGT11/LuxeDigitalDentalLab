@@ -6,7 +6,7 @@
 	import CaseWorkTags from '$lib/components/admin/CaseWorkTags.svelte';
 	import EstadoProgress from '$lib/components/admin/EstadoProgress.svelte';
 	import { canViewFinancial } from '$lib/auth/roles';
-	import { getAdminStats, getAllCases, hydrateCasesOnce, initializeLabStorage } from '$lib/lab/store';
+	import { getAdminStats, getAllCases, initializeLabStorage, revalidateCasesFromDb } from '$lib/lab/store';
 	import {
 		ESTADOS,
 		getEstadoBadgeClass,
@@ -36,7 +36,7 @@
 	async function refresh() {
 		if (!browser) return;
 		initializeLabStorage();
-		await hydrateCasesOnce();
+		await revalidateCasesFromDb();
 		casos = getAllCases();
 		stats = getAdminStats();
 		applyFilters();

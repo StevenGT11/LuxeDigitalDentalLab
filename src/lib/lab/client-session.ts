@@ -112,6 +112,20 @@ export function getClientProfileFromCache(): ClientProfile | null {
 	return cachedClient ? labClientToProfile(cachedClient) : null;
 }
 
+/** Alinea caché/localStorage con el cliente real de Supabase (evita filtrar casos por ID huérfano). */
+export function syncCachedClient(client: LabClient): void {
+	if (!browser) return;
+	const previousId = localStorage.getItem(CLIENT_KEY);
+	if (previousId && previousId !== client.id) {
+		remapLocalClientId(previousId, client.id);
+		remapCachedCaseClientId(previousId, client.id);
+		remapCachedInvoiceClientId(previousId, client.id);
+	}
+	cachedClient = client;
+	supabaseLinked = true;
+	persistProfile(labClientToProfile(client));
+}
+
 /** Un solo doctor por defecto si la clínica no tiene ninguno (evita duplicados por carreras). */
 async function ensureDefaultDoctorIfEmpty(client: LabClient): Promise<void> {
 	const run = async () => {
