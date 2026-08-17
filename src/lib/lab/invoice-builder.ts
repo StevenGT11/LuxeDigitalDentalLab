@@ -1,4 +1,6 @@
 import { getCaseItemTipoLabel, isGuiaQuirurgica } from './constants';
+import { computeInvoiceTaxTotals, impuestoTarifaForCaseItem } from './invoice-tax';
+import { getTreatmentByValue } from './treatments';
 import type { CaseItem, Invoice, LabCase, LabClient } from './types';
 
 function invoiceLineLabel(item: CaseItem): string {
@@ -25,9 +27,11 @@ export function buildInvoiceDraft(caso: LabCase, client: LabClient, invoiceNumbe
 		subtotal: item.subtotal
 	}));
 
-	const subtotal = caso.costo;
-	const impuesto = Math.round(subtotal * 0.13 * 100) / 100;
-	const total = Math.round((subtotal + impuesto) * 100) / 100;
+	const taxLines = caso.items.map((item) => ({
+		subtotal: item.subtotal,
+		impuesto_tarifa: impuestoTarifaForCaseItem(item.tipo_trabajo, getTreatmentByValue)
+	}));
+	const { subtotal, impuesto, total } = computeInvoiceTaxTotals(taxLines);
 	const now = new Date();
 
 	return {

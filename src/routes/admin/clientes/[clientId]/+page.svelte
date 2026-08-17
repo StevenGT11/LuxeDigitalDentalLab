@@ -8,6 +8,7 @@
 	import { Trash2 } from '@lucide/svelte';
 	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
 	import AdminClientDoctorsEditor from '$lib/components/admin/AdminClientDoctorsEditor.svelte';
+	import AdminClientFiscalEditor from '$lib/components/admin/AdminClientFiscalEditor.svelte';
 	import CasePreviewModal from '$lib/components/admin/CasePreviewModal.svelte';
 	import DoctorProductionSummary from '$lib/components/lab/DoctorProductionSummary.svelte';
 	import { getDoctorProductionStats } from '$lib/lab/analytics';
@@ -143,6 +144,11 @@
 					<p class="type-lead" style="margin-top: var(--spacing-xs); font-size: 17px;">{client.clinica}</p>
 					{#if client.email}<p class="type-caption">{client.email}</p>{/if}
 					{#if client.telefono}<p class="type-caption">{client.telefono}</p>{/if}
+					{#if $page.data.fiscal?.fe_codigo_actividad}
+						<p class="type-caption">
+							Actividad económica: {$page.data.fiscal.fe_codigo_actividad}
+						</p>
+					{/if}
 				</div>
 			</div>
 			{#if showFinancial}
@@ -182,6 +188,10 @@
 				<p class="dash-stat__value">{stats.finalizados}</p>
 			</div>
 		</section>
+
+		{#if showFinancial && $page.data.fiscal}
+			<AdminClientFiscalEditor fiscal={$page.data.fiscal} form={$page.form} />
+		{/if}
 
 		<section style="margin-top: var(--spacing-xxl);">
 			<div class="client-cases-section__head">

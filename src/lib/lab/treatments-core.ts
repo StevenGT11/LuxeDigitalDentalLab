@@ -25,6 +25,12 @@ export interface LabTreatment {
 	modo_seleccion_piezas: ToothSelectionMode;
 	/** Puede marcarse como sobre implante al crear el caso */
 	sobre_implante: boolean;
+	/** CABYS 13 dígitos para factura electrónica */
+	fe_cabys: string | null;
+	/** Unidad de medida Hacienda (Sp, Spe, …) */
+	fe_unidad_medida: string;
+	/** Tarifa IVA para factura electrónica (0, 1, 2, 4, 13, …) */
+	impuesto_tarifa: number;
 }
 
 export const DEFAULT_TREATMENTS: LabTreatment[] = LUXE_TREATMENT_CATALOG.map((t) => ({
@@ -39,7 +45,10 @@ export const DEFAULT_TREATMENTS: LabTreatment[] = LUXE_TREATMENT_CATALOG.map((t)
 	precio_crc: t.precio_crc,
 	activo: t.activo,
 	modo_seleccion_piezas: t.modo_seleccion_piezas ?? 'ninguno',
-	sobre_implante: t.sobre_implante ?? false
+	sobre_implante: t.sobre_implante ?? false,
+	fe_cabys: null,
+	fe_unidad_medida: 'Sp',
+	impuesto_tarifa: 13
 }));
 
 const DEPRECATED_TREATMENT_VALUES = new Set([...DEPRECATED_RESTORATION_VALUES, 'unidad_restauracion']);

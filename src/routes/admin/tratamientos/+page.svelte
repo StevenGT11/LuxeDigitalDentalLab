@@ -30,6 +30,11 @@
 		type TreatmentMaterialOption
 	} from '$lib/lab/treatments';
 	import type { ToothSelectionMode } from '$lib/lab/tooth-selection-mode';
+	import { FE_IMPUESTO_TARIFA_OPTIONS, FE_UNIDAD_MEDIDA_OPTIONS, isValidFeCabys } from '$lib/fe/constants';
+	import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
+	import CabysPicker from '$lib/components/cabys/components/cabys.svelte';
+	import type { CabysCatalogEntry } from '$lib/cabys';
+	import { cabysImpuestoToTarifa, normalizeCabys } from '$lib/cabys';
 
 	interface DraftRow {
 		label: string;
@@ -40,6 +45,9 @@
 		precio_crc_fresado: string;
 		modo_seleccion_piezas: ToothSelectionMode;
 		sobre_implante: boolean;
+		fe_cabys: string;
+		fe_unidad_medida: string;
+		impuesto_tarifa: number;
 	}
 
 	let treatments = $state<LabTreatment[]>([]);
@@ -61,10 +69,60 @@
 		precio_crc_diseno: '',
 		precio_crc_fresado: '',
 		modo_seleccion_piezas: 'ninguno',
-		sobre_implante: false
+		sobre_implante: false,
+		fe_cabys: '',
+		fe_unidad_medida: 'Sp',
+		impuesto_tarifa: 13
 	});
 
 	let rowErrors = $state<Record<string, string>>({});
+
+	function applyCabysToFe(entry: CabysCatalogEntry): {
+		fe_cabys: string | null;
+		impuesto_tarifa: number;
+	} {
+		return {
+			fe_cabys: normalizeCabys(entry.codigo) || null,
+			impuesto_tarifa: normalizeImpuestoTarifaForFe(cabysImpuestoToTarifa(entry.impuesto))
+		};
+	}
+
+	function treatmentFeTarifa(t: LabTreatment): number {
+		return normalizeImpuestoTarifaForFe(t.impuesto_tarifa ?? 13);
+	}
+
+	async function persistTreatmentFeFields(
+		treatmentId: string,
+		fe: { fe_cabys: string | null; impuesto_tarifa: number }
+	) {
+		try {
+			const updated = await updateTreatment(treatmentId, {
+				fe_cabys: fe.fe_cabys,
+				impuesto_tarifa: fe.impuesto_tarifa
+			});
+			patchTreatment(treatmentId, {
+				fe_cabys: updated.fe_cabys,
+				impuesto_tarifa: updated.impuesto_tarifa
+			});
+			clearRowError(treatmentId);
+		} catch (err) {
+			rowErrors = {
+				...rowErrors,
+				[treatmentId]:
+					err instanceof Error ? err.message : 'No se pudo guardar CABYS / tarifa IVA.'
+			};
+		}
+	}
+
+	function onTreatmentCabysSelect(
+		treatmentId: string,
+		entry: CabysCatalogEntry,
+		source: 'user' | 'hydrate'
+	) {
+		const fe = applyCabysToFe(entry);
+		patchTreatment(treatmentId, fe);
+		if (source === 'user') void persistTreatmentFeFields(treatmentId, fe);
+	}
 
 	let clientVisibleCount = $derived(treatments.filter((t) => t.activo).length);
 	let grouped = $derived.by(() => {
@@ -212,7 +270,10 @@
 			precio_crc_diseno: '',
 			precio_crc_fresado: '',
 			modo_seleccion_piezas: defaultToothSelectionModeForCategory('otros'),
-			sobre_implante: false
+			sobre_implante: false,
+			fe_cabys: '',
+			fe_unidad_medida: 'Sp',
+			impuesto_tarifa: 13
 		};
 		modalOpen = true;
 	}
@@ -318,6 +379,15 @@
 			}
 		}
 
+		const cabys = treatment.fe_cabys?.trim() ?? '';
+		if (cabys && !isValidFeCabys(cabys)) {
+			rowErrors = {
+				...rowErrors,
+				[treatment.id]: 'CABYS debe tener exactamente 13 dígitos numéricos.'
+			};
+			return;
+		}
+
 		try {
 			await updateTreatment(treatment.id, {
 				label: treatment.label,
@@ -327,7 +397,10 @@
 				precio_crc_diseno,
 				precio_crc_fresado,
 				modo_seleccion_piezas: treatment.modo_seleccion_piezas,
-				sobre_implante: treatment.sobre_implante
+				sobre_implante: treatment.sobre_implante,
+				fe_cabys: cabys || null,
+				fe_unidad_medida: treatment.fe_unidad_medida || 'Sp',
+				impuesto_tarifa: treatment.impuesto_tarifa ?? 13
 			});
 
 			const dbMaterials = getTreatmentMaterials(treatment.value);
@@ -390,6 +463,11 @@
 			error = 'Indica el nombre del tratamiento.';
 			return;
 		}
+		const createCabys = form.fe_cabys.trim();
+		if (createCabys && !isValidFeCabys(createCabys)) {
+			error = 'CABYS debe tener exactamente 13 dígitos numéricos.';
+			return;
+		}
 		if (isDiseno) {
 			if (precio_diseno === null || precio_crc_diseno === null) {
 				error = 'Los precios de diseño deben ser números válidos (0 o más).';
@@ -423,7 +501,10 @@
 					precio_crc_diseno,
 					precio_crc_fresado,
 					modo_seleccion_piezas: form.modo_seleccion_piezas,
-					sobre_implante: form.sobre_implante
+					sobre_implante: form.sobre_implante,
+					fe_cabys: createCabys || null,
+					fe_unidad_medida: form.fe_unidad_medida || 'Sp',
+					impuesto_tarifa: form.impuesto_tarifa
 				},
 				slugs
 			);
@@ -620,6 +701,51 @@
 								</div>
 							</div>
 						</header>
+
+						<div class="treatment-card__fe">
+							<p class="type-caption treatment-card__flat-lead">Factura electrónica (Hacienda)</p>
+							<div class="treatment-card__price-field treatment-card__price-field--full">
+								<CabysPicker
+									codigo={treatment.fe_cabys ?? ''}
+									label="CABYS (13 dígitos)"
+									onSelect={(entry, source) =>
+										onTreatmentCabysSelect(treatment.id, entry, source)}
+								/>
+							</div>
+							<label class="treatment-card__price-field">
+								<span class="field-label">Tarifa IVA (FE)</span>
+								<select
+									class="field-select"
+									value={String(treatmentFeTarifa(treatment))}
+									onchange={(e) =>
+										patchTreatment(treatment.id, {
+											impuesto_tarifa: normalizeImpuestoTarifaForFe(
+												Number((e.currentTarget as HTMLSelectElement).value)
+											)
+										})}
+								>
+									{#each FE_IMPUESTO_TARIFA_OPTIONS as opt (opt.value)}
+										<option value={String(opt.value)}>{opt.label}</option>
+									{/each}
+								</select>
+								<span class="type-fine-print">Se completa al elegir CABYS; puede ajustarla.</span>
+							</label>
+							<label class="treatment-card__price-field">
+								<span class="field-label">Unidad de medida</span>
+								<select
+									class="field-select"
+									value={treatment.fe_unidad_medida}
+									onchange={(e) =>
+										patchTreatment(treatment.id, {
+											fe_unidad_medida: (e.currentTarget as HTMLSelectElement).value
+										})}
+								>
+									{#each FE_UNIDAD_MEDIDA_OPTIONS as u (u.value)}
+										<option value={u.value}>{u.label}</option>
+									{/each}
+								</select>
+							</label>
+						</div>
 
 						{#if usesMaterialsMode(treatment.id)}
 						<div class="treatment-card__materials">
@@ -1025,6 +1151,45 @@
 						<span>Sobre implante (el cliente puede marcarlo y capturar datos del implante)</span>
 					</label>
 
+					<div class="treatments-form-fe">
+						<p class="type-caption treatments-form-fe__lead">Factura electrónica (Hacienda)</p>
+						<CabysPicker
+							bind:codigo={form.fe_cabys}
+							label="CABYS (13 dígitos)"
+							onSelect={(entry, source) => {
+								const fe = applyCabysToFe(entry);
+								form.fe_cabys = fe.fe_cabys ?? '';
+								form.impuesto_tarifa = fe.impuesto_tarifa;
+							}}
+						/>
+						<div class="treatments-form-grid">
+							<div>
+								<label class="field-label" for="treatment-fe-unidad">Unidad de medida</label>
+								<select
+									id="treatment-fe-unidad"
+									class="field-select"
+									bind:value={form.fe_unidad_medida}
+								>
+									{#each FE_UNIDAD_MEDIDA_OPTIONS as u (u.value)}
+										<option value={u.value}>{u.label}</option>
+									{/each}
+								</select>
+							</div>
+							<div>
+								<label class="field-label" for="treatment-fe-iva">Tarifa IVA (FE)</label>
+								<select
+									id="treatment-fe-iva"
+									class="field-select"
+									bind:value={form.impuesto_tarifa}
+								>
+									{#each FE_IMPUESTO_TARIFA_OPTIONS as opt (opt.value)}
+										<option value={opt.value}>{opt.label}</option>
+									{/each}
+								</select>
+							</div>
+						</div>
+					</div>
+
 					<p class="type-caption">
 						Deja en 0 el precio que no aplique (solo diseño o solo fresado). El identificador interno se
 						genera automáticamente.
@@ -1263,6 +1428,19 @@
 		max-width: 16rem;
 	}
 
+	.treatment-card__fe {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		padding: 0 1rem 0.85rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+	}
+
+	.treatment-card__fe .treatment-card__flat-lead {
+		grid-column: 1 / -1;
+		margin: 0 0 0.15rem;
+	}
+
 	.treatment-card__flat-prices {
 		display: grid;
 		grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1279,6 +1457,10 @@
 		flex-direction: column;
 		gap: 0.25rem;
 		min-width: 0;
+	}
+
+	.treatment-card__price-field--full {
+		grid-column: 1 / -1;
 	}
 
 	.treatments-table__price--crc {
@@ -1327,6 +1509,20 @@
 	.treatment-card__mode-select {
 		min-width: 10rem;
 		font-size: 0.8125rem;
+	}
+
+	.treatments-form-fe {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-top: 0.5rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+	}
+
+	.treatments-form-fe__lead {
+		margin: 0;
+		font-weight: 600;
 	}
 
 	.treatments-form-mode {

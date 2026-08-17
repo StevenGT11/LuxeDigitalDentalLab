@@ -20,6 +20,10 @@ export const actions: Actions = {
 		const clinica = String(form.get('clinica') ?? '');
 		const telefono = String(form.get('telefono') ?? '');
 
+		const fe_tipo_identificacion = String(form.get('fe_tipo_identificacion') ?? '').trim();
+		const fe_numero_identificacion = String(form.get('fe_numero_identificacion') ?? '').trim();
+		const fe_codigo_actividad = String(form.get('fe_codigo_actividad') ?? '').trim();
+
 		try {
 			const admin = createSupabaseAdminClient();
 			const client = await createPortalClientUser(admin, {
@@ -30,6 +34,25 @@ export const actions: Actions = {
 				clinica,
 				telefono
 			});
+
+			if (fe_tipo_identificacion || fe_numero_identificacion || fe_codigo_actividad) {
+				if (!fe_tipo_identificacion || !fe_numero_identificacion) {
+					return fail(400, {
+						message:
+							'Para datos fiscales al crear, indique tipo y número de identificación, o déjelos vacíos.'
+					});
+				}
+				const { error: feError } = await admin
+					.from('clients')
+					.update({
+						fe_tipo_identificacion,
+						fe_numero_identificacion,
+						fe_codigo_actividad: fe_codigo_actividad || null
+					})
+					.eq('id', client.id);
+				if (feError) return fail(400, { message: feError.message });
+			}
+
 			redirect(303, `/admin/clientes/${client.id}?created=1`);
 		} catch (err) {
 			if (isRedirect(err)) throw err;

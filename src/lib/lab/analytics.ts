@@ -341,9 +341,11 @@ export interface ServiceBreakdownStat {
 
 export interface InvoiceSummaryStat {
 	pendiente: number;
-	pagada: number;
+	facturado: number;
+	pagado: number;
 	cancelada: number;
 	montoPendiente: number;
+	montoFacturado: number;
 	montoPagado: number;
 	montoTotal: number;
 }
@@ -425,8 +427,11 @@ export function getInvoiceSummary(invoices: Invoice[]): InvoiceSummaryStat {
 			if (inv.estado === 'pendiente') {
 				acc.pendiente += 1;
 				acc.montoPendiente += inv.total;
-			} else if (inv.estado === 'pagada') {
-				acc.pagada += 1;
+			} else if (inv.estado === 'facturado') {
+				acc.facturado += 1;
+				acc.montoFacturado += inv.total;
+			} else if (inv.estado === 'pagado' || inv.estado === 'pagada') {
+				acc.pagado += 1;
 				acc.montoPagado += inv.total;
 			} else {
 				acc.cancelada += 1;
@@ -435,9 +440,11 @@ export function getInvoiceSummary(invoices: Invoice[]): InvoiceSummaryStat {
 		},
 		{
 			pendiente: 0,
-			pagada: 0,
+			facturado: 0,
+			pagado: 0,
 			cancelada: 0,
 			montoPendiente: 0,
+			montoFacturado: 0,
 			montoPagado: 0,
 			montoTotal: 0
 		}

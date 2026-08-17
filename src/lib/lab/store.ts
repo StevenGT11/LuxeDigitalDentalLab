@@ -3,6 +3,8 @@ import { DOCTORS, ESTADOS_EN_PROCESO, getCaseItemTipoLabel, isGuiaQuirurgica } f
 import { getClientProfileFromCache, getDoctorDisplayName, isSupabaseClientLinked, syncCachedClient } from './client-session';
 import { fetchClientById, fetchOwnClient } from './clients-db';
 import { buildCaseItem, migrateCaseRow } from './case-builder';
+import { computeInvoiceTaxTotals, impuestoTarifaForCaseItem } from './invoice-tax';
+import { getTreatmentByValue } from './treatments';
 import { uploadCaseFilesFromInputs } from './case-files-db';
 import {
 	createCaseInDb,
@@ -469,9 +471,11 @@ function createInvoiceForCase(caso: LabCase, client: LabClient): Invoice {
 		subtotal: item.subtotal
 	}));
 
-	const subtotal = caso.costo;
-	const impuesto = Math.round(subtotal * 0.13 * 100) / 100;
-	const total = Math.round((subtotal + impuesto) * 100) / 100;
+	const taxLines = caso.items.map((item) => ({
+		subtotal: item.subtotal,
+		impuesto_tarifa: impuestoTarifaForCaseItem(item.tipo_trabajo, getTreatmentByValue)
+	}));
+	const { subtotal, impuesto, total } = computeInvoiceTaxTotals(taxLines);
 	const now = new Date();
 
 	return {
@@ -800,7 +804,7 @@ export function seedDemoCases(): void {
 		cases.push(nuevo);
 		saveCases(cases);
 		const inv = createInvoiceForCase(nuevo, client);
-		if (data.estado === 'finalizado') inv.estado = 'pagada';
+		if (data.estado === 'finalizado') inv.estado = 'pagado';
 		const invoices = loadInvoices();
 		invoices.push(inv);
 		saveInvoices(invoices);

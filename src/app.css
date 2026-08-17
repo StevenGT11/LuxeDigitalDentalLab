@@ -785,6 +785,30 @@
 	border-color: var(--color-ink);
 }
 
+.status-chip--invoice-pendiente {
+	background: color-mix(in srgb, #dc2626 12%, transparent);
+	color: #b91c1c;
+	border-color: color-mix(in srgb, #dc2626 35%, var(--color-hairline));
+}
+
+.status-chip--invoice-facturado {
+	background: color-mix(in srgb, #ca8a04 14%, transparent);
+	color: #a16207;
+	border-color: color-mix(in srgb, #ca8a04 40%, var(--color-hairline));
+}
+
+.status-chip--invoice-pagado {
+	background: color-mix(in srgb, #16a34a 12%, transparent);
+	color: #15803d;
+	border-color: color-mix(in srgb, #16a34a 35%, var(--color-hairline));
+}
+
+.status-chip--invoice-cancelada {
+	background: var(--color-canvas-parchment);
+	color: var(--color-ink-muted-80);
+	border-color: var(--color-hairline);
+}
+
 /* ─── Alerts ─── */
 .alert {
 	display: flex;
