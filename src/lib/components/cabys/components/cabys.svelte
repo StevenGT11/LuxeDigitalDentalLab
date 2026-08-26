@@ -19,7 +19,7 @@
 		codigo = $bindable(''),
 		inputName,
 		label = 'Código CABYS',
-		placeholder = 'Buscar por código o descripción…',
+		placeholder = '13 dígitos — o busque en catálogo',
 		required = false,
 		disabled = false,
 		errorText = '',
@@ -34,6 +34,7 @@
 	let searchLoading = $state(false);
 	let searchError = $state('');
 	let selectedProducto = $state('');
+	let isManual = $state(false);
 	let searchInputEl = $state<HTMLInputElement | null>(null);
 	let debounceTimeout: ReturnType<typeof setTimeout> | undefined;
 	let hydrateSeq = 0;
@@ -41,13 +42,31 @@
 
 	const showError = $derived(Boolean(errorText));
 	const normalizedCodigo = $derived(normalizeCabys(codigo));
+	const manualCodeFromSearch = $derived(
+		normalizeCabys(searchQuery).length === 13 ? normalizeCabys(searchQuery) : ''
+	);
+
+	function emptyEntry(code: string): CabysCatalogEntry {
+		return { codigo: code, producto: '', clasificacion: '', impuesto: '' };
+	}
 
 	function applyEntry(entry: CabysCatalogEntry, source: 'user' | 'hydrate') {
 		const code = normalizeCabys(entry.codigo);
 		codigo = code;
-		selectedProducto = entry.producto ?? '';
+		selectedProducto = entry.producto?.trim() ?? '';
+		isManual = !selectedProducto;
 		lastHydratedCode = code;
 		onSelect?.(entry, source);
+	}
+
+	function applyManualCode(code: string, source: 'user' | 'hydrate' = 'user') {
+		const normalized = normalizeCabys(code);
+		if (normalized.length !== 13) return;
+		codigo = normalized;
+		selectedProducto = '';
+		isManual = true;
+		lastHydratedCode = normalized;
+		onSelect?.(emptyEntry(normalized), source);
 	}
 
 	async function fetchCabys(query: string): Promise<CabysCatalogEntry[]> {
@@ -101,10 +120,13 @@
 
 	function openModal() {
 		if (disabled) return;
-		searchQuery = '';
+		searchQuery = normalizedCodigo.length === 13 ? normalizedCodigo : '';
 		searchResults = [];
 		searchError = '';
 		dialogEl?.showModal();
+		if (searchQuery.trim()) {
+			void runSearch(searchQuery);
+		}
 		requestAnimationFrame(() => {
 			searchInputEl?.focus();
 		});
@@ -112,6 +134,15 @@
 
 	function closeModal() {
 		dialogEl?.close();
+	}
+
+	function handleManualInput(event: Event) {
+		const next = normalizeCabys((event.currentTarget as HTMLInputElement).value);
+		codigo = next;
+		if (next.length < 13) {
+			isManual = false;
+			if (!next) selectedProducto = '';
+		}
 	}
 
 	function handleSearchInput(event: Event) {
@@ -124,6 +155,13 @@
 		closeModal();
 	}
 
+	function selectManualFromModal() {
+		const code = manualCodeFromSearch || normalizedCodigo;
+		if (code.length !== 13) return;
+		applyManualCode(code, 'user');
+		closeModal();
+	}
+
 	async function hydrateCodigo(code: string) {
 		if (code.length !== 13) return;
 		const seq = ++hydrateSeq;
@@ -131,10 +169,17 @@
 			const results = await fetchCabys(code);
 			if (seq !== hydrateSeq) return;
 			const exact = results.find((entry) => normalizeCabys(entry.codigo) === code);
-			if (!exact) return;
-			applyEntry(exact, 'hydrate');
+			if (exact) {
+				applyEntry(exact, 'hydrate');
+				return;
+			}
+			selectedProducto = '';
+			isManual = true;
+			lastHydratedCode = code;
 		} catch {
-			/* best-effort */
+			if (seq !== hydrateSeq) return;
+			isManual = true;
+			lastHydratedCode = code;
 		}
 	}
 
@@ -147,10 +192,11 @@
 		if (!code) {
 			lastHydratedCode = '';
 			selectedProducto = '';
+			isManual = false;
 			return;
 		}
 		if (code.length !== 13) return;
-		if (code === lastHydratedCode && selectedProducto) return;
+		if (code === lastHydratedCode) return;
 		void hydrateCodigo(code);
 	});
 </script>
@@ -162,26 +208,38 @@
 		</span>
 	{/if}
 
-	<button
-		type="button"
-		class="cabys-trigger field-input"
-		class:cabys-trigger--error={showError}
-		{disabled}
-		aria-haspopup="dialog"
-		onclick={openModal}
-	>
-		<span class="cabys-trigger__body">
-			{#if normalizedCodigo}
-				<span class="cabys-trigger__code">{normalizedCodigo}</span>
-				{#if selectedProducto}
-					<span class="cabys-trigger__desc">{selectedProducto}</span>
-				{/if}
-			{:else}
-				<span class="cabys-trigger__placeholder">{placeholder}</span>
-			{/if}
-		</span>
-		<span class="cabys-trigger__icon" aria-hidden="true">Buscar</span>
-	</button>
+	<div class="cabys-picker__row">
+		<input
+			type="text"
+			inputmode="numeric"
+			class="field-input cabys-picker__input"
+			class:cabys-picker__input--error={showError}
+			value={normalizedCodigo}
+			oninput={handleManualInput}
+			{placeholder}
+			maxlength="13"
+			pattern="[0-9]{13}"
+			title="13 dígitos numéricos"
+			{disabled}
+			aria-invalid={showError}
+		/>
+		<button
+			type="button"
+			class="btn-secondary-pill cabys-picker__search"
+			{disabled}
+			onclick={openModal}
+		>
+			Catálogo
+		</button>
+	</div>
+
+	{#if selectedProducto}
+		<p class="type-caption cabys-picker__meta">{selectedProducto}</p>
+	{:else if isManual && normalizedCodigo.length === 13}
+		<p class="type-caption cabys-picker__meta cabys-picker__meta--manual">
+			Código manual — no está en el catálogo local
+		</p>
+	{/if}
 
 	{#if inputName}
 		<input type="hidden" name={inputName} value={normalizedCodigo} {required} />
@@ -228,7 +286,7 @@
 					{:else if searchResults.length === 0}
 						<li class="cabys-modal-empty">
 							{searchQuery.trim()
-								? 'Sin resultados. Pruebe otras palabras (con o sin tildes) o parte del código CABYS.'
+								? 'Sin resultados en el catálogo local.'
 								: 'Escriba descripción del producto o servicio, o al menos 3 dígitos del código.'}
 						</li>
 					{:else}
@@ -257,6 +315,17 @@
 					{/if}
 				</ul>
 			</div>
+
+			{#if manualCodeFromSearch}
+				<div class="cabys-manual">
+					<p class="type-caption cabys-manual__hint">
+						¿No aparece en la lista? Puede usar el código <strong>{manualCodeFromSearch}</strong> igualmente.
+					</p>
+					<button type="button" class="btn-secondary-pill" onclick={selectManualFromModal}>
+						Usar {manualCodeFromSearch} manualmente
+					</button>
+				</div>
+			{/if}
 		</div>
 	</div>
 </dialog>
@@ -274,59 +343,36 @@
 		color: var(--color-danger, #c0392b);
 	}
 
-	.cabys-trigger {
+	.cabys-picker__row {
 		display: flex;
-		align-items: center;
-		gap: 0.65rem;
-		width: 100%;
-		min-height: 2.625rem;
-		padding: 0.5rem 0.75rem;
-		text-align: left;
-		cursor: pointer;
+		align-items: stretch;
+		gap: 0.5rem;
 	}
 
-	.cabys-trigger:disabled {
-		cursor: not-allowed;
-		opacity: 0.65;
+	.cabys-picker__input {
+		flex: 1;
+		min-width: 0;
+		font-variant-numeric: tabular-nums;
 	}
 
-	.cabys-trigger--error {
+	.cabys-picker__input--error {
 		border-color: var(--color-danger, #c0392b);
 	}
 
-	.cabys-trigger__body {
-		display: flex;
-		flex-direction: column;
-		gap: 0.15rem;
-		min-width: 0;
-		flex: 1;
-	}
-
-	.cabys-trigger__code {
-		font-size: 0.8125rem;
-		font-variant-numeric: tabular-nums;
-		color: var(--color-muted-foreground, #64748b);
-	}
-
-	.cabys-trigger__desc,
-	.cabys-trigger__placeholder {
-		font-size: 0.875rem;
-		overflow: hidden;
-		text-overflow: ellipsis;
+	.cabys-picker__search {
+		flex-shrink: 0;
+		align-self: center;
 		white-space: nowrap;
 	}
 
-	.cabys-trigger__placeholder {
+	.cabys-picker__meta {
+		margin: 0;
+		line-height: 1.4;
 		color: var(--color-muted-foreground, #64748b);
 	}
 
-	.cabys-trigger__icon {
-		flex-shrink: 0;
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: var(--color-muted-foreground, #64748b);
+	.cabys-picker__meta--manual {
+		color: var(--color-warning, #b8860b);
 	}
 
 	.cabys-picker__error {
@@ -393,6 +439,23 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
+	}
+
+	.cabys-manual {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		border-radius: 6px;
+		background: color-mix(in srgb, var(--color-warning, #b8860b) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--color-warning, #b8860b) 25%, transparent);
+	}
+
+	.cabys-manual__hint {
+		margin: 0;
+		flex: 1 1 12rem;
 	}
 
 	.cabys-modal-table {
@@ -484,6 +547,14 @@
 		.cabys-modal-head,
 		.cabys-modal-row {
 			grid-template-columns: 1fr;
+		}
+
+		.cabys-picker__row {
+			flex-direction: column;
+		}
+
+		.cabys-picker__search {
+			width: 100%;
 		}
 	}
 </style>
