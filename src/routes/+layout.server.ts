@@ -2,7 +2,7 @@ import type { LayoutServerLoad } from './$types';
 import type { UserProfile } from '$lib/auth/types';
 
 export const load: LayoutServerLoad = async ({ locals: { safeGetSession, supabase } }) => {
-	const { session, user } = await safeGetSession();
+	const { user } = await safeGetSession();
 
 	let profile: UserProfile | null = null;
 
@@ -19,7 +19,6 @@ export const load: LayoutServerLoad = async ({ locals: { safeGetSession, supabas
 	}
 
 	return {
-		session,
 		user,
 		profile
 	};

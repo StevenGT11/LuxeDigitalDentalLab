@@ -7,7 +7,8 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"lint": "prettier --check .",
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"build:cabys": "node scripts/build-cabys-catalog.mjs"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.0",
@@ -22,10 +23,12 @@
 		"prettier-plugin-tailwindcss": "^0.6.4",
 		"svelte": "^5.45.1",
 		"tailwindcss": "^4.1.17",
-		"vite": "^7.2.4"
+		"vite": "^7.2.4",
+		"xlsx": "^0.18.5"
 	},
 	"type": "module",
 	"dependencies": {
+		"@happy-prod/facturador": "^2.0.2",
 		"@lucide/svelte": "^1.16.0",
 		"@supabase/ssr": "^0.10.3",
 		"@supabase/supabase-js": "^2.107.0",

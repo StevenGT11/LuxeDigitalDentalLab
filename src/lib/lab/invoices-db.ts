@@ -1,6 +1,9 @@
 import { createSupabaseBrowserClient } from '$lib/supabase/client';
+import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
 import { buildInvoiceDraft } from './invoice-builder';
+import { computeInvoiceTaxTotals } from './invoice-tax';
 import { upsertCachedInvoice } from './invoices-cache';
+import { getTreatmentByValue } from './treatments';
 import type { Invoice, InvoiceEstado, LabCase, LabClient } from './types';
 
 type DbLine = {
@@ -126,6 +129,26 @@ export async function createInvoiceInDb(caso: LabCase, client: LabClient): Promi
 	const { invoice: draft, lineas } = buildInvoiceDraft(caso, client, String(invoiceNumber));
 	const invoiceId = crypto.randomUUID();
 
+	const lineRows = lineas.map((l, i) => {
+		const item = caso.items[i];
+		const treatment = item ? getTreatmentByValue(item.tipo_trabajo) : undefined;
+		return {
+			invoice_id: invoiceId,
+			sort_order: i,
+			descripcion: l.descripcion,
+			cantidad: l.cantidad,
+			precio_unitario: l.precio_unitario,
+			subtotal: l.subtotal,
+			fe_cabys: treatment?.fe_cabys ?? null,
+			fe_unidad_medida: treatment?.fe_unidad_medida ?? 'Sp',
+			impuesto_tarifa: normalizeImpuestoTarifaForFe(treatment?.impuesto_tarifa ?? 13)
+		};
+	});
+
+	const headerTotals = computeInvoiceTaxTotals(
+		lineRows.map((r) => ({ subtotal: r.subtotal, impuesto_tarifa: r.impuesto_tarifa }))
+	);
+
 	const { error: invError } = await supabase.from('invoices').insert({
 		id: invoiceId,
 		invoice_number: draft.invoice_number,
@@ -135,23 +158,14 @@ export async function createInvoiceInDb(caso: LabCase, client: LabClient): Promi
 		client_clinica: draft.client_clinica,
 		case_number: draft.case_number,
 		paciente_name: draft.paciente_name,
-		subtotal: draft.subtotal,
-		impuesto: draft.impuesto,
-		total: draft.total,
+		subtotal: headerTotals.subtotal,
+		impuesto: headerTotals.impuesto,
+		total: headerTotals.total,
 		fecha_emision: draft.fecha_emision,
 		fecha_vencimiento: draft.fecha_vencimiento,
 		estado: draft.estado
 	});
 	if (invError) throw invError;
-
-	const lineRows = lineas.map((l, i) => ({
-		invoice_id: invoiceId,
-		sort_order: i,
-		descripcion: l.descripcion,
-		cantidad: l.cantidad,
-		precio_unitario: l.precio_unitario,
-		subtotal: l.subtotal
-	}));
 
 	if (lineRows.length > 0) {
 		const { error: linesError } = await supabase.from('invoice_lines').insert(lineRows);

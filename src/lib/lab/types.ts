@@ -13,7 +13,7 @@ export type LabCaseEstado =
 	| 'en_prueba'
 	| 'finalizado';
 
-export type InvoiceEstado = 'pendiente' | 'pagada' | 'cancelada';
+export type InvoiceEstado = 'pendiente' | 'facturado' | 'pagado' | 'cancelada';
 
 export type CaseFileCategory = 'escaneo' | 'diseno';
 

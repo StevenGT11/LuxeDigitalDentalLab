@@ -5,7 +5,7 @@
 	let { data } = $props();
 
 	$effect(() => {
-		if (data.session && data.profile?.activo) {
+		if (data.user && data.profile?.activo) {
 			goto(getHomePathForRole(data.profile.role), { replaceState: true });
 		}
 	});

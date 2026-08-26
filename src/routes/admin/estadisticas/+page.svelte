@@ -50,9 +50,11 @@
 	let deliveryHealth = $state({ aTiempo: 0, atrasados: 0, entregados: 0 });
 	let invoiceSummary = $state({
 		pendiente: 0,
-		pagada: 0,
+		facturado: 0,
+		pagado: 0,
 		cancelada: 0,
 		montoPendiente: 0,
+		montoFacturado: 0,
 		montoPagado: 0,
 		montoTotal: 0
 	});
@@ -207,11 +209,16 @@
 		};
 
 		invoicesDoughnut = {
-			labels: ['Pendientes', 'Pagadas', 'Canceladas'],
+			labels: ['Pendientes', 'Facturadas', 'Pagadas', 'Canceladas'],
 			datasets: [
 				{
-					data: [invoiceSummary.pendiente, invoiceSummary.pagada, invoiceSummary.cancelada],
-					backgroundColor: ['#fbbf24', '#34d399', '#cbd5e1']
+					data: [
+						invoiceSummary.pendiente,
+						invoiceSummary.facturado,
+						invoiceSummary.pagado,
+						invoiceSummary.cancelada
+					],
+					backgroundColor: ['#f87171', '#fbbf24', '#34d399', '#cbd5e1']
 				}
 			]
 		};
@@ -383,7 +390,7 @@
 				/>
 			</div>
 			<p class="stats-chart-card__footnote">
-				Pendiente: {formatCurrency(invoiceSummary.montoPendiente)} · Cobrado: {formatCurrency(invoiceSummary.montoPagado)}
+				Pendiente: {formatCurrency(invoiceSummary.montoPendiente)} · Facturado: {formatCurrency(invoiceSummary.montoFacturado)} · Pagado: {formatCurrency(invoiceSummary.montoPagado)}
 			</p>
 		</article>
 	</section>

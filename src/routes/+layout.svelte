@@ -38,7 +38,7 @@
 		}
 	];
 
-	const isLoggedIn = $derived(Boolean(data.session && data.profile?.activo));
+	const isLoggedIn = $derived(Boolean(data.user && data.profile?.activo));
 
 	$effect(() => {
 		if (browser) hydrateTheme();
@@ -54,7 +54,7 @@
 	});
 
 	$effect(() => {
-		if (browser && data.session && data.profile?.activo) {
+		if (browser && data.user && data.profile?.activo) {
 			void hydrateTreatmentsCatalogOnce();
 			void hydrateLabDataOnce();
 		}

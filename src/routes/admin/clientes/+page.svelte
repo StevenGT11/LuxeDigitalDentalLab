@@ -6,6 +6,8 @@
 	import { enhance } from '$app/forms';
 	import { Plus, X } from '@lucide/svelte';
 	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
+	import { FE_TIPO_IDENTIFICACION_OPTIONS } from '$lib/fe/constants';
+	import ActividadEconomica from '$lib/components/actividadEconomica/components/actividadEconomica.svelte';
 	import { fetchAllClients } from '$lib/lab/clients-db';
 	import { getClientStats, initializeLabStorage } from '$lib/lab/store';
 	import { formatCurrency } from '$lib/lab/helpers';
@@ -47,7 +49,10 @@
 		email: '',
 		telefono: '',
 		password: '',
-		passwordConfirm: ''
+		passwordConfirm: '',
+		fe_tipo_identificacion: '',
+		fe_numero_identificacion: '',
+		fe_codigo_actividad: ''
 	});
 
 	let filtered = $derived(
@@ -334,6 +339,43 @@
 					autocomplete="tel"
 				/>
 			</div>
+
+			{#if showFinancial}
+				<p class="type-caption" style="grid-column: 1 / -1; margin-top: 0.5rem;">
+					Datos fiscales (opcional al crear; también en la ficha del cliente)
+				</p>
+				<div>
+					<label class="field-label" for="client-fe-tipo">Tipo identificación</label>
+					<select
+						id="client-fe-tipo"
+						name="fe_tipo_identificacion"
+						class="field-select"
+						bind:value={form.fe_tipo_identificacion}
+					>
+						<option value="">— Después —</option>
+						{#each FE_TIPO_IDENTIFICACION_OPTIONS as opt}
+							<option value={opt.value}>{opt.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div>
+					<label class="field-label" for="client-fe-num">Cédula receptor</label>
+					<input
+						id="client-fe-num"
+						name="fe_numero_identificacion"
+						class="field-input"
+						type="text"
+						bind:value={form.fe_numero_identificacion}
+					/>
+				</div>
+				<div style="grid-column: 1 / -1;">
+					<ActividadEconomica
+						bind:codigo={form.fe_codigo_actividad}
+						inputName="fe_codigo_actividad"
+						label="Actividad económica (CIIU)"
+					/>
+				</div>
+			{/if}
 			</div>
 
 			<div class="case-file-modal__footer admin-client-form__actions">

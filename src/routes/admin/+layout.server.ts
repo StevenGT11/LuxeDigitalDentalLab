@@ -3,9 +3,9 @@ import type { LayoutServerLoad } from './$types';
 import { requireStaffProfile } from '$lib/auth/guards.server';
 
 export const load: LayoutServerLoad = async ({ parent }) => {
-	const { session, profile } = await parent();
+	const { user, profile } = await parent();
 
-	if (!session) {
+	if (!user) {
 		redirect(303, '/');
 	}
 

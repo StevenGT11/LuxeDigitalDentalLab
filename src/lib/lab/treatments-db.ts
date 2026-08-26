@@ -1,4 +1,5 @@
 import { createSupabaseBrowserClient } from '$lib/supabase/client';
+import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
 import {
 	applyCatalogToSnapshot,
 	type CatalogAddon,
@@ -12,6 +13,8 @@ import {
 import type { GuiaPrecioTier, ImplantesGuia } from './surgical-guide';
 import type { ToothSelectionMode } from './tooth-selection-mode';
 import { normalizeToothSelectionMode } from './tooth-selection-mode';
+import type { LabTreatment, TreatmentCategory } from './treatments-core';
+import { slugifyTreatmentLabel, uniqueTreatmentSlug } from './treatments-core';
 
 type DbTreatment = {
 	id: string;
@@ -27,6 +30,9 @@ type DbTreatment = {
 	modo_seleccion_piezas?: string | null;
 	por_arcadas?: boolean | null;
 	sobre_implante: boolean;
+	fe_cabys?: string | null;
+	fe_unidad_medida?: string | null;
+	impuesto_tarifa?: number | null;
 };
 
 type DbRestorationRow = {
@@ -63,7 +69,14 @@ function mapTreatment(row: DbTreatment): LabTreatment {
 			por_arcadas: row.por_arcadas === true,
 			categoria: row.categoria
 		}),
-		sobre_implante: row.sobre_implante === true
+		sobre_implante: row.sobre_implante === true,
+		fe_cabys: row.fe_cabys?.trim() || null,
+		fe_unidad_medida: row.fe_unidad_medida?.trim() || 'Sp',
+		impuesto_tarifa: normalizeImpuestoTarifaForFe(
+			row.impuesto_tarifa != null && Number.isFinite(Number(row.impuesto_tarifa))
+				? Number(row.impuesto_tarifa)
+				: 13
+		)
 	};
 }
 
@@ -80,7 +93,7 @@ export async function fetchCatalogFromDb(): Promise<CatalogSnapshot> {
 		supabase
 			.from('treatments')
 			.select(
-				'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante'
+				'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante, fe_cabys, fe_unidad_medida, impuesto_tarifa'
 			)
 			.order('categoria')
 			.order('sort_order')
@@ -174,6 +187,9 @@ export interface UpsertTreatmentInput {
 	activo?: boolean;
 	modo_seleccion_piezas?: ToothSelectionMode;
 	sobre_implante?: boolean;
+	fe_cabys?: string | null;
+	fe_unidad_medida?: string;
+	impuesto_tarifa?: number;
 }
 
 export async function createTreatmentInDb(
@@ -202,10 +218,13 @@ export async function createTreatmentInDb(
 			precio_crc_fresado,
 			activo: input.activo !== false,
 			modo_seleccion_piezas: input.modo_seleccion_piezas ?? 'ninguno',
-			sobre_implante: input.sobre_implante === true
+			sobre_implante: input.sobre_implante === true,
+			fe_cabys: input.fe_cabys?.trim() || null,
+			fe_unidad_medida: input.fe_unidad_medida?.trim() || 'Sp',
+			impuesto_tarifa: input.impuesto_tarifa ?? 13
 		})
 		.select(
-			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante'
+			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante, fe_cabys, fe_unidad_medida, impuesto_tarifa'
 		)
 		.single();
 
@@ -228,6 +247,9 @@ export async function updateTreatmentInDb(
 			| 'activo'
 			| 'modo_seleccion_piezas'
 			| 'sobre_implante'
+			| 'fe_cabys'
+			| 'fe_unidad_medida'
+			| 'impuesto_tarifa'
 		>
 	>
 ): Promise<LabTreatment> {
@@ -243,13 +265,18 @@ export async function updateTreatmentInDb(
 	if (patch.activo !== undefined) payload.activo = patch.activo;
 	if (patch.modo_seleccion_piezas !== undefined) payload.modo_seleccion_piezas = patch.modo_seleccion_piezas;
 	if (patch.sobre_implante !== undefined) payload.sobre_implante = patch.sobre_implante;
+	if (patch.fe_cabys !== undefined) payload.fe_cabys = patch.fe_cabys?.trim() || null;
+	if (patch.fe_unidad_medida !== undefined) payload.fe_unidad_medida = patch.fe_unidad_medida?.trim() || 'Sp';
+	if (patch.impuesto_tarifa !== undefined) {
+		payload.impuesto_tarifa = normalizeImpuestoTarifaForFe(Math.max(0, patch.impuesto_tarifa));
+	}
 
 	const { data, error } = await supabase
 		.from('treatments')
 		.update(payload)
 		.eq('id', id)
 		.select(
-			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante'
+			'id, slug, label, categoria, sort_order, precio_diseno, precio_fresado, precio_crc_diseno, precio_crc_fresado, activo, modo_seleccion_piezas, sobre_implante, fe_cabys, fe_unidad_medida, impuesto_tarifa'
 		)
 		.single();
 
