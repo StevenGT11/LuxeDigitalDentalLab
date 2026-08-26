@@ -11,6 +11,8 @@ import {
 	upsertEmisorCredentials,
 	upsertEmisorProfile
 } from '$lib/fe/emisor.server';
+import { fetchFeConsecutivosForConfigPage, setFeConsecutivosForAmbiente } from '$lib/fe/consecutivos.server';
+import { FE_CONSECUTIVO_DOC_TYPES } from '$lib/fe/constants';
 import { getEmitAmbiente, setEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import type { FeAmbiente, FeEmisorCredentialsInput, FeEmisorProfileInput } from '$lib/fe/types';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
@@ -27,10 +29,14 @@ export const load: PageServerLoad = async ({ parent, depends, locals: { supabase
 		feServerReady = false;
 	}
 
-	const [{ user }, emitAmbiente, { staging, production }] = await Promise.all([
+	const [{ user }, emitAmbiente, { staging, production }, consecutivos] = await Promise.all([
 		safeGetSession(),
 		getEmitAmbiente(),
-		getFeEmisorConfigsPublicBatch()
+		getFeEmisorConfigsPublicBatch(),
+		fetchFeConsecutivosForConfigPage().catch(() => ({
+			staging: { ambiente: 'staging' as const, counters: [] },
+			production: { ambiente: 'production' as const, counters: [] }
+		}))
 	]);
 	const adminGate = await requireAdmin(supabase, user?.id, '');
 
@@ -43,6 +49,7 @@ export const load: PageServerLoad = async ({ parent, depends, locals: { supabase
 	return {
 		staging,
 		production,
+		consecutivos,
 		sharedProfile,
 		profileComplete,
 		emitAmbiente,
@@ -149,6 +156,61 @@ export const actions: Actions = {
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'No se pudo guardar.';
 			return fail(400, { message });
+		}
+	},
+
+	saveConsecutivos: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		const gate = await requireAdmin(
+			supabase,
+			user?.id,
+			'Solo administradores pueden editar los consecutivos Hacienda.'
+		);
+		if (!gate.ok) return fail(gate.status, { message: gate.message });
+
+		try {
+			createSupabaseAdminClient();
+		} catch {
+			return fail(503, { message: 'Falta SUPABASE_SERVICE_ROLE_KEY en el servidor.' });
+		}
+
+		const form = await request.formData();
+		const rawAmbiente = String(form.get('ambiente') ?? 'staging');
+		const ambiente: FeAmbiente = rawAmbiente === 'production' ? 'production' : 'staging';
+
+		const values: Record<string, number> = {};
+		for (const doc of FE_CONSECUTIVO_DOC_TYPES) {
+			const raw = String(form.get(`consecutivo_${doc.tipo}`) ?? '').trim();
+			if (!raw) {
+				return fail(400, {
+					message: `Indique el consecutivo actual para ${doc.label}.`,
+					savedScope: 'consecutivos',
+					savedAmbiente: ambiente
+				});
+			}
+			const value = Number.parseInt(raw, 10);
+			if (!Number.isInteger(value) || value < 0) {
+				return fail(400, {
+					message: `Consecutivo inválido para ${doc.label}. Use un entero ≥ 0.`,
+					savedScope: 'consecutivos',
+					savedAmbiente: ambiente
+				});
+			}
+			values[doc.tipo] = value;
+		}
+
+		try {
+			await setFeConsecutivosForAmbiente(ambiente, values);
+			const label = ambiente === 'production' ? 'Producción' : 'Pruebas (staging)';
+			return {
+				success: true,
+				message: `Consecutivos de ${label} guardados.`,
+				savedScope: 'consecutivos',
+				savedAmbiente: ambiente
+			};
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'No se pudieron guardar los consecutivos.';
+			return fail(400, { message, savedScope: 'consecutivos', savedAmbiente: ambiente });
 		}
 	},
 

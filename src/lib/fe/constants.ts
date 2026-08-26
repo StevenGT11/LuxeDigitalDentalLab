@@ -33,6 +33,15 @@ export const FE_AMBIENTE_OPTIONS = [
 	{ value: 'production', label: 'Producción' }
 ] as const;
 
+/** Contadores de consecutivo Hacienda por tipo de comprobante. */
+export const FE_CONSECUTIVO_DOC_TYPES = [
+	{ tipo: '01', label: 'Factura electrónica (FE)' },
+	{ tipo: '02', label: 'Nota de débito (ND)' },
+	{ tipo: '03', label: 'Nota de crédito (NC)' },
+	{ tipo: '04', label: 'Tiquete electrónico (TE)' },
+	{ tipo: '08', label: 'Factura compra (FEC)' }
+] as const;
+
 export const FE_COMPROBANTE_ESTADOS: { value: FeComprobanteEstado; label: string }[] = [
 	{ value: 'pendiente_envio', label: 'Sin enviar' },
 	{ value: 'enviado', label: 'Enviado a Hacienda' },

@@ -183,6 +183,8 @@ export async function emitirFacturaElectronica(
 		);
 	}
 
+	const emitAmbiente = emisor.ambiente;
+
 	const invoice = await loadInvoice(invoiceId);
 	const client = await loadClientFiscal(invoice.client_id);
 
@@ -202,9 +204,10 @@ export async function emitirFacturaElectronica(
 	let consecutivoNum = fe?.consecutivo_num;
 
 	if (fe && feComprobanteCanReemit(fe.estado)) {
-		consecutivoNum = await reserveNextFeConsecutivo('01');
+		consecutivoNum = await reserveNextFeConsecutivo('01', emitAmbiente);
 		await resetFeComprobanteForReemit(fe.id, {
 			consecutivo_num: consecutivoNum,
+			ambiente: emitAmbiente,
 			subtotal: Number(invoiceFresh.subtotal),
 			impuesto: Number(invoiceFresh.impuesto),
 			total: Number(invoiceFresh.total)
@@ -213,10 +216,11 @@ export async function emitirFacturaElectronica(
 	} else if (fe?.clave && fe.estado !== 'pendiente_envio') {
 		throw new Error('Ya existe un envío con clave. Use «Consultar» para actualizar el estado.');
 	} else if (!feId || !consecutivoNum) {
-		consecutivoNum = await reserveNextFeConsecutivo('01');
+		consecutivoNum = await reserveNextFeConsecutivo('01', emitAmbiente);
 		feId = await insertFeComprobanteDraft({
 			invoice_id: invoiceId,
 			consecutivo_num: consecutivoNum,
+			ambiente: emitAmbiente,
 			subtotal: Number(invoiceFresh.subtotal),
 			impuesto: Number(invoiceFresh.impuesto),
 			total: Number(invoiceFresh.total)

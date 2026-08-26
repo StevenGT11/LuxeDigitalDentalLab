@@ -1,5 +1,5 @@
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
-import type { FeComprobanteEstado, FeComprobanteSummary } from './types';
+import type { FeAmbiente, FeComprobanteEstado, FeComprobanteSummary } from './types';
 
 type DbFe = {
 	id: string;
@@ -62,10 +62,14 @@ export async function fetchFeComprobanteForInvoice(invoiceId: string): Promise<D
 	return (data as DbFe | null) ?? null;
 }
 
-export async function reserveNextFeConsecutivo(tipoDocumento: string): Promise<number> {
+export async function reserveNextFeConsecutivo(
+	tipoDocumento: string,
+	ambiente: FeAmbiente
+): Promise<number> {
 	const admin = createSupabaseAdminClient();
 	const { data, error } = await admin.rpc('next_fe_consecutivo_num', {
-		p_tipo_documento: tipoDocumento
+		p_tipo_documento: tipoDocumento,
+		p_ambiente: ambiente
 	});
 	if (error) throw error;
 	return Number(data);
@@ -74,6 +78,7 @@ export async function reserveNextFeConsecutivo(tipoDocumento: string): Promise<n
 export async function insertFeComprobanteDraft(input: {
 	invoice_id: string;
 	consecutivo_num: number;
+	ambiente: FeAmbiente;
 	subtotal: number;
 	impuesto: number;
 	total: number;
@@ -84,6 +89,7 @@ export async function insertFeComprobanteDraft(input: {
 		id,
 		invoice_id: input.invoice_id,
 		tipo_documento: '01',
+		ambiente: input.ambiente,
 		consecutivo_num: input.consecutivo_num,
 		estado: 'pendiente_envio',
 		subtotal: input.subtotal,
@@ -96,10 +102,11 @@ export async function insertFeComprobanteDraft(input: {
 }
 
 /** Limpia el comprobante rechazado/erróneo y reserva nuevo consecutivo para reenvío. */
-export async function resetFeComprobanteForReemit(
+export async function 	resetFeComprobanteForReemit(
 	id: string,
 	input: {
 		consecutivo_num: number;
+		ambiente: FeAmbiente;
 		subtotal: number;
 		impuesto: number;
 		total: number;
@@ -110,6 +117,7 @@ export async function resetFeComprobanteForReemit(
 		.from('fe_comprobantes')
 		.update({
 			consecutivo_num: input.consecutivo_num,
+			ambiente: input.ambiente,
 			subtotal: input.subtotal,
 			impuesto: input.impuesto,
 			total: input.total,

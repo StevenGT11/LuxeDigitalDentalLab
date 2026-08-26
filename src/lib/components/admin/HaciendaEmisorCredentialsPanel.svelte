@@ -1,13 +1,20 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { invalidate } from '$app/navigation';
+	import FeConsecutivosPanel from '$lib/components/admin/FeConsecutivosPanel.svelte';
 	import SecretCredentialField from '$lib/components/admin/SecretCredentialField.svelte';
+	import type { FeAmbienteConsecutivos } from '$lib/fe/consecutivos';
 	import type { FeAmbiente, FeEmisorConfigPublic } from '$lib/fe/types';
 
 	let {
 		ambiente,
 		title,
 		config,
+		consecutivos = null,
+		canEdit = false,
+		consecutivosFormMessage = '',
+		consecutivosFormSuccess = false,
+		showConsecutivosFeedback = false,
 		isEmitTarget = false,
 		isComplete = false,
 		formMessage = '',
@@ -17,6 +24,11 @@
 		ambiente: FeAmbiente;
 		title: string;
 		config: FeEmisorConfigPublic | null;
+		consecutivos?: FeAmbienteConsecutivos | null;
+		canEdit?: boolean;
+		consecutivosFormMessage?: string;
+		consecutivosFormSuccess?: boolean;
+		showConsecutivosFeedback?: boolean;
 		isEmitTarget?: boolean;
 		isComplete?: boolean;
 		formMessage?: string;
@@ -76,6 +88,15 @@
 			{formMessage}
 		</p>
 	{/if}
+
+	<FeConsecutivosPanel
+		{ambiente}
+		{consecutivos}
+		{canEdit}
+		formMessage={consecutivosFormMessage}
+		formSuccess={consecutivosFormSuccess}
+		showFeedback={showConsecutivosFeedback}
+	/>
 
 	<form
 		method="POST"

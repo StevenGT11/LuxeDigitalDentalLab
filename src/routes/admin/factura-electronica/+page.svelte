@@ -105,6 +105,11 @@
 			ambiente="staging"
 			title="Pruebas (staging)"
 			config={data.staging}
+			consecutivos={data.consecutivos.staging}
+			canEdit={data.canConfigureEmisor && data.feServerReady}
+			consecutivosFormMessage={form?.message ?? ''}
+			consecutivosFormSuccess={form?.success === true}
+			showConsecutivosFeedback={savedScope === 'consecutivos' && savedAmbiente === 'staging'}
 			isEmitTarget={data.emitAmbiente === 'staging'}
 			isComplete={data.stagingComplete}
 			formMessage={form?.message ?? ''}
@@ -115,6 +120,11 @@
 			ambiente="production"
 			title="Producción"
 			config={data.production}
+			consecutivos={data.consecutivos.production}
+			canEdit={data.canConfigureEmisor && data.feServerReady}
+			consecutivosFormMessage={form?.message ?? ''}
+			consecutivosFormSuccess={form?.success === true}
+			showConsecutivosFeedback={savedScope === 'consecutivos' && savedAmbiente === 'production'}
 			isEmitTarget={data.emitAmbiente === 'production'}
 			isComplete={data.productionComplete}
 			formMessage={form?.message ?? ''}
