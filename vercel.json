@@ -1,0 +1,3 @@
+{
+	"installCommand": "node scripts/prepare-github-packages-auth.mjs && npm install"
+}
