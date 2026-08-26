@@ -3,7 +3,8 @@ import type { Actions, PageServerLoad } from './$types';
 import { requireFinancialProfile } from '$lib/auth/guards.server';
 import { requireAdmin } from '$lib/auth/require-admin';
 import {
-	getFeEmisorConfigPublicByAmbiente,
+	getFeEmisorConfigById,
+	getFeEmisorConfigsPublicBatch,
 	isEmisorCredentialsComplete,
 	isEmisorProfileComplete,
 	mergeEmisorProfilePublic,
@@ -19,8 +20,6 @@ export const load: PageServerLoad = async ({ parent, depends, locals: { supabase
 	const { profile } = await parent();
 	requireFinancialProfile(profile);
 
-	const { user } = await safeGetSession();
-	const adminGate = await requireAdmin(supabase, user?.id, '');
 	let feServerReady = true;
 	try {
 		createSupabaseAdminClient();
@@ -28,11 +27,12 @@ export const load: PageServerLoad = async ({ parent, depends, locals: { supabase
 		feServerReady = false;
 	}
 
-	const emitAmbiente = await getEmitAmbiente();
-	const [staging, production] = await Promise.all([
-		getFeEmisorConfigPublicByAmbiente('staging'),
-		getFeEmisorConfigPublicByAmbiente('production')
+	const [{ user }, emitAmbiente, { staging, production }] = await Promise.all([
+		safeGetSession(),
+		getEmitAmbiente(),
+		getFeEmisorConfigsPublicBatch()
 	]);
+	const adminGate = await requireAdmin(supabase, user?.id, '');
 
 	const sharedProfile = mergeEmisorProfilePublic(staging, production);
 	const profileComplete = isEmisorProfileComplete(sharedProfile);
@@ -148,6 +148,46 @@ export const actions: Actions = {
 			};
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'No se pudo guardar.';
+			return fail(400, { message });
+		}
+	},
+
+	revealSecret: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		const gate = await requireAdmin(
+			supabase,
+			user?.id,
+			'Solo administradores pueden ver credenciales guardadas.'
+		);
+		if (!gate.ok) return fail(gate.status, { message: gate.message });
+
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '').trim();
+		const field = String(form.get('field') ?? '').trim();
+
+		if (!id) return fail(400, { message: 'Configuración no válida.' });
+		if (field !== 'hacienda_password' && field !== 'pin_certificado') {
+			return fail(400, { message: 'Campo no válido.' });
+		}
+
+		try {
+			createSupabaseAdminClient();
+		} catch {
+			return fail(503, { message: 'Falta SUPABASE_SERVICE_ROLE_KEY en el servidor.' });
+		}
+
+		try {
+			const row = await getFeEmisorConfigById(id);
+			if (!row) return fail(404, { message: 'Configuración no encontrada.' });
+
+			const value = field === 'hacienda_password' ? row.hacienda_password : row.pin_certificado;
+			if (!value?.trim()) {
+				return fail(404, { message: 'No hay valor guardado para este campo.' });
+			}
+
+			return { success: true, value };
+		} catch (err) {
+			const message = err instanceof Error ? err.message : 'No se pudo leer el valor guardado.';
 			return fail(400, { message });
 		}
 	}

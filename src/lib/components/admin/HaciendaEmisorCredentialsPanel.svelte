@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidate } from '$app/navigation';
 	import SecretCredentialField from '$lib/components/admin/SecretCredentialField.svelte';
 	import type { FeAmbiente, FeEmisorConfigPublic } from '$lib/fe/types';
 
@@ -84,7 +85,8 @@
 			saving = true;
 			return async ({ update }) => {
 				saving = false;
-				await update({ reset: false, invalidateAll: true });
+				await update({ reset: false });
+				await invalidate('app:fe-emisor');
 			};
 		}}
 	>
@@ -108,6 +110,8 @@
 				name="hacienda_password"
 				label="Contraseña Hacienda"
 				hasStored={draft.has_hacienda_password}
+				configId={draft.id}
+				secretField="hacienda_password"
 				bind:value={haciendaPassword}
 				fullWidth
 			/>
@@ -115,6 +119,8 @@
 				name="pin_certificado"
 				label="PIN del certificado"
 				hasStored={draft.has_pin}
+				configId={draft.id}
+				secretField="pin_certificado"
 				bind:value={pinCertificado}
 			/>
 			<label class="field field--full">

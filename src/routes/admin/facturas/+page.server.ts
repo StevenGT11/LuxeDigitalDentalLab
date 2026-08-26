@@ -6,68 +6,43 @@ import { consultarFacturaElectronica, emitirFacturaElectronica } from '$lib/fe/e
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
 import {
 	getFeEmisorConfigForEmit,
-	getFeEmisorConfigPublicByAmbiente,
+	getFeEmisorConfigsPublicBatch,
 	isEmisorCredentialsComplete,
 	isEmisorProfileComplete,
 	mergeEmisorProfilePublic
 } from '$lib/fe/emisor.server';
 import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import { checkFacturadorConnection } from '$lib/fe/facturador.server';
-import type { FeComprobanteSummary } from '$lib/fe/types';
-import { createSupabaseAdminClient } from '$lib/supabase/admin';
+import { fetchInvoiceListPage, parseInvoiceListQuery } from '$lib/lab/invoices-list.server';
 
-export const load: PageServerLoad = async ({ parent }) => {
+export const load: PageServerLoad = async ({ parent, url, depends }) => {
+	depends('app:facturas-list');
 	const { profile } = await parent();
 	requireFinancialProfile(profile);
 
-	const emitAmbiente = await getEmitAmbiente();
-	const [staging, production] = await Promise.all([
-		getFeEmisorConfigPublicByAmbiente('staging'),
-		getFeEmisorConfigPublicByAmbiente('production')
+	const listQuery = parseInvoiceListQuery(url.searchParams);
+
+	const [list, emitAmbiente, { staging, production }, facturador] = await Promise.all([
+		fetchInvoiceListPage(listQuery),
+		getEmitAmbiente(),
+		getFeEmisorConfigsPublicBatch(),
+		checkFacturadorConnection()
 	]);
+
 	const sharedProfile = mergeEmisorProfilePublic(staging, production);
 	const profileComplete = isEmisorProfileComplete(sharedProfile);
 	const emitPublic = emitAmbiente === 'production' ? production : staging;
-	const emitConfigReady =
-		profileComplete && isEmisorCredentialsComplete(emitPublic);
+	const emitConfigReady = profileComplete && isEmisorCredentialsComplete(emitPublic);
 	const activeEmisor = emitConfigReady ? await getFeEmisorConfigForEmit() : null;
-	const facturador = await checkFacturadorConnection();
-	const admin = createSupabaseAdminClient();
-	const { data: feRows, error } = await admin
-		.from('fe_comprobantes')
-		.select(
-			'id, invoice_id, clave, consecutivo, estado, hacienda_status, ultimo_error, enviado_at, resuelto_at'
-		)
-		.eq('tipo_documento', '01')
-		.not('invoice_id', 'is', null);
-
-	if (error) throw error;
-
-	const feByInvoice: Record<string, FeComprobanteSummary> = {};
-	for (const row of feRows ?? []) {
-		if (row.invoice_id) {
-			feByInvoice[row.invoice_id] = {
-				id: row.id,
-				invoice_id: row.invoice_id,
-				clave: row.clave,
-				consecutivo: row.consecutivo,
-				estado: row.estado,
-				hacienda_status: row.hacienda_status,
-				ultimo_error: row.ultimo_error,
-				enviado_at: row.enviado_at,
-				resuelto_at: row.resuelto_at
-			};
-		}
-	}
 
 	return {
+		...list,
 		hasActiveEmisor: Boolean(activeEmisor) && emitConfigReady,
 		emitAmbiente,
 		emitConfigReady,
 		facturadorOk: facturador.ok,
 		facturadorUrl: facturador.url,
-		facturadorError: facturador.error,
-		feByInvoice
+		facturadorError: facturador.error
 	};
 };
 

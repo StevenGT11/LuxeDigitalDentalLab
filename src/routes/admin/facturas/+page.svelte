@@ -1,18 +1,10 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
-	import { afterNavigate } from '$app/navigation';
-	import { browser } from '$app/environment';
-	import { onMount } from 'svelte';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { navigating } from '$app/state';
 	import { tick } from 'svelte';
 	import FeMediosPagoModal from '$lib/components/fe/FeMediosPagoModal.svelte';
 	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
-	import {
-		getAllInvoices,
-		hydrateInvoicesOnce,
-		initializeLabStorage,
-		updateInvoiceStatus
-	} from '$lib/lab/store';
 	import {
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
@@ -27,76 +19,84 @@
 	} from '$lib/fe/constants';
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
 	import { feRechazoSummaryLine, parseFeRechazoFromStored } from '$lib/fe/format-rechazo';
+	import {
+		INVOICE_LIST_PAGE_SIZES,
+		type InvoiceListPageSize,
+		type InvoiceListRow
+	} from '$lib/lab/invoices-list';
+	import { updateInvoiceStatus } from '$lib/lab/store';
+	import type { InvoiceEstado } from '$lib/lab/types';
 	import type { FeComprobanteSummary } from '$lib/fe/types';
-	import type { Invoice, InvoiceEstado } from '$lib/lab/types';
-
-	const PAGE_SIZE = 15;
 
 	let { data, form } = $props();
 
-	let facturas = $state<Invoice[]>([]);
+	let searchInput = $state('');
 	let filtroEstado = $state<'todos' | InvoiceEstado>('todos');
-	let searchQuery = $state('');
-	let currentPage = $state(1);
-	let feByInvoice = $state<Record<string, FeComprobanteSummary>>({});
+	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+	let emittingFe = $state(false);
+	let emittingLabel = $state('');
 
-	const searchFiltered = $derived.by(() => {
-		let list =
-			filtroEstado === 'todos' ? facturas : facturas.filter((f) => f.estado === filtroEstado);
-		const q = searchQuery.trim().toLowerCase();
-		if (q) {
-			list = list.filter((f) => {
-				const fe = feByInvoice[f.id];
-				return (
-					f.invoice_number.toLowerCase().includes(q) ||
-					f.client_name.toLowerCase().includes(q) ||
-					f.client_clinica.toLowerCase().includes(q) ||
-					f.case_number.toLowerCase().includes(q) ||
-					f.paciente_name.toLowerCase().includes(q) ||
-					getInvoiceEstadoLabel(f.estado).toLowerCase().includes(q) ||
-					(fe && getFeComprobanteEstadoLabel(fe.estado).toLowerCase().includes(q)) ||
-					(fe?.clave?.toLowerCase().includes(q) ?? false)
-				);
-			});
-		}
-		return [...list].sort(
-			(a, b) => new Date(b.fecha_emision).getTime() - new Date(a.fecha_emision).getTime()
-		);
-	});
-
-	const totalPages = $derived(Math.max(1, Math.ceil(searchFiltered.length / PAGE_SIZE)));
-	const safePage = $derived(Math.min(Math.max(1, currentPage), totalPages));
-	const pageStart = $derived(searchFiltered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1);
-	const pageEnd = $derived(Math.min(safePage * PAGE_SIZE, searchFiltered.length));
-	const paginated = $derived(
-		searchFiltered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+	const totalPages = $derived(Math.max(1, Math.ceil(data.totalCount / data.pageSize)));
+	const pageStart = $derived(
+		data.totalCount === 0 ? 0 : (data.page - 1) * data.pageSize + 1
 	);
+	const pageEnd = $derived(Math.min(data.page * data.pageSize, data.totalCount));
+	const isLoading = $derived(navigating.type !== null);
 
 	$effect(() => {
-		searchQuery;
-		filtroEstado;
-		currentPage = 1;
+		searchInput = data.q;
+		filtroEstado = data.estado;
 	});
 
-	async function refresh() {
-		if (!browser) return;
-		initializeLabStorage();
-		await hydrateInvoicesOnce();
-		facturas = getAllInvoices();
-		feByInvoice = { ...data.feByInvoice };
+	function listHref(overrides: Partial<{
+		page: number;
+		pageSize: InvoiceListPageSize;
+		q: string;
+		estado: 'todos' | InvoiceEstado;
+	}> = {}) {
+		const p = new URLSearchParams();
+		const page = overrides.page ?? data.page;
+		const pageSize = overrides.pageSize ?? data.pageSize;
+		const q = overrides.q ?? data.q;
+		const estado = overrides.estado ?? data.estado;
+		if (page > 1) p.set('page', String(page));
+		if (pageSize !== 15) p.set('size', String(pageSize));
+		if (q) p.set('q', q);
+		if (estado !== 'todos') p.set('estado', estado);
+		const qs = p.toString();
+		return `/admin/facturas${qs ? `?${qs}` : ''}`;
 	}
 
-	onMount(() => void refresh());
+	function goList(
+		overrides: Partial<{
+			page: number;
+			pageSize: InvoiceListPageSize;
+			q: string;
+			estado: 'todos' | InvoiceEstado;
+		}> = {}
+	) {
+		void goto(listHref(overrides), { keepFocus: true, noScroll: true });
+	}
 
-	afterNavigate(() => void refresh());
+	function onSearchInput() {
+		clearTimeout(searchDebounce);
+		searchDebounce = setTimeout(() => {
+			goList({ q: searchInput.trim(), page: 1 });
+		}, 350);
+	}
 
-	$effect(() => {
-		feByInvoice = { ...data.feByInvoice };
-	});
+	function onEstadoChange() {
+		goList({ estado: filtroEstado, page: 1 });
+	}
+
+	function onPageSizeChange(event: Event) {
+		const size = Number((event.currentTarget as HTMLSelectElement).value) as InvoiceListPageSize;
+		goList({ pageSize: size, page: 1 });
+	}
 
 	async function cambiarEstado(id: string, estado: string) {
 		await updateInvoiceStatus(id, estado as InvoiceEstado);
-		facturas = getAllInvoices();
+		await invalidateAll();
 	}
 
 	let actionMessage = $derived(form?.message ?? '');
@@ -114,7 +114,7 @@
 	let emitFormEl = $state<HTMLFormElement | null>(null);
 	let mediosPagoJson = $state('');
 
-	function openEmitModal(fac: Invoice) {
+	function openEmitModal(fac: InvoiceListRow) {
 		emitTarget = { id: fac.id, label: fac.invoice_number, total: fac.total };
 		mediosPagoJson = '';
 		emitModalOpen = true;
@@ -122,20 +122,34 @@
 
 	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
 		mediosPagoJson = JSON.stringify(medios);
+		emittingLabel = emitTarget?.label ?? '';
 		emitModalOpen = false;
+		emittingFe = true;
 		await tick();
 		emitFormEl?.requestSubmit();
 	}
 </script>
+
+{#if emittingFe}
+	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
+		<div class="fe-emit-overlay__panel">
+			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
+			<p class="fe-emit-overlay__title">Generando factura electrónica</p>
+			{#if emittingLabel}
+				<p class="type-caption fe-emit-overlay__subtitle">{emittingLabel}</p>
+			{/if}
+			<p class="type-caption">Firmando XML y enviando a Hacienda…</p>
+		</div>
+	</div>
+{/if}
 
 <div class="dash-page">
 	<p class="dash-lead">Facturación por caso y cliente — generadas al registrar cada caso.</p>
 
 	{#if !data.facturadorOk}
 		<p class="fe-facturador-alert" role="alert">
-			<strong>Facturador no disponible</strong> en <code>{data.facturadorUrl}</code>.
-			{data.facturadorError ?? 'Inicie el servicio Facturador y verifique FACTURADOR_URL en .env.'}
-			Guía: <code>INTEGRATION_GUIDE.md</code> en este repositorio.
+			<strong>Facturador no disponible</strong> ({data.facturadorUrl}).
+			{data.facturadorError ?? 'Verifique que @happy-prod/facturador esté instalado (npm install).'}
 		</p>
 	{/if}
 
@@ -143,11 +157,16 @@
 		<input
 			type="search"
 			class="search-input facturas-toolbar__search"
-			bind:value={searchQuery}
+			bind:value={searchInput}
+			oninput={onSearchInput}
 			placeholder="Buscar factura, cliente, caso, paciente o clave FE…"
 			aria-label="Buscar facturas"
 		/>
-		<select class="field-select facturas-toolbar__estado" bind:value={filtroEstado}>
+		<select
+			class="field-select facturas-toolbar__estado"
+			bind:value={filtroEstado}
+			onchange={onEstadoChange}
+		>
 			<option value="todos">Todos los estados</option>
 			{#each INVOICE_ESTADOS as e (e.value)}
 				<option value={e.value}>{e.label}</option>
@@ -171,32 +190,36 @@
 		</div>
 	{/if}
 
-	{#if facturas.length === 0}
+	{#if isLoading && data.invoices.length === 0}
+		<div class="store-utility-card empty-state">
+			<p>Cargando facturas…</p>
+		</div>
+	{:else if data.totalCount === 0 && !data.q && data.estado === 'todos'}
 		<div class="store-utility-card empty-state">
 			<p>No hay facturas</p>
 		</div>
-	{:else if searchFiltered.length === 0}
+	{:else if data.invoices.length === 0}
 		<div class="store-utility-card empty-state">
-			{#if searchQuery.trim()}
-				<p>Ninguna factura coincide con «{searchQuery.trim()}»</p>
-				<button type="button" class="btn-secondary-pill" onclick={() => (searchQuery = '')}>
+			{#if data.q}
+				<p>Ninguna factura coincide con «{data.q}»</p>
+				<button type="button" class="btn-secondary-pill" onclick={() => goList({ q: '', page: 1 })}>
 					Limpiar búsqueda
 				</button>
 			{:else}
 				<p>No hay facturas con el estado de cobro seleccionado</p>
-				<button type="button" class="btn-secondary-pill" onclick={() => (filtroEstado = 'todos')}>
+				<button type="button" class="btn-secondary-pill" onclick={() => goList({ estado: 'todos', page: 1 })}>
 					Ver todas
 				</button>
 			{/if}
 		</div>
 	{:else}
-		{#if searchQuery.trim() || filtroEstado !== 'todos'}
+		{#if data.q || data.estado !== 'todos'}
 			<p class="type-caption facturas-results-hint">
-				{searchFiltered.length} factura{searchFiltered.length === 1 ? '' : 's'}
-				{#if searchQuery.trim()} — búsqueda «{searchQuery.trim()}»{/if}
+				{data.totalCount} factura{data.totalCount === 1 ? '' : 's'}
+				{#if data.q} — búsqueda «{data.q}»{/if}
 			</p>
 		{/if}
-		<div class="data-table-wrap">
+		<div class="data-table-wrap" class:facturas-table-loading={isLoading}>
 			<table class="data-table">
 				<thead>
 					<tr>
@@ -212,8 +235,8 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each paginated as fac (fac.id)}
-						{@const fe = feByInvoice[fac.id]}
+					{#each data.invoices as fac (fac.id)}
+						{@const fe = data.feByInvoice[fac.id]}
 						<tr class:fe-row-highlight={actionInvoiceId === fac.id && actionMessage}>
 							<td class="type-body-strong">
 								<a href="/admin/facturas/{fac.id}" class="text-link">{fac.invoice_number}</a>
@@ -295,34 +318,46 @@
 			</table>
 		</div>
 
-		{#if totalPages > 1}
-			<nav class="facturas-pagination" aria-label="Paginación de facturas">
-				<p class="type-caption facturas-pagination__summary">
-					Mostrando {pageStart}–{pageEnd} de {searchFiltered.length}
-				</p>
-				<div class="facturas-pagination__controls">
+		<nav class="facturas-pagination" aria-label="Paginación de facturas">
+			<p class="type-caption facturas-pagination__summary">
+				Mostrando {pageStart}–{pageEnd} de {data.totalCount}
+			</p>
+			<div class="facturas-pagination__controls">
+				<label class="facturas-pagination__size type-caption">
+					Por página
+					<select
+						class="field-select facturas-pagination__size-select"
+						value={data.pageSize}
+						onchange={onPageSizeChange}
+					>
+						{#each INVOICE_LIST_PAGE_SIZES as size (size)}
+							<option value={size}>{size}</option>
+						{/each}
+					</select>
+				</label>
+				{#if totalPages > 1}
 					<button
 						type="button"
 						class="btn-secondary-pill"
-						disabled={safePage <= 1}
-						onclick={() => (currentPage = safePage - 1)}
+						disabled={data.page <= 1 || isLoading}
+						onclick={() => goList({ page: data.page - 1 })}
 					>
 						Anterior
 					</button>
 					<span class="type-caption facturas-pagination__page">
-						Página {safePage} de {totalPages}
+						Página {data.page} de {totalPages}
 					</span>
 					<button
 						type="button"
 						class="btn-secondary-pill"
-						disabled={safePage >= totalPages}
-						onclick={() => (currentPage = safePage + 1)}
+						disabled={data.page >= totalPages || isLoading}
+						onclick={() => goList({ page: data.page + 1 })}
 					>
 						Siguiente
 					</button>
-				</div>
-			</nav>
-		{/if}
+				{/if}
+			</div>
+		</nav>
 	{/if}
 
 	<form
@@ -331,12 +366,19 @@
 		action="?/emitir"
 		class="fe-emit-form-hidden"
 		aria-hidden="true"
-		use:enhance={() =>
-			async ({ update }) => {
-				await update();
-				await invalidateAll();
-				emitTarget = null;
-			}}
+		use:enhance={() => {
+			emittingFe = true;
+			return async ({ update }) => {
+				try {
+					await update();
+					await invalidateAll();
+				} finally {
+					emittingFe = false;
+					emittingLabel = '';
+					emitTarget = null;
+				}
+			};
+		}}
 	>
 		<input type="hidden" name="invoice_id" value={emitTarget?.id ?? ''} />
 		<input type="hidden" name="medios_pago" value={mediosPagoJson} />
@@ -374,6 +416,10 @@
 		margin: 0 0 var(--spacing-sm);
 	}
 
+	.facturas-table-loading {
+		opacity: 0.55;
+	}
+
 	.facturas-pagination {
 		display: flex;
 		flex-wrap: wrap;
@@ -394,6 +440,69 @@
 	.facturas-pagination__page {
 		min-width: 6.5rem;
 		text-align: center;
+	}
+
+	.facturas-pagination__size {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.facturas-pagination__size-select {
+		width: auto;
+		padding: 4px 8px;
+		font-size: 12px;
+	}
+
+	.fe-emit-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 2000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgb(15 23 42 / 55%);
+		backdrop-filter: blur(2px);
+	}
+
+	.fe-emit-overlay__panel {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.65rem;
+		padding: 1.75rem 2rem;
+		min-width: min(20rem, calc(100vw - 2rem));
+		border-radius: 10px;
+		background: var(--color-card, #fff);
+		border: 1px solid var(--color-border, #e2e8f0);
+		box-shadow: 0 20px 48px rgb(15 23 42 / 25%);
+		text-align: center;
+	}
+
+	.fe-emit-overlay__title {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	.fe-emit-overlay__subtitle {
+		margin: 0;
+		font-weight: 500;
+	}
+
+	.fe-emit-overlay__spinner {
+		width: 2.25rem;
+		height: 2.25rem;
+		border: 3px solid color-mix(in srgb, var(--color-border, #cbd5e1) 60%, transparent);
+		border-top-color: var(--color-primary, #0f172a);
+		border-radius: 50%;
+		animation: fe-emit-spin 0.75s linear infinite;
+	}
+
+	@keyframes fe-emit-spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.fe-facturador-alert {

@@ -126,7 +126,7 @@
 
 	{#if !data.facturadorOk}
 		<p class="invoice-detail__alert" role="alert">
-			Facturador no disponible en <code>{data.facturadorUrl}</code>. {data.facturadorError}
+			Facturador no disponible ({data.facturadorUrl}). {data.facturadorError}
 		</p>
 	{/if}
 

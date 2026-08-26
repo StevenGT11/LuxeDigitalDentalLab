@@ -7,7 +7,7 @@ import { consultarFacturaElectronica, emitirFacturaElectronica } from '$lib/fe/e
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
 import {
 	getFeEmisorConfigForEmit,
-	getFeEmisorConfigPublicByAmbiente,
+	getFeEmisorConfigsPublicBatch,
 	isEmisorCredentialsComplete,
 	isEmisorProfileComplete,
 	mergeEmisorProfilePublic
@@ -27,17 +27,16 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 	const detail = await loadInvoiceDetailPage(invoiceId);
 	if (!detail) error(404, 'Factura no encontrada');
 
-	const emitAmbiente = await getEmitAmbiente();
-	const [staging, production] = await Promise.all([
-		getFeEmisorConfigPublicByAmbiente('staging'),
-		getFeEmisorConfigPublicByAmbiente('production')
+	const [emitAmbiente, { staging, production }, facturador] = await Promise.all([
+		getEmitAmbiente(),
+		getFeEmisorConfigsPublicBatch(),
+		checkFacturadorConnection()
 	]);
 	const sharedProfile = mergeEmisorProfilePublic(staging, production);
 	const profileComplete = isEmisorProfileComplete(sharedProfile);
 	const emitPublic = emitAmbiente === 'production' ? production : staging;
 	const emitConfigReady = profileComplete && isEmisorCredentialsComplete(emitPublic);
 	const activeEmisor = emitConfigReady ? await getFeEmisorConfigForEmit() : null;
-	const facturador = await checkFacturadorConnection();
 
 	return {
 		...detail,

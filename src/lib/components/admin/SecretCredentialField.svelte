@@ -1,11 +1,16 @@
 <script lang="ts">
+	import { deserialize } from '$app/forms';
 	import { Eye, EyeOff } from '@lucide/svelte';
+
+	export type FeSecretField = 'hacienda_password' | 'pin_certificado';
 
 	let {
 		name,
 		label,
 		hasStored = false,
 		value = $bindable(''),
+		configId = '',
+		secretField = undefined as FeSecretField | undefined,
 		autocomplete = 'new-password',
 		fullWidth = false
 	}: {
@@ -13,6 +18,8 @@
 		label: string;
 		hasStored?: boolean;
 		value?: string;
+		configId?: string;
+		secretField?: FeSecretField;
 		autocomplete?: string;
 		fullWidth?: boolean;
 	} = $props();
@@ -21,24 +28,70 @@
 
 	let visible = $state(false);
 	let editing = $state(false);
+	let storedSecret = $state('');
+	let loadingReveal = $state(false);
+	let revealError = $state('');
 
-	const showStoredMask = $derived(hasStored && !value.trim() && !editing);
+	const showStoredMask = $derived(hasStored && !value.trim() && !storedSecret && !editing);
 	const inputType = $derived(visible ? 'text' : 'password');
+	const canRevealStored = $derived(Boolean(configId && secretField && hasStored));
 
 	function startEdit() {
 		editing = true;
+		if (storedSecret && !value.trim()) {
+			value = storedSecret;
+		}
+		storedSecret = '';
 		visible = false;
 	}
 
-	function toggleVisible() {
+	async function toggleVisible() {
+		revealError = '';
+
+		if (!visible && hasStored && !value.trim() && !storedSecret && canRevealStored) {
+			loadingReveal = true;
+			try {
+				const fd = new FormData();
+				fd.set('id', configId);
+				fd.set('field', secretField!);
+				const res = await fetch('?/revealSecret', { method: 'POST', body: fd });
+				const result = deserialize(await res.text());
+				if (result.type === 'success' && result.data?.value != null) {
+					storedSecret = String(result.data.value);
+					visible = true;
+				} else if (result.type === 'failure') {
+					revealError =
+						(typeof result.data === 'object' && result.data && 'message' in result.data
+							? String(result.data.message)
+							: null) ?? 'No se pudo cargar el valor guardado.';
+				} else {
+					revealError = 'No se pudo cargar el valor guardado.';
+				}
+			} catch {
+				revealError = 'Error al cargar el valor guardado.';
+			} finally {
+				loadingReveal = false;
+			}
+			return;
+		}
+
 		visible = !visible;
 	}
+
+	$effect(() => {
+		hasStored;
+		configId;
+		if (!hasStored) {
+			storedSecret = '';
+			revealError = '';
+		}
+	});
 </script>
 
 <label class="field" class:field--full={fullWidth}>
 	<span class="field-label">
 		{label}
-		{#if hasStored && !value.trim()}<span class="type-fine-print"> (guardada)</span>{/if}
+		{#if hasStored && !value.trim() && !storedSecret}<span class="type-fine-print"> (guardada)</span>{/if}
 	</span>
 	<div class="secret-field">
 		{#if showStoredMask}
@@ -50,6 +103,16 @@
 				onclick={startEdit}
 				onfocus={startEdit}
 				aria-label={`${label} guardada; clic para cambiar`}
+			/>
+		{:else if storedSecret && !editing}
+			<input
+				class="field-input secret-field__input"
+				type={inputType}
+				value={storedSecret}
+				readonly
+				onclick={startEdit}
+				onfocus={startEdit}
+				aria-label={`${label} guardada`}
 			/>
 		{:else}
 			<input
@@ -65,6 +128,7 @@
 			type="button"
 			class="secret-field__toggle"
 			onclick={toggleVisible}
+			disabled={loadingReveal || (showStoredMask && !canRevealStored)}
 			aria-label={visible ? `Ocultar ${label}` : `Mostrar ${label}`}
 			aria-pressed={visible}
 		>
@@ -75,6 +139,9 @@
 			{/if}
 		</button>
 	</div>
+	{#if revealError}
+		<span class="type-fine-print secret-field__error" role="alert">{revealError}</span>
+	{/if}
 </label>
 
 <style>
@@ -106,12 +173,23 @@
 		border-radius: 0 4px 4px 0;
 	}
 
-	.secret-field__toggle:hover {
+	.secret-field__toggle:hover:not(:disabled) {
 		color: var(--color-foreground, #0f172a);
+	}
+
+	.secret-field__toggle:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 
 	.secret-field__toggle:focus-visible {
 		outline: 2px solid var(--color-primary, #0f172a);
 		outline-offset: -2px;
+	}
+
+	.secret-field__error {
+		display: block;
+		margin-top: 0.25rem;
+		color: var(--color-danger, #c0392b);
 	}
 </style>

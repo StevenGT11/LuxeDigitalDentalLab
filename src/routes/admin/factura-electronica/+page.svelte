@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidate } from '$app/navigation';
 	import HaciendaEmisorCredentialsPanel from '$lib/components/admin/HaciendaEmisorCredentialsPanel.svelte';
 	import HaciendaEmisorProfileForm from '$lib/components/admin/HaciendaEmisorProfileForm.svelte';
 	import type { FeAmbiente } from '$lib/fe/types';
@@ -45,7 +46,8 @@
 					toggling = true;
 					return async ({ update }) => {
 						toggling = false;
-						await update({ reset: false, invalidateAll: true });
+						await update({ reset: false });
+						await invalidate('app:fe-emisor');
 					};
 				}}
 			>

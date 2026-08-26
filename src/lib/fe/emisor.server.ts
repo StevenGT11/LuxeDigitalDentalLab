@@ -1,12 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { FeAmbiente, FeEmisorConfigInput, FeEmisorConfigPublic, FeEmisorConfigRow, FeEmisorCredentialsInput, FeEmisorProfileInput } from './types';
+import { getFacturadorProjectName } from './facturador.server';
 import { getEmitAmbiente } from './hacienda-settings.server';
 
 const SELECT_COLS =
 	'id, ambiente, activo, tipo_identificacion, numero_identificacion, razon_social, nombre_comercial, codigo_actividad, casa_matriz, terminal, provincia, canton, distrito, otras_senas, telefono, correo_electronico, hacienda_usuario, hacienda_password, certificado_p12, pin_certificado, updated_at';
 
-function toPublic(row: FeEmisorConfigRow): FeEmisorConfigPublic {
+/** Sin certificado P12 (puede ser muy grande); incluye contraseñas cortas solo para flags has_*. */
+const SELECT_PUBLIC_COLS =
+	'id, ambiente, activo, tipo_identificacion, numero_identificacion, razon_social, nombre_comercial, codigo_actividad, casa_matriz, terminal, provincia, canton, distrito, otras_senas, telefono, correo_electronico, hacienda_usuario, hacienda_password, pin_certificado, updated_at';
+
+function toPublic(row: FeEmisorConfigRow, certificadoIds?: Set<string>): FeEmisorConfigPublic {
 	return {
 		id: row.id,
 		ambiente: row.ambiente,
@@ -27,9 +32,38 @@ function toPublic(row: FeEmisorConfigRow): FeEmisorConfigPublic {
 		hacienda_usuario: row.hacienda_usuario,
 		has_hacienda_password: Boolean(row.hacienda_password?.length),
 		has_pin: Boolean(row.pin_certificado?.length),
-		has_certificado: Boolean(row.certificado_p12?.length),
+		has_certificado: certificadoIds ? certificadoIds.has(row.id) : Boolean(row.certificado_p12?.length),
 		updated_at: row.updated_at
 	};
+}
+
+function pickBestRowForAmbiente(
+	rows: FeEmisorConfigRow[],
+	ambiente: FeAmbiente
+): FeEmisorConfigRow | null {
+	const filtered = rows.filter((r) => r.ambiente === ambiente);
+	if (filtered.length === 0) return null;
+	const active = filtered.find((r) => r.activo);
+	if (active) return active;
+	return [...filtered].sort(
+		(a, b) => new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime()
+	)[0]!;
+}
+
+async function fetchCertificadoPresentIds(
+	admin: ReturnType<typeof createSupabaseAdminClient>,
+	rowIds: string[]
+): Promise<Set<string>> {
+	if (rowIds.length === 0) return new Set();
+
+	const { data, error } = await admin
+		.from('fe_emisor_config')
+		.select('id')
+		.in('id', rowIds)
+		.not('certificado_p12', 'is', null);
+	if (error) throw error;
+
+	return new Set((data ?? []).map((r) => r.id));
 }
 
 async function fetchEmisorRowByAmbiente(
@@ -60,9 +94,45 @@ async function fetchEmisorRowByAmbiente(
 
 export async function listFeEmisorConfigsPublic(): Promise<FeEmisorConfigPublic[]> {
 	const admin = createSupabaseAdminClient();
-	const { data, error } = await admin.from('fe_emisor_config').select(SELECT_COLS).order('ambiente');
+	const { data, error } = await admin
+		.from('fe_emisor_config')
+		.select(SELECT_PUBLIC_COLS)
+		.order('ambiente');
 	if (error) throw error;
-	return ((data ?? []) as FeEmisorConfigRow[]).map(toPublic);
+
+	const rows = (data ?? []) as FeEmisorConfigRow[];
+	const certificadoIds = await fetchCertificadoPresentIds(
+		admin,
+		rows.map((r) => r.id)
+	);
+	return rows.map((row) => toPublic(row, certificadoIds));
+}
+
+/** Una sola consulta para staging + production (página de configuración FE). */
+export async function getFeEmisorConfigsPublicBatch(): Promise<{
+	staging: FeEmisorConfigPublic | null;
+	production: FeEmisorConfigPublic | null;
+}> {
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin
+		.from('fe_emisor_config')
+		.select(SELECT_PUBLIC_COLS)
+		.in('ambiente', ['staging', 'production'])
+		.order('updated_at', { ascending: false });
+	if (error) throw error;
+
+	const rows = (data ?? []) as FeEmisorConfigRow[];
+	const stagingRow = pickBestRowForAmbiente(rows, 'staging');
+	const productionRow = pickBestRowForAmbiente(rows, 'production');
+	const certificadoIds = await fetchCertificadoPresentIds(
+		admin,
+		[stagingRow?.id, productionRow?.id].filter(Boolean) as string[]
+	);
+
+	return {
+		staging: stagingRow ? toPublic(stagingRow, certificadoIds) : null,
+		production: productionRow ? toPublic(productionRow, certificadoIds) : null
+	};
 }
 
 export async function getFeEmisorConfigByAmbiente(
@@ -75,8 +145,19 @@ export async function getFeEmisorConfigByAmbiente(
 export async function getFeEmisorConfigPublicByAmbiente(
 	ambiente: FeAmbiente
 ): Promise<FeEmisorConfigPublic | null> {
-	const row = await getFeEmisorConfigByAmbiente(ambiente);
-	return row ? toPublic(row) : null;
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin
+		.from('fe_emisor_config')
+		.select(SELECT_PUBLIC_COLS)
+		.eq('ambiente', ambiente)
+		.order('updated_at', { ascending: false });
+	if (error) throw error;
+
+	const row = pickBestRowForAmbiente((data ?? []) as FeEmisorConfigRow[], ambiente);
+	if (!row) return null;
+
+	const certificadoIds = await fetchCertificadoPresentIds(admin, [row.id]);
+	return toPublic(row, certificadoIds);
 }
 
 export function isEmisorProfileComplete(config: FeEmisorConfigPublic | null): boolean {
@@ -358,6 +439,7 @@ export async function upsertFeEmisorConfig(input: FeEmisorConfigInput): Promise<
 
 export function emisorRowToFacturadorConfig(row: FeEmisorConfigRow): Record<string, unknown> {
 	return {
+		project_name: getFacturadorProjectName(),
 		cedula: row.numero_identificacion,
 		tipo_cedula: row.tipo_identificacion,
 		razon_social: row.razon_social,

@@ -1,0 +1,13 @@
+---
+description: Costa Rica Facturador (@happy-prod/facturador) — use when emitting FE/NC/ND/FEC or integrating the library
+globs:
+alwaysApply: false
+---
+
+When working with electronic invoicing / `@happy-prod/facturador`:
+
+1. Prefer the Facturador MCP tools if available (`facturador_overview`, `facturador_payload_requirements`, `facturador_validate_payload`).
+2. Read project docs under `docs/facturador/` (especially `KNOWLEDGE.md` and `INTEGRATION_GUIDE.md`).
+3. Call the library only from server-side code. Never send P12/PIN/Hacienda passwords from the browser.
+4. Set `config.project_name` for usage telemetry.
+5. Payload shape matches the integration guide (`config`, `tipo_documento`, `lineas`, etc.).

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "facturador": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@happy-prod/facturador",
+        "mcp"
+      ]
+    }
+  }
+}

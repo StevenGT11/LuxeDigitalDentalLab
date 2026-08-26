@@ -5,8 +5,8 @@ import { findCabysByCodigo, searchCabysCatalog } from '$lib/cabys/searchCatalog'
 import { normalizeCabys } from '$lib/cabys/normalize';
 
 export const GET: RequestHandler = async ({ url, locals: { safeGetSession } }) => {
-	const { session } = await safeGetSession();
-	if (!session) {
+	const { user } = await safeGetSession();
+	if (!user) {
 		return json({ cabys: [] }, { status: 401 });
 	}
 

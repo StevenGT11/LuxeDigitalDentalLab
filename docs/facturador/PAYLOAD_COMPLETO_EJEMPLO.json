@@ -1,0 +1,56 @@
+{
+  "config": {
+    "cedula": "310123456789",
+    "razon_social": "MI EMPRESA SA",
+    "codigo_actividad": "477390",
+    "tipo_cedula": "02",
+    "certificado_p12": "MIIa0AIBAzCCGnoGCSqGSIb3... BASE64_DEL_ARCHIVO_P12 ...",
+    "pin": "1234",
+    "hacienda_usuario": "cpf-123456789@stag.comprobanteselectronicos.go.cr",
+    "hacienda_password": "su_password_hacienda",
+    "hacienda_ambiente": "staging",
+    "casa_matriz": "001",
+    "terminal": "00001",
+    "nombre_comercial": "Mi Tienda",
+    "provincia": 1,
+    "canton": "01",
+    "distrito": "01",
+    "otras_senas": "100 metros norte del parque central",
+    "telefono": "22223333",
+    "correo_electronico": "info@miempresa.co.cr"
+  },
+  "tipo_documento": "01",
+  "consecutivo_num": 1,
+  "condicion_venta": "01",
+  "medios_pago": [
+    { "tipo": "01", "monto": 11300 }
+  ],
+  "moneda": "CRC",
+  "tipo_cambio": 1,
+  "cliente": {
+    "cedula": "102340567",
+    "nombre_completo": "Juan Pérez López",
+    "tipo_cedula": "01",
+    "correo_electronico": "juan@email.com"
+  },
+  "lineas": [
+    {
+      "descripcion": "Producto X",
+      "cantidad": 2,
+      "precio_unitario": 10000,
+      "impuesto_tarifa": 13,
+      "unidad_medida": "Unid",
+      "codigo": "ART-001",
+      "cabys": "5210101010100",
+      "descuento": 0
+    },
+    {
+      "descripcion": "Servicio Y",
+      "cantidad": 1,
+      "precio_unitario": 5000,
+      "impuesto_tarifa": 0,
+      "unidad_medida": "Sp",
+      "cabys": "3211100000000"
+    }
+  ]
+}
