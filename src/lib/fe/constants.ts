@@ -81,10 +81,5 @@ export function feComprobanteCanReemit(estado: FeComprobanteEstado | null | unde
 }
 
 export function feComprobanteCanConsultar(estado: FeComprobanteEstado | null | undefined): boolean {
-	return (
-		estado === 'enviado' ||
-		estado === 'procesando' ||
-		estado === 'error' ||
-		estado === 'rechazado'
-	);
+	return estado === 'enviado' || estado === 'procesando' || estado === 'error';
 }

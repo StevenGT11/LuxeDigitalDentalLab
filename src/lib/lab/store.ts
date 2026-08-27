@@ -31,6 +31,7 @@ import {
 	hydrateInvoicesFromDb,
 	updateInvoiceStatusInDb
 } from './invoices-db';
+import { isLabStoreRouteAllowed } from './lab-data-routes';
 import { initializeTreatmentsStorage } from './treatments';
 import type { CreateCaseInput } from './store-types';
 import type {
@@ -120,30 +121,35 @@ function loadCases(): LabCase[] {
 /** Carga casos desde Supabase (idempotente). */
 export async function hydrateCasesOnce(): Promise<void> {
 	if (!browser) return;
+	if (!isLabStoreRouteAllowed()) return;
 	await runCasesHydrate(() => hydrateCasesFromDb());
 }
 
 /** Vuelve a cargar casos desde Supabase (conserva upserts locales mientras llega la respuesta). */
 export async function revalidateCasesFromDb(): Promise<void> {
 	if (!browser) return;
+	if (!isLabStoreRouteAllowed()) return;
 	await forceCasesHydrate(() => hydrateCasesFromDb());
 }
 
 /** Carga facturas desde Supabase (idempotente). */
 export async function hydrateInvoicesOnce(): Promise<void> {
 	if (!browser) return;
+	if (!isLabStoreRouteAllowed()) return;
 	await runInvoicesHydrate(() => hydrateInvoicesFromDb());
 }
 
 /** Vuelve a cargar facturas desde Supabase. */
 export async function revalidateInvoicesFromDb(): Promise<void> {
 	if (!browser) return;
+	if (!isLabStoreRouteAllowed()) return;
 	await forceInvoicesHydrate(() => hydrateInvoicesFromDb());
 }
 
 /** Casos + facturas en paralelo. */
 export async function hydrateLabDataOnce(): Promise<void> {
 	if (!browser) return;
+	if (!isLabStoreRouteAllowed()) return;
 	await Promise.all([hydrateCasesOnce(), hydrateInvoicesOnce()]);
 	if (isSupabaseClientLinked() && isCasesHydrated() && isInvoicesHydrated()) {
 		localStorage.removeItem(CASES_KEY);
@@ -156,6 +162,7 @@ export async function hydrateLabDataOnce(): Promise<void> {
 /** Casos + facturas desde Supabase, forzando datos frescos. */
 export async function revalidateLabDataFromDb(): Promise<void> {
 	if (!browser) return;
+	if (!isLabStoreRouteAllowed()) return;
 	await Promise.all([
 		forceCasesHydrate(() => hydrateCasesFromDb()),
 		forceInvoicesHydrate(() => hydrateInvoicesFromDb())
@@ -172,10 +179,14 @@ function saveCases(cases: LabCase[]): void {
 	saveJson(CASES_KEY, cases);
 }
 
-/** Inicializa catálogo y registro local mínimo (sin demo si hay Supabase). */
-export function initializeLabStorage(options?: { linkClientPortal?: boolean }): void {
+/** Inicializa registro local mínimo (sin demo si hay Supabase). Catálogo de tratamientos solo si se pide. */
+export function initializeLabStorage(options?: {
+	linkClientPortal?: boolean;
+	treatments?: boolean;
+}): void {
 	if (!browser) return;
-	initializeTreatmentsStorage();
+	if (!isLabStoreRouteAllowed() && !options?.treatments) return;
+	if (options?.treatments) initializeTreatmentsStorage();
 	purgeInvalidCaseStorage();
 	if (!isSupabaseClientLinked() && !isCasesHydrated()) {
 		seedDemoCases();

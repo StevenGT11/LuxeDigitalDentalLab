@@ -18,11 +18,59 @@ export type InvoiceListResult = {
 	pageSize: InvoiceListPageSize;
 	q: string;
 	estado: 'todos' | InvoiceEstado;
-	feByInvoice: Record<string, FeComprobanteSummary>;
 };
 
-const LIST_SELECT =
-	'id, invoice_number, client_id, case_id, client_name, client_clinica, case_number, paciente_name, total, fecha_emision, estado';
+const LIST_SELECT = `
+	id,
+	invoice_number,
+	client_id,
+	case_id,
+	client_name,
+	client_clinica,
+	case_number,
+	paciente_name,
+	total,
+	fecha_emision,
+	estado,
+	fe_comprobantes (
+		id,
+		invoice_id,
+		clave,
+		consecutivo,
+		estado,
+		hacienda_status,
+		ultimo_error,
+		enviado_at,
+		resuelto_at
+	)
+`;
+
+type FeEmbedRow = {
+	id: string;
+	invoice_id: string;
+	clave: string | null;
+	consecutivo: string | null;
+	estado: FeComprobanteSummary['estado'];
+	hacienda_status: number | null;
+	ultimo_error: string | null;
+	enviado_at: string | null;
+	resuelto_at: string | null;
+};
+
+type DbInvoiceListRow = {
+	id: string;
+	invoice_number: string;
+	client_id: string;
+	case_id: string;
+	client_name: string;
+	client_clinica: string;
+	case_number: string;
+	paciente_name: string;
+	total: number;
+	fecha_emision: string;
+	estado: string;
+	fe_comprobantes: FeEmbedRow[] | FeEmbedRow | null;
+};
 
 function escapeIlike(value: string): string {
 	return value.replace(/[%_\\]/g, '\\$&');
@@ -53,56 +101,64 @@ export function parseInvoiceListQuery(searchParams: URLSearchParams): InvoiceLis
 	return { page, pageSize, q, estado };
 }
 
-async function fetchFeSummariesForInvoiceIds(
-	invoiceIds: string[]
-): Promise<Record<string, FeComprobanteSummary>> {
-	if (invoiceIds.length === 0) return {};
-
-	const admin = createSupabaseAdminClient();
-	const { data, error } = await admin
-		.from('fe_comprobantes')
-		.select(
-			'id, invoice_id, clave, consecutivo, estado, hacienda_status, ultimo_error, enviado_at, resuelto_at'
-		)
-		.in('invoice_id', invoiceIds)
-		.eq('tipo_documento', '01')
-		.order('enviado_at', { ascending: false, nullsFirst: false });
-
-	if (error) throw error;
-
-	const feByInvoice: Record<string, FeComprobanteSummary> = {};
-	for (const row of data ?? []) {
-		if (!row.invoice_id || feByInvoice[row.invoice_id]) continue;
-		feByInvoice[row.invoice_id] = {
-			id: row.id,
-			invoice_id: row.invoice_id,
-			clave: row.clave,
-			consecutivo: row.consecutivo,
-			estado: row.estado,
-			hacienda_status: row.hacienda_status,
-			ultimo_error: row.ultimo_error,
-			enviado_at: row.enviado_at,
-			resuelto_at: row.resuelto_at
-		};
-	}
-	return feByInvoice;
+function mapFeEmbed(raw: FeEmbedRow[] | FeEmbedRow | null | undefined): FeComprobanteSummary | null {
+	if (!raw) return null;
+	const row = Array.isArray(raw) ? raw[0] : raw;
+	if (!row?.id) return null;
+	return {
+		id: row.id,
+		invoice_id: row.invoice_id,
+		clave: row.clave,
+		consecutivo: row.consecutivo,
+		estado: row.estado,
+		hacienda_status: row.hacienda_status,
+		ultimo_error: row.ultimo_error,
+		enviado_at: row.enviado_at,
+		resuelto_at: row.resuelto_at
+	};
 }
 
+function mapInvoiceRow(row: DbInvoiceListRow): InvoiceListRow {
+	return {
+		id: row.id,
+		invoice_number: row.invoice_number,
+		client_id: row.client_id,
+		client_name: row.client_name,
+		client_clinica: row.client_clinica,
+		case_id: row.case_id,
+		case_number: row.case_number,
+		paciente_name: row.paciente_name,
+		total: Number(row.total),
+		fecha_emision: row.fecha_emision,
+		estado: row.estado === 'pagada' ? 'pagado' : (row.estado as InvoiceEstado),
+		fe: mapFeEmbed(row.fe_comprobantes)
+	};
+}
+
+/** PostgREST no admite fe_comprobantes.clave dentro de .or() en invoices; ids vía consulta aparte. */
+async function fetchInvoiceIdsMatchingFeClave(
+	admin: ReturnType<typeof createSupabaseAdminClient>,
+	term: string
+): Promise<string[]> {
+	const { data, error } = await admin
+		.from('fe_comprobantes')
+		.select('invoice_id')
+		.eq('tipo_documento', '01')
+		.ilike('clave', term)
+		.not('invoice_id', 'is', null)
+		.limit(200);
+	if (error) throw error;
+	return [...new Set((data ?? []).map((r) => r.invoice_id).filter(Boolean) as string[])];
+}
+
+/** Facturas paginadas + comprobante FE embebido (2 consultas solo si hay búsqueda por clave). */
 export async function fetchInvoiceListPage(query: InvoiceListQuery): Promise<InvoiceListResult> {
 	const admin = createSupabaseAdminClient();
 
 	let feInvoiceIds: string[] = [];
 	if (query.q) {
 		const term = `%${escapeIlike(query.q)}%`;
-		const { data: feRows, error: feSearchError } = await admin
-			.from('fe_comprobantes')
-			.select('invoice_id')
-			.eq('tipo_documento', '01')
-			.ilike('clave', term)
-			.not('invoice_id', 'is', null)
-			.limit(200);
-		if (feSearchError) throw feSearchError;
-		feInvoiceIds = [...new Set((feRows ?? []).map((r) => r.invoice_id).filter(Boolean) as string[])];
+		feInvoiceIds = await fetchInvoiceIdsMatchingFeClave(admin, term);
 	}
 
 	let dbQuery = admin
@@ -151,21 +207,7 @@ export async function fetchInvoiceListPage(query: InvoiceListQuery): Promise<Inv
 		data = retry.data;
 	}
 
-	const invoices: InvoiceListRow[] = (data ?? []).map((row) => ({
-		id: row.id,
-		invoice_number: row.invoice_number,
-		client_id: row.client_id,
-		client_name: row.client_name,
-		client_clinica: row.client_clinica,
-		case_id: row.case_id,
-		case_number: row.case_number,
-		paciente_name: row.paciente_name,
-		total: Number(row.total),
-		fecha_emision: row.fecha_emision,
-		estado: row.estado === 'pagada' ? 'pagado' : row.estado
-	}));
-
-	const feByInvoice = await fetchFeSummariesForInvoiceIds(invoices.map((i) => i.id));
+	const invoices = ((data ?? []) as DbInvoiceListRow[]).map(mapInvoiceRow);
 
 	return {
 		invoices,
@@ -173,7 +215,6 @@ export async function fetchInvoiceListPage(query: InvoiceListQuery): Promise<Inv
 		page,
 		pageSize: query.pageSize,
 		q: query.q,
-		estado: query.estado,
-		feByInvoice
+		estado: query.estado
 	};
 }

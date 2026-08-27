@@ -84,6 +84,7 @@
 					href={item.href}
 					class="dash-sidebar__link"
 					class:is-active={isActive(item.href, item.exact)}
+					data-sveltekit-preload-data="off"
 				>
 					<span class="dash-sidebar__link-icon"><Icon size={18} strokeWidth={1.75} /></span>
 					{item.label}

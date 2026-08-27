@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidate } from '$app/navigation';
 	import { tick } from 'svelte';
 	import FeMediosPagoModal from '$lib/components/fe/FeMediosPagoModal.svelte';
 	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
@@ -15,7 +16,7 @@
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
 		INVOICE_ESTADOS
-	} from '$lib/lab/constants';
+	} from '$lib/lab/invoice-estado';
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
 	import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 	import type { InvoiceLineDetail } from '$lib/lab/invoice-detail.server';
@@ -152,8 +153,8 @@
 
 	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
 		mediosPagoJson = JSON.stringify(medios);
-		emitModalOpen = false;
 		emittingFe = true;
+		emitModalOpen = false;
 		await tick();
 		emitFormEl?.requestSubmit();
 	}
@@ -179,7 +180,7 @@
 				{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitiendo factura electrónica' : 'Generando factura electrónica'}
 			</p>
 			<p class="type-caption fe-emit-overlay__subtitle">{invoice.invoice_number}</p>
-			<p class="type-caption">Firmando XML y enviando a Hacienda…</p>
+			<p class="type-caption">Firmando XML, enviando y consultando en Hacienda…</p>
 		</div>
 	</div>
 {:else if consultingFe}
@@ -250,7 +251,8 @@
 				class="invoice-detail__estado-form"
 				use:enhance={() =>
 					async ({ update }) => {
-						await update({ reset: false, invalidateAll: true });
+						await update({ reset: false });
+						await invalidate('app:invoice-detail');
 					}}
 			>
 				<input type="hidden" name="invoice_id" value={invoice.id} />
@@ -287,23 +289,17 @@
 			{/if}
 		</div>
 
-		<p class="type-caption invoice-detail__lines-help">
-			<strong>Total</strong> = suma de subtotales + IVA de cada línea. El <strong>IVA %</strong> viene del
-			tratamiento/CABYS (Admin → Tratamientos). Aquí solo edita <strong>precios unitarios</strong>; luego
-			pulse Guardar.
-		</p>
-
 		<div class="data-table-wrap">
 			<table class="data-table invoice-detail__lines-table">
 				<thead>
 					<tr>
 						<th>Descripción</th>
 						<th class="invoice-detail__num">Cant.</th>
-						<th class="invoice-detail__num">P. unit.</th>
-						<th class="invoice-detail__num">Subtotal</th>
+						<th>Unidad</th>
 						<th>CABYS</th>
 						<th class="invoice-detail__num">IVA %</th>
-						<th>Unidad</th>
+						<th class="invoice-detail__num">P. unit.</th>
+						<th class="invoice-detail__num">Subtotal</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -311,6 +307,9 @@
 						<tr>
 							<td>{line.descripcion}</td>
 							<td class="invoice-detail__num">{line.cantidad}</td>
+							<td>{line.fe_unidad_medida}</td>
+							<td class="invoice-detail__mono">{line.fe_cabys ?? '—'}</td>
+							<td class="invoice-detail__num">{line.impuesto_tarifa}%</td>
 							<td class="invoice-detail__num">
 								{#if canEditLinePrices}
 									<input
@@ -325,29 +324,23 @@
 								{/if}
 							</td>
 							<td class="invoice-detail__num">{formatCurrency(line.subtotal)}</td>
-							<td class="invoice-detail__mono">{line.fe_cabys ?? '—'}</td>
-							<td class="invoice-detail__num">{line.impuesto_tarifa}%</td>
-							<td>{line.fe_unidad_medida}</td>
 						</tr>
 					{/each}
 				</tbody>
 				<tfoot class="invoice-detail__totals">
 					<tr>
-						<td colspan="3" class="invoice-detail__totals-label">Subtotal</td>
+						<td colspan="6" class="invoice-detail__totals-label">Subtotal</td>
 						<td class="invoice-detail__num">{formatCurrency(computedTotals.subtotal)}</td>
-						<td colspan="3"></td>
 					</tr>
 					<tr>
-						<td colspan="3" class="invoice-detail__totals-label">Impuesto (IVA)</td>
+						<td colspan="6" class="invoice-detail__totals-label">Impuesto (IVA)</td>
 						<td class="invoice-detail__num">{formatCurrency(computedTotals.impuesto)}</td>
-						<td colspan="3"></td>
 					</tr>
 					<tr class="invoice-detail__totals-row--total">
-						<td colspan="3" class="invoice-detail__totals-label">Total</td>
+						<td colspan="6" class="invoice-detail__totals-label">Total</td>
 						<td class="invoice-detail__num invoice-detail__totals-total">
 							{formatCurrency(computedTotals.total)}
 						</td>
-						<td colspan="3"></td>
 					</tr>
 				</tfoot>
 			</table>
@@ -375,8 +368,12 @@
 						use:enhance={() => {
 							reconcilingMontos = true;
 							return async ({ update }) => {
-								reconcilingMontos = false;
-								await update({ reset: false, invalidateAll: true });
+								try {
+									await update({ reset: false });
+									await invalidate('app:invoice-detail');
+								} finally {
+									reconcilingMontos = false;
+								}
 							};
 						}}
 					>
@@ -394,8 +391,12 @@
 					use:enhance={() => {
 						savingLineas = true;
 						return async ({ update }) => {
-							savingLineas = false;
-							await update({ reset: false, invalidateAll: true });
+							try {
+								await update({ reset: false });
+								await invalidate('app:invoice-detail');
+							} finally {
+								savingLineas = false;
+							}
 						};
 					}}
 				>
@@ -462,10 +463,11 @@
 					class="fe-emit-form-hidden"
 					aria-hidden="true"
 					use:enhance={() => {
-						emittingFe = true;
 						return async ({ update }) => {
+							emittingFe = true;
 							try {
-								await update({ reset: false, invalidateAll: true });
+								await update({ reset: false });
+								await invalidate('app:invoice-detail');
 							} finally {
 								emittingFe = false;
 							}
@@ -487,7 +489,8 @@
 						consultingFe = true;
 						return async ({ update }) => {
 							try {
-								await update({ reset: false, invalidateAll: true });
+								await update({ reset: false });
+								await invalidate('app:invoice-detail');
 							} finally {
 								consultingFe = false;
 							}
@@ -500,7 +503,6 @@
 					</button>
 				</form>
 			{/if}
-			<a href="/admin/factura-electronica" class="btn-secondary-pill">Configuración emisor</a>
 		</div>
 	</section>
 
@@ -855,13 +857,6 @@
 
 	.invoice-detail__totals-total {
 		font-weight: 700;
-	}
-
-	.invoice-detail__lines-help {
-		margin: 0 0 var(--spacing-md);
-		max-width: 42rem;
-		line-height: 1.45;
-		opacity: 0.9;
 	}
 
 	.invoice-detail__lines-actions {

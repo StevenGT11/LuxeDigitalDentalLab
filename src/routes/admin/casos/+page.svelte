@@ -2,7 +2,6 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
-	import { onMount } from 'svelte';
 	import CaseWorkTags from '$lib/components/admin/CaseWorkTags.svelte';
 	import EstadoProgress from '$lib/components/admin/EstadoProgress.svelte';
 	import { canViewFinancial } from '$lib/auth/roles';
@@ -28,8 +27,6 @@
 	let stats = $state({ totalCasos: 0, pendientes: 0, enProceso: 0, ingresosTotales: 0 });
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
-
-	onMount(() => void refresh());
 
 	afterNavigate(() => void refresh());
 

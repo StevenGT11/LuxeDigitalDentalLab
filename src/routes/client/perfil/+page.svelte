@@ -36,7 +36,7 @@
 		loading = true;
 		error = '';
 		try {
-			initializeLabStorage({ linkClientPortal: true });
+			initializeLabStorage({ linkClientPortal: true, treatments: true });
 			await hydrateClientSession();
 			await hydrateCasesOnce();
 			form = { ...getClientProfile() };

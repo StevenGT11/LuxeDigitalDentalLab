@@ -223,7 +223,7 @@
 	}
 
 	onMount(async () => {
-		initializeLabStorage({ linkClientPortal: true });
+		initializeLabStorage({ linkClientPortal: true, treatments: true });
 		try {
 			await hydrateClientSession();
 			doctors = await reloadDoctors();

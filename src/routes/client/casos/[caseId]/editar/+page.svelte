@@ -17,7 +17,7 @@
 	let loading = $state(true);
 
 	onMount(async () => {
-		initializeLabStorage({ linkClientPortal: true });
+		initializeLabStorage({ linkClientPortal: true, treatments: true });
 		await hydrateCasesOnce();
 		const loaded = await getCaseByIdAsync(caseId);
 		if (!loaded || !canClientEditCase(loaded, getClientId())) {

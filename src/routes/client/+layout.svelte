@@ -8,7 +8,7 @@
 	let { children } = $props();
 
 	async function boot() {
-		initializeLabStorage({ linkClientPortal: true });
+		initializeLabStorage({ linkClientPortal: true, treatments: true });
 		try {
 			await hydrateClientSession();
 		} catch {
@@ -21,7 +21,7 @@
 	});
 
 	afterNavigate(() => {
-		initializeLabStorage({ linkClientPortal: true });
+		initializeLabStorage({ linkClientPortal: true, treatments: true });
 	});
 </script>
 

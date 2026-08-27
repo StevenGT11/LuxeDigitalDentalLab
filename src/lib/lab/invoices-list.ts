@@ -1,3 +1,4 @@
+import type { FeComprobanteSummary } from '$lib/fe/types';
 import type { InvoiceEstado } from './types';
 
 /** Campos mínimos para la tabla de facturas (sin líneas). */
@@ -13,6 +14,7 @@ export type InvoiceListRow = {
 	total: number;
 	fecha_emision: string;
 	estado: InvoiceEstado;
+	fe: FeComprobanteSummary | null;
 };
 
 export const INVOICE_LIST_PAGE_SIZES = [10, 15, 25, 50] as const;

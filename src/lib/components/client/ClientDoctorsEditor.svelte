@@ -24,7 +24,7 @@
 	}
 
 	onMount(async () => {
-		initializeLabStorage({ linkClientPortal: true });
+		initializeLabStorage({ linkClientPortal: true, treatments: true });
 		await hydrateCasesOnce();
 		casos = getCasesByClient(getClientId());
 		await refresh();

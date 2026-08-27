@@ -82,7 +82,7 @@
 	async function refresh() {
 		if (!browser) return;
 		createdNotice = $page.url.searchParams.get('created') === '1';
-		initializeLabStorage();
+		initializeLabStorage({ treatments: true });
 		await revalidateLabDataFromDb();
 		loading = true;
 		searchQuery = '';

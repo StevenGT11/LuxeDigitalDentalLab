@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, invalidate } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import { tick } from 'svelte';
 	import FeMediosPagoModal from '$lib/components/fe/FeMediosPagoModal.svelte';
@@ -9,7 +9,7 @@
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
 		INVOICE_ESTADOS
-	} from '$lib/lab/constants';
+	} from '$lib/lab/invoice-estado';
 	import {
 		feComprobanteBlocksEmit,
 		feComprobanteCanReemit,
@@ -24,9 +24,7 @@
 		type InvoiceListPageSize,
 		type InvoiceListRow
 	} from '$lib/lab/invoices-list';
-	import { updateInvoiceStatus } from '$lib/lab/store';
 	import type { InvoiceEstado } from '$lib/lab/types';
-	import type { FeComprobanteSummary } from '$lib/fe/types';
 
 	let { data, form } = $props();
 
@@ -44,8 +42,11 @@
 	const isLoading = $derived(navigating.type !== null);
 
 	$effect(() => {
-		searchInput = data.q;
-		filtroEstado = data.estado;
+		const q = data.q;
+		const estado = data.estado;
+		const searchFocused = document.activeElement?.classList.contains('facturas-toolbar__search');
+		if (!searchFocused) searchInput = q;
+		filtroEstado = estado;
 	});
 
 	function listHref(overrides: Partial<{
@@ -94,15 +95,10 @@
 		goList({ pageSize: size, page: 1 });
 	}
 
-	async function cambiarEstado(id: string, estado: string) {
-		await updateInvoiceStatus(id, estado as InvoiceEstado);
-		await invalidateAll();
-	}
-
 	let actionMessage = $derived(form?.message ?? '');
 	let actionInvoiceId = $derived(form?.invoiceId ?? '');
 
-	function feErrorSnippet(fe: FeComprobanteSummary | undefined): string | null {
+	function feErrorSnippet(fe: InvoiceListRow['fe']): string | null {
 		if (!fe?.ultimo_error?.trim()) return null;
 		const formatted = parseFeRechazoFromStored(null, fe.ultimo_error);
 		if (formatted) return feRechazoSummaryLine(formatted, 80);
@@ -123,8 +119,8 @@
 	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
 		mediosPagoJson = JSON.stringify(medios);
 		emittingLabel = emitTarget?.label ?? '';
-		emitModalOpen = false;
 		emittingFe = true;
+		emitModalOpen = false;
 		await tick();
 		emitFormEl?.requestSubmit();
 	}
@@ -138,7 +134,7 @@
 			{#if emittingLabel}
 				<p class="type-caption fe-emit-overlay__subtitle">{emittingLabel}</p>
 			{/if}
-			<p class="type-caption">Firmando XML y enviando a Hacienda…</p>
+			<p class="type-caption">Firmando XML, enviando y consultando en Hacienda…</p>
 		</div>
 	</div>
 {/if}
@@ -174,8 +170,7 @@
 		</select>
 		{#if !data.hasActiveEmisor}
 			<span class="type-caption" style="color: var(--color-warning, #b8860b);">
-				Emisor incompleto para {data.emitAmbiente === 'production' ? 'producción' : 'staging'} — revise
-				<a href="/admin/factura-electronica" class="text-link">configuración</a>.
+				Emisor incompleto para {data.emitAmbiente === 'production' ? 'producción' : 'staging'}.
 			</span>
 		{/if}
 	</div>
@@ -236,7 +231,7 @@
 				</thead>
 				<tbody>
 					{#each data.invoices as fac (fac.id)}
-						{@const fe = data.feByInvoice[fac.id]}
+						{@const fe = fac.fe}
 						<tr class:fe-row-highlight={actionInvoiceId === fac.id && actionMessage}>
 							<td class="type-body-strong">
 								<a href="/admin/facturas/{fac.id}" class="text-link">{fac.invoice_number}</a>
@@ -275,16 +270,29 @@
 							</td>
 							<td class="type-caption">{formatDate(fac.fecha_emision)}</td>
 							<td class="fe-actions">
-								<select
-									class="field-select fe-actions__select"
-									value={fac.estado}
-									onchange={(e) => cambiarEstado(fac.id, e.currentTarget.value)}
-									aria-label="Estado de cobro"
+								<form
+									method="POST"
+									action="?/updateEstado"
+									class="fe-actions__estado-form"
+									use:enhance={() =>
+										async ({ update }) => {
+											await update({ reset: false });
+											await invalidate('app:facturas-list');
+										}}
 								>
-									{#each INVOICE_ESTADOS as e (e.value)}
-										<option value={e.value}>{e.label}</option>
-									{/each}
-								</select>
+									<input type="hidden" name="invoice_id" value={fac.id} />
+									<select
+										class="field-select fe-actions__select"
+										name="estado"
+										value={fac.estado}
+										onchange={(e) => e.currentTarget.form?.requestSubmit()}
+										aria-label="Estado de cobro"
+									>
+										{#each INVOICE_ESTADOS as e (e.value)}
+											<option value={e.value}>{e.label}</option>
+										{/each}
+									</select>
+								</form>
 								{#if data.hasActiveEmisor && data.facturadorOk && !feComprobanteBlocksEmit(fe?.estado)}
 									<button
 										type="button"
@@ -300,8 +308,8 @@
 										action="?/consultar"
 										use:enhance={() =>
 											async ({ update }) => {
-												await update();
-												await invalidateAll();
+												await update({ reset: false });
+												await invalidate('app:facturas-list');
 											}}
 									>
 										<input type="hidden" name="invoice_id" value={fac.id} />
@@ -367,11 +375,11 @@
 		class="fe-emit-form-hidden"
 		aria-hidden="true"
 		use:enhance={() => {
-			emittingFe = true;
 			return async ({ update }) => {
+				emittingFe = true;
 				try {
-					await update();
-					await invalidateAll();
+					await update({ reset: false });
+					await invalidate('app:facturas-list');
 				} finally {
 					emittingFe = false;
 					emittingLabel = '';
@@ -523,6 +531,11 @@
 		gap: 6px;
 		min-width: 140px;
 	}
+	.fe-actions__estado-form {
+		width: 100%;
+		margin: 0;
+	}
+
 	.fe-actions__select {
 		width: 100%;
 		min-width: 120px;

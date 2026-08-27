@@ -33,7 +33,7 @@
 	}
 
 	onMount(async () => {
-		initializeLabStorage();
+		initializeLabStorage({ treatments: true });
 		await hydrateCasesOnce();
 		casos = getCasesByClient(clientId);
 		await refresh();

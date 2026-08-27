@@ -72,6 +72,45 @@ export type FeComprobanteDetail = {
 	rechazo: Record<string, unknown> | null;
 };
 
+type ClientEmbedRow = {
+	nombre: string;
+	email: string;
+	fe_tipo_identificacion: string | null;
+	fe_numero_identificacion: string | null;
+	fe_codigo_actividad: string | null;
+	fe_correo_facturacion: string | null;
+};
+
+type FeEmbedDetailRow = {
+	id: string;
+	tipo_documento: string;
+	consecutivo_num: number;
+	clave: string | null;
+	consecutivo: string | null;
+	estado: FeComprobanteEstado;
+	hacienda_status: number | null;
+	subtotal: number;
+	impuesto: number;
+	total: number;
+	fecha_emision: string | null;
+	moneda: string;
+	ultimo_error: string | null;
+	enviado_at: string | null;
+	resuelto_at: string | null;
+	xml_firmado: string | null;
+	respuesta_xml: string | null;
+	rechazo: Record<string, unknown> | null;
+};
+
+function pickFeComprobante(
+	raw: FeEmbedDetailRow[] | FeEmbedDetailRow | null | undefined
+): FeEmbedDetailRow | null {
+	if (!raw) return null;
+	const rows = Array.isArray(raw) ? raw : [raw];
+	return rows.find((r) => r.tipo_documento === '01') ?? rows[0] ?? null;
+}
+
+/** Una consulta: factura + líneas + cliente fiscal + comprobante FE. */
 export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 	invoice: InvoiceDetail;
 	client: ClientFiscalSnapshot;
@@ -108,6 +147,34 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 				fe_cabys,
 				fe_unidad_medida,
 				impuesto_tarifa
+			),
+			clients (
+				nombre,
+				email,
+				fe_tipo_identificacion,
+				fe_numero_identificacion,
+				fe_codigo_actividad,
+				fe_correo_facturacion
+			),
+			fe_comprobantes (
+				id,
+				tipo_documento,
+				consecutivo_num,
+				clave,
+				consecutivo,
+				estado,
+				hacienda_status,
+				subtotal,
+				impuesto,
+				total,
+				fecha_emision,
+				moneda,
+				ultimo_error,
+				enviado_at,
+				resuelto_at,
+				xml_firmado,
+				respuesta_xml,
+				rechazo
 			)
 		`
 		)
@@ -117,43 +184,13 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 	if (invError) throw invError;
 	if (!inv) return null;
 
-	const { data: clientRow, error: clientError } = await admin
-		.from('clients')
-		.select(
-			'nombre, email, fe_tipo_identificacion, fe_numero_identificacion, fe_codigo_actividad, fe_correo_facturacion'
-		)
-		.eq('id', inv.client_id)
-		.maybeSingle();
-	if (clientError) throw clientError;
-
-	const { data: feRow, error: feError } = await admin
-		.from('fe_comprobantes')
-		.select(
-			`
-			id,
-			tipo_documento,
-			consecutivo_num,
-			clave,
-			consecutivo,
-			estado,
-			hacienda_status,
-			subtotal,
-			impuesto,
-			total,
-			fecha_emision,
-			moneda,
-			ultimo_error,
-			enviado_at,
-			resuelto_at,
-			xml_firmado,
-			respuesta_xml,
-			rechazo
-		`
-		)
-		.eq('invoice_id', invoiceId)
-		.eq('tipo_documento', '01')
-		.maybeSingle();
-	if (feError) throw feError;
+	const clientRow = (Array.isArray(inv.clients) ? inv.clients[0] : inv.clients) as
+		| ClientEmbedRow
+		| null
+		| undefined;
+	const feRow = pickFeComprobante(
+		inv.fe_comprobantes as FeEmbedDetailRow[] | FeEmbedDetailRow | null | undefined
+	);
 
 	const lineas = ((inv.invoice_lines ?? []) as InvoiceLineDetail[]).sort(
 		(a, b) => a.sort_order - b.sort_order

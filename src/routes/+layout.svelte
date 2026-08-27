@@ -5,8 +5,6 @@
 	import SignIn from '$lib/components/ui/sign-in.svelte';
 	import type { Testimonial } from '$lib/components/ui/sign-in.svelte';
 	import { getHomePathForRole, signInWithEmail } from '$lib/auth/auth';
-	import { hydrateLabDataOnce } from '$lib/lab/store';
-	import { hydrateTreatmentsCatalogOnce } from '$lib/lab/treatments';
 	import { hydrateTheme } from '$lib/theme/theme.svelte';
 	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
 	import { faviconForTheme } from '$lib/brand/assets';
@@ -50,13 +48,6 @@
 		const link = document.querySelector<HTMLLinkElement>('link#luxe-favicon');
 		if (link && link.href !== new URL(href, window.location.origin).href) {
 			link.href = href;
-		}
-	});
-
-	$effect(() => {
-		if (browser && data.user && data.profile?.activo) {
-			void hydrateTreatmentsCatalogOnce();
-			void hydrateLabDataOnce();
 		}
 	});
 

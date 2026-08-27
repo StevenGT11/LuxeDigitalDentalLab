@@ -345,3 +345,58 @@ export async function consultarFacturaElectronica(invoiceId: string): Promise<{ 
 	const label = estado === 'aceptado' ? 'aceptada' : estado === 'rechazado' ? 'rechazada' : estado;
 	return { message: `Comprobante ${label} por Hacienda.`, estado };
 }
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Reintenta mientras Hacienda responde «procesando». */
+export async function consultarFacturaElectronicaConReintentos(
+	invoiceId: string,
+	options?: { maxAttempts?: number; delayMs?: number }
+): Promise<{ message: string; estado: string }> {
+	const maxAttempts = options?.maxAttempts ?? 6;
+	const delayMs = options?.delayMs ?? 2000;
+	let last: { message: string; estado: string } | null = null;
+
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		if (attempt > 0) await sleep(delayMs);
+		try {
+			last = await consultarFacturaElectronica(invoiceId);
+			if (last.estado !== 'procesando') return last;
+		} catch (err) {
+			if (attempt === maxAttempts - 1) throw err;
+		}
+	}
+
+	return last ?? {
+		message: 'Hacienda aún procesa el comprobante.',
+		estado: 'procesando'
+	};
+}
+
+/** Envía FE, valida XML y consulta Hacienda hasta respuesta final o timeout. */
+export async function emitirYConsultarFacturaElectronica(
+	invoiceId: string,
+	options?: { mediosPago?: FeMedioPagoItem[] }
+): Promise<{
+	message: string;
+	clave?: string;
+	feEstado: string;
+	consultaPending?: boolean;
+}> {
+	const emit = await emitirFacturaElectronica(invoiceId, options);
+	await sleep(1500);
+	const consult = await consultarFacturaElectronicaConReintentos(invoiceId);
+	const consultaPending = consult.estado === 'procesando';
+	const message = consultaPending
+		? `${emit.message} Hacienda sigue procesando; puede usar «Consultar» en unos segundos.`
+		: `${emit.message} ${consult.message}`;
+
+	return {
+		message,
+		clave: emit.clave,
+		feEstado: consult.estado,
+		consultaPending
+	};
+}

@@ -71,7 +71,7 @@
 	}
 
 	onMount(async () => {
-		initializeLabStorage({ linkClientPortal: true });
+		initializeLabStorage({ linkClientPortal: true, treatments: true });
 		await refresh();
 	});
 

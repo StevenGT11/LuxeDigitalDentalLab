@@ -4,6 +4,7 @@ import {
 	isCatalogHydrated,
 	runCatalogHydrate
 } from './catalog-cache';
+import { isTreatmentsCatalogRouteAllowed } from './lab-data-routes';
 import { hydrateTreatmentsCatalog } from './treatments-db';
 import type { RestauracionPrecioOpciones } from './restoration-pricing';
 import {
@@ -51,15 +52,17 @@ function activeTreatments(): LabTreatment[] {
 	return list.length > 0 ? list : DEFAULT_TREATMENTS.filter((t) => t.activo);
 }
 
-/** Carga catálogo desde Supabase (idempotente). */
+/** Carga catálogo desde Supabase (idempotente). Solo en rutas que lo necesitan. */
 export async function hydrateTreatmentsCatalogOnce(): Promise<void> {
 	if (!browser) return;
+	if (!isTreatmentsCatalogRouteAllowed()) return;
 	await runCatalogHydrate(() => hydrateTreatmentsCatalog());
 }
 
-/** Compatibilidad: dispara hidratación sin bloquear. */
+/** Dispara hidratación del catálogo sin bloquear (solo rutas permitidas). */
 export function initializeTreatmentsStorage(): void {
 	if (!browser) return;
+	if (!isTreatmentsCatalogRouteAllowed()) return;
 	if (!isCatalogHydrated()) void hydrateTreatmentsCatalogOnce();
 }
 

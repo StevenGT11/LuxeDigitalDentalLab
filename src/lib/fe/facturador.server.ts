@@ -82,6 +82,27 @@ export async function checkFacturadorConnection(): Promise<{ ok: boolean; url: s
 	}
 }
 
+let facturadorStatusCache: {
+	at: number;
+	result: Awaited<ReturnType<typeof checkFacturadorConnection>>;
+} | null = null;
+
+const FACTURADOR_STATUS_TTL_MS = 5 * 60 * 1000;
+
+/** Evita re-importar @happy-prod/facturador en cada visita al listado. */
+export async function checkFacturadorConnectionCached(): Promise<{
+	ok: boolean;
+	url: string;
+	error?: string;
+}> {
+	if (facturadorStatusCache && Date.now() - facturadorStatusCache.at < FACTURADOR_STATUS_TTL_MS) {
+		return facturadorStatusCache.result;
+	}
+	const result = await checkFacturadorConnection();
+	facturadorStatusCache = { at: Date.now(), result };
+	return result;
+}
+
 export async function facturadorValidarEnviar(payload: unknown): Promise<FacturadorEnviarResult> {
 	const { validarFactura } = await getFacturador();
 	const result = validarFactura(payload as object, { requireHacienda: true }) as LibraryResult;

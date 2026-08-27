@@ -242,7 +242,7 @@
 
 	async function refresh() {
 		if (!browser) return;
-		initializeLabStorage();
+		initializeLabStorage({ treatments: true });
 		loading = true;
 		try {
 			await hydrateTreatmentsCatalogOnce();
