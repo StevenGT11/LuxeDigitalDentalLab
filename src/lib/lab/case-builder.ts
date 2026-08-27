@@ -91,7 +91,7 @@ export function buildCaseItem(
 		implante_marca: isSobreImplanteTreatment(tipo_trabajo) ? implante_marca : null,
 		implante_plataforma: isSobreImplanteTreatment(tipo_trabajo) ? implante_plataforma : null,
 		descripcion: options?.descripcion ?? null,
-		unit_price: Math.round(subtotal * 100) / 100,
+		unit_price: Math.round((subtotal / Math.max(1, p)) * 100) / 100,
 		subtotal
 	};
 }

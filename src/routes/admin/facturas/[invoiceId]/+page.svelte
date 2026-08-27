@@ -17,6 +17,8 @@
 		INVOICE_ESTADOS
 	} from '$lib/lab/constants';
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
+	import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
+	import type { InvoiceLineDetail } from '$lib/lab/invoice-detail.server';
 	import FeRechazoDetail from '$lib/components/fe/FeRechazoDetail.svelte';
 	import { parseFeRechazoFromStored, parseFeRechazoObject } from '$lib/fe/format-rechazo';
 
@@ -61,6 +63,87 @@
 	let emitModalOpen = $state(false);
 	let emitFormEl = $state<HTMLFormElement | null>(null);
 	let mediosPagoJson = $state('');
+	let savingLineas = $state(false);
+	let reconcilingMontos = $state(false);
+	let emittingFe = $state(false);
+	let consultingFe = $state(false);
+
+	const feBusy = $derived(emittingFe || consultingFe);
+	const lineAmountsNeedReconcile = $derived(data.lineAmountsNeedReconcile);
+
+	function roundMoney(n: number): number {
+		return Math.round(n * 100) / 100;
+	}
+
+	function lineSubtotal(cantidad: number, precio: number): number {
+		return roundMoney(cantidad * precio);
+	}
+
+	function lineImpuesto(cantidad: number, precio: number, tarifa: number): number {
+		return roundMoney(lineSubtotal(cantidad, precio) * (tarifa / 100));
+	}
+
+	let priceDrafts = $state<Record<string, string>>({});
+
+	$effect(() => {
+		const next: Record<string, string> = {};
+		for (const l of invoice.lineas) {
+			next[l.id] = String(l.precio_unitario);
+		}
+		priceDrafts = next;
+	});
+
+	const canEditLinePrices = $derived(!fe || fe.estado !== 'aceptado');
+
+	const computedLineRows = $derived.by(() =>
+		invoice.lineas.map((line: InvoiceLineDetail) => {
+			const raw = priceDrafts[line.id] ?? String(line.precio_unitario);
+			const precio = Number(raw);
+			const precioValid = Number.isFinite(precio) && precio >= 0 ? precio : line.precio_unitario;
+			const subtotal = lineSubtotal(line.cantidad, precioValid);
+			const impuesto = lineImpuesto(line.cantidad, precioValid, line.impuesto_tarifa);
+			return {
+				...line,
+				precio_unitario: precioValid,
+				subtotal,
+				impuesto,
+				line_total: roundMoney(subtotal + impuesto)
+			};
+		})
+	);
+
+	const computedTotals = $derived(
+		computeInvoiceTaxTotals(
+			computedLineRows.map((l: { subtotal: number; impuesto_tarifa: number }) => ({
+				subtotal: l.subtotal,
+				impuesto_tarifa: l.impuesto_tarifa
+			}))
+		)
+	);
+
+	const lineasDirty = $derived(
+		invoice.lineas.some((l: InvoiceLineDetail) => {
+			const raw = priceDrafts[l.id];
+			if (raw == null) return false;
+			const n = Number(raw);
+			return Number.isFinite(n) && Math.abs(n - l.precio_unitario) > 0.001;
+		})
+	);
+
+	const totalsMismatch = $derived(
+		Math.abs(computedTotals.subtotal - invoice.subtotal) > 0.01 ||
+			Math.abs(computedTotals.impuesto - invoice.impuesto) > 0.01 ||
+			Math.abs(computedTotals.total - invoice.total) > 0.01
+	);
+
+	function lineasPayloadJson(): string {
+		return JSON.stringify(
+			invoice.lineas.map((l: InvoiceLineDetail) => ({
+				lineId: l.id,
+				precio_unitario: Number(priceDrafts[l.id] ?? l.precio_unitario)
+			}))
+		);
+	}
 
 	function openEmitModal() {
 		mediosPagoJson = '';
@@ -70,6 +153,7 @@
 	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
 		mediosPagoJson = JSON.stringify(medios);
 		emitModalOpen = false;
+		emittingFe = true;
 		await tick();
 		emitFormEl?.requestSubmit();
 	}
@@ -86,6 +170,28 @@
 		}
 	}
 </script>
+
+{#if emittingFe}
+	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
+		<div class="fe-emit-overlay__panel">
+			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
+			<p class="fe-emit-overlay__title">
+				{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitiendo factura electrónica' : 'Generando factura electrónica'}
+			</p>
+			<p class="type-caption fe-emit-overlay__subtitle">{invoice.invoice_number}</p>
+			<p class="type-caption">Firmando XML y enviando a Hacienda…</p>
+		</div>
+	</div>
+{:else if consultingFe}
+	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
+		<div class="fe-emit-overlay__panel">
+			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
+			<p class="fe-emit-overlay__title">Consultando Hacienda</p>
+			<p class="type-caption fe-emit-overlay__subtitle">{invoice.invoice_number}</p>
+			<p class="type-caption">Obteniendo el estado del comprobante…</p>
+		</div>
+	</div>
+{/if}
 
 <div class="dash-page invoice-detail">
 	<p class="type-caption" style="margin-bottom: var(--spacing-md);">
@@ -132,11 +238,8 @@
 
 	<div class="invoice-detail__grid">
 		<section class="dash-panel dash-panel--section">
-			<h2 class="dash-panel__section-title">Importes y fechas</h2>
+			<h2 class="dash-panel__section-title">Fechas</h2>
 			<dl class="invoice-detail__dl">
-				<div><dt>Subtotal</dt><dd>{formatCurrency(invoice.subtotal)}</dd></div>
-				<div><dt>Impuesto</dt><dd>{formatCurrency(invoice.impuesto)}</dd></div>
-				<div><dt>Total</dt><dd class="type-body-strong">{formatCurrency(invoice.total)}</dd></div>
 				<div><dt>Emisión</dt><dd>{formatDate(invoice.fecha_emision)}</dd></div>
 				<div><dt>Vencimiento</dt><dd>{formatDate(invoice.fecha_vencimiento)}</dd></div>
 			</dl>
@@ -176,36 +279,142 @@
 		</section>
 	</div>
 
-	<section class="dash-panel dash-panel--section">
-		<h2 class="dash-panel__section-title">Líneas de factura</h2>
+	<section class="dash-panel dash-panel--section invoice-detail__lines-panel">
+		<div class="invoice-detail__lines-head">
+			<h2 class="dash-panel__section-title">Detalle de factura</h2>
+			{#if canEditLinePrices && lineasDirty}
+				<span class="invoice-detail__unsaved type-caption">Cambios sin guardar</span>
+			{/if}
+		</div>
+
+		<p class="type-caption invoice-detail__lines-help">
+			<strong>Total</strong> = suma de subtotales + IVA de cada línea. El <strong>IVA %</strong> viene del
+			tratamiento/CABYS (Admin → Tratamientos). Aquí solo edita <strong>precios unitarios</strong>; luego
+			pulse Guardar.
+		</p>
+
 		<div class="data-table-wrap">
-			<table class="data-table">
+			<table class="data-table invoice-detail__lines-table">
 				<thead>
 					<tr>
 						<th>Descripción</th>
-						<th>Cant.</th>
-						<th>P. unit.</th>
-						<th>Subtotal</th>
+						<th class="invoice-detail__num">Cant.</th>
+						<th class="invoice-detail__num">P. unit.</th>
+						<th class="invoice-detail__num">Subtotal</th>
 						<th>CABYS</th>
-						<th>IVA %</th>
+						<th class="invoice-detail__num">IVA %</th>
 						<th>Unidad</th>
 					</tr>
 				</thead>
 				<tbody>
-					{#each invoice.lineas as line (line.id)}
+					{#each computedLineRows as line (line.id)}
 						<tr>
 							<td>{line.descripcion}</td>
-							<td>{line.cantidad}</td>
-							<td>{formatCurrency(line.precio_unitario)}</td>
-							<td>{formatCurrency(line.subtotal)}</td>
+							<td class="invoice-detail__num">{line.cantidad}</td>
+							<td class="invoice-detail__num">
+								{#if canEditLinePrices}
+									<input
+										type="number"
+										class="invoice-detail__price-input field-input"
+										min="0"
+										step="0.01"
+										bind:value={priceDrafts[line.id]}
+									/>
+								{:else}
+									{formatCurrency(line.precio_unitario)}
+								{/if}
+							</td>
+							<td class="invoice-detail__num">{formatCurrency(line.subtotal)}</td>
 							<td class="invoice-detail__mono">{line.fe_cabys ?? '—'}</td>
-							<td>{line.impuesto_tarifa}%</td>
+							<td class="invoice-detail__num">{line.impuesto_tarifa}%</td>
 							<td>{line.fe_unidad_medida}</td>
 						</tr>
 					{/each}
 				</tbody>
+				<tfoot class="invoice-detail__totals">
+					<tr>
+						<td colspan="3" class="invoice-detail__totals-label">Subtotal</td>
+						<td class="invoice-detail__num">{formatCurrency(computedTotals.subtotal)}</td>
+						<td colspan="3"></td>
+					</tr>
+					<tr>
+						<td colspan="3" class="invoice-detail__totals-label">Impuesto (IVA)</td>
+						<td class="invoice-detail__num">{formatCurrency(computedTotals.impuesto)}</td>
+						<td colspan="3"></td>
+					</tr>
+					<tr class="invoice-detail__totals-row--total">
+						<td colspan="3" class="invoice-detail__totals-label">Total</td>
+						<td class="invoice-detail__num invoice-detail__totals-total">
+							{formatCurrency(computedTotals.total)}
+						</td>
+						<td colspan="3"></td>
+					</tr>
+				</tfoot>
 			</table>
 		</div>
+
+		{#if lineAmountsNeedReconcile}
+			<p class="invoice-detail__totals-warn type-caption" role="status">
+				Esta factura tiene montos desactualizados (p. ej. subtotal ≠ cantidad × precio unitario).
+				Use <strong>Corregir montos</strong> para recalcular las líneas y totales en base de datos
+				antes de emitir FE.
+			</p>
+		{:else if totalsMismatch}
+			<p class="invoice-detail__totals-warn type-caption" role="status">
+				Los totales en base de datos no coinciden con las líneas. Pulse <strong>Guardar</strong> para
+				sincronizar antes de emitir FE.
+			</p>
+		{/if}
+
+		{#if canEditLinePrices}
+			<div class="invoice-detail__lines-actions">
+				{#if lineAmountsNeedReconcile}
+					<form
+						method="POST"
+						action="?/reconciliarMontos"
+						use:enhance={() => {
+							reconcilingMontos = true;
+							return async ({ update }) => {
+								reconcilingMontos = false;
+								await update({ reset: false, invalidateAll: true });
+							};
+						}}
+					>
+						<input type="hidden" name="invoice_id" value={invoice.id} />
+						<button type="submit" class="btn-primary" disabled={reconcilingMontos || savingLineas}>
+							{reconcilingMontos ? 'Corrigiendo…' : 'Corregir montos'}
+						</button>
+					</form>
+				{/if}
+
+				<form
+					method="POST"
+					action="?/updateLineas"
+					class="invoice-detail__lines-save"
+					use:enhance={() => {
+						savingLineas = true;
+						return async ({ update }) => {
+							savingLineas = false;
+							await update({ reset: false, invalidateAll: true });
+						};
+					}}
+				>
+					<input type="hidden" name="invoice_id" value={invoice.id} />
+					<input type="hidden" name="lineas_json" value={lineasPayloadJson()} />
+					<button
+						type="submit"
+						class={lineAmountsNeedReconcile ? 'btn-secondary-pill' : 'btn-primary'}
+						disabled={(!lineasDirty && !totalsMismatch) || savingLineas || reconcilingMontos}
+					>
+						{savingLineas ? 'Guardando…' : 'Guardar precios y totales'}
+					</button>
+				</form>
+			</div>
+		{:else if fe?.estado === 'aceptado'}
+			<p class="type-caption invoice-detail__lines-locked">
+				La FE está aceptada; los importes no se pueden editar aquí.
+			</p>
+		{/if}
 	</section>
 
 	<section class="dash-panel dash-panel--section">
@@ -252,27 +461,43 @@
 					action="?/emitir"
 					class="fe-emit-form-hidden"
 					aria-hidden="true"
-					use:enhance={() =>
-						async ({ update }) => {
-							await update({ reset: false, invalidateAll: true });
-						}}
+					use:enhance={() => {
+						emittingFe = true;
+						return async ({ update }) => {
+							try {
+								await update({ reset: false, invalidateAll: true });
+							} finally {
+								emittingFe = false;
+							}
+						};
+					}}
 				>
 					<input type="hidden" name="invoice_id" value={invoice.id} />
 					<input type="hidden" name="medios_pago" value={mediosPagoJson} />
 				</form>
-				<button type="button" class="btn-primary" onclick={openEmitModal}>{emitFeLabel}</button>
+				<button type="button" class="btn-primary" onclick={openEmitModal} disabled={feBusy}>
+					{emittingFe ? 'Enviando…' : emitFeLabel}
+				</button>
 			{/if}
 			{#if fe && feComprobanteCanConsultar(fe.estado) && fe.clave}
 				<form
 					method="POST"
 					action="?/consultar"
-					use:enhance={() =>
-						async ({ update }) => {
-							await update({ reset: false, invalidateAll: true });
-						}}
+					use:enhance={() => {
+						consultingFe = true;
+						return async ({ update }) => {
+							try {
+								await update({ reset: false, invalidateAll: true });
+							} finally {
+								consultingFe = false;
+							}
+						};
+					}}
 				>
 					<input type="hidden" name="invoice_id" value={invoice.id} />
-					<button type="submit" class="btn-secondary-pill">Consultar Hacienda</button>
+					<button type="submit" class="btn-secondary-pill" disabled={feBusy}>
+						{consultingFe ? 'Consultando…' : 'Consultar Hacienda'}
+					</button>
 				</form>
 			{/if}
 			<a href="/admin/factura-electronica" class="btn-secondary-pill">Configuración emisor</a>
@@ -313,7 +538,7 @@
 
 	<FeMediosPagoModal
 		bind:open={emitModalOpen}
-		total={invoice.total}
+		total={computedTotals.total}
 		subtitle={`Factura ${invoice.invoice_number}`}
 		onCancel={() => {}}
 		onConfirm={onMediosConfirm}
@@ -434,6 +659,58 @@
 		border: 0;
 	}
 
+	.fe-emit-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 200;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+		background: rgb(15 23 42 / 45%);
+		backdrop-filter: blur(2px);
+	}
+
+	.fe-emit-overlay__panel {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.65rem;
+		padding: 1.75rem 2rem;
+		min-width: min(20rem, calc(100vw - 2rem));
+		border-radius: 10px;
+		background: var(--color-card, #fff);
+		border: 1px solid var(--color-border, #e2e8f0);
+		box-shadow: 0 20px 48px rgb(15 23 42 / 25%);
+		text-align: center;
+	}
+
+	.fe-emit-overlay__title {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	.fe-emit-overlay__subtitle {
+		margin: 0;
+		font-weight: 500;
+	}
+
+	.fe-emit-overlay__spinner {
+		width: 2.25rem;
+		height: 2.25rem;
+		border: 3px solid color-mix(in srgb, var(--color-border, #cbd5e1) 60%, transparent);
+		border-top-color: var(--color-primary, #0f172a);
+		border-radius: 50%;
+		animation: fe-emit-spin 0.75s linear infinite;
+	}
+
+	@keyframes fe-emit-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
 	.invoice-detail__reemit-hint {
 		margin: var(--spacing-md) 0 0;
 		max-width: 42rem;
@@ -524,5 +801,88 @@
 		border: 1px solid var(--color-border, #e2e8f0);
 		border-radius: 6px;
 		resize: vertical;
+	}
+
+	.invoice-detail__lines-panel {
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.invoice-detail__lines-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: var(--spacing-md);
+	}
+
+	.invoice-detail__lines-head .dash-panel__section-title {
+		margin: 0;
+	}
+
+	.invoice-detail__unsaved {
+		color: var(--color-warning, #b45309);
+	}
+
+	.invoice-detail__num {
+		text-align: right;
+		white-space: nowrap;
+	}
+
+	.invoice-detail__price-input {
+		width: 6.5rem;
+		text-align: right;
+		padding: 0.35rem 0.5rem;
+		font-size: 0.875rem;
+	}
+
+	.invoice-detail__totals td {
+		border-top: 1px solid var(--color-border, #e2e8f0);
+		padding-top: 0.5rem;
+		padding-bottom: 0.5rem;
+	}
+
+	.invoice-detail__totals-label {
+		text-align: right;
+		font-weight: 600;
+		color: var(--color-muted-foreground, #64748b);
+	}
+
+	.invoice-detail__totals-row--total td {
+		border-top-width: 2px;
+		font-size: 1.0625rem;
+	}
+
+	.invoice-detail__totals-total {
+		font-weight: 700;
+	}
+
+	.invoice-detail__lines-help {
+		margin: 0 0 var(--spacing-md);
+		max-width: 42rem;
+		line-height: 1.45;
+		opacity: 0.9;
+	}
+
+	.invoice-detail__lines-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--spacing-sm);
+		margin-top: var(--spacing-md);
+	}
+
+	.invoice-detail__lines-save {
+		margin-top: 0;
+	}
+
+	.invoice-detail__totals-warn {
+		margin: var(--spacing-md) 0 0;
+		color: var(--color-warning, #b45309);
+	}
+
+	.invoice-detail__lines-locked {
+		margin: var(--spacing-md) 0 0;
+		opacity: 0.85;
 	}
 </style>

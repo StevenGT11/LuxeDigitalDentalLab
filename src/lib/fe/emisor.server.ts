@@ -3,6 +3,12 @@ import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { FeAmbiente, FeEmisorConfigInput, FeEmisorConfigPublic, FeEmisorConfigRow, FeEmisorCredentialsInput, FeEmisorProfileInput } from './types';
 import { getFacturadorProjectName } from './facturador.server';
 import { getEmitAmbiente } from './hacienda-settings.server';
+import {
+	normalizeCodigoActividadForFe,
+	normalizeEmisorTelefonoForFe,
+	normalizeHaciendaCantonDistrito,
+	normalizeHaciendaProvincia
+} from './emisor-normalize';
 
 const SELECT_COLS =
 	'id, ambiente, activo, tipo_identificacion, numero_identificacion, razon_social, nombre_comercial, codigo_actividad, casa_matriz, terminal, provincia, canton, distrito, otras_senas, telefono, correo_electronico, hacienda_usuario, hacienda_password, certificado_p12, pin_certificado, updated_at';
@@ -205,14 +211,14 @@ function fiscalPatchFromProfile(profile: FeEmisorProfileInput): Record<string, u
 		numero_identificacion: profile.numero_identificacion.trim(),
 		razon_social: profile.razon_social.trim(),
 		nombre_comercial: profile.nombre_comercial.trim() || null,
-		codigo_actividad: profile.codigo_actividad.trim(),
+		codigo_actividad: normalizeCodigoActividadForFe(profile.codigo_actividad),
 		casa_matriz: profile.casa_matriz.trim() || '001',
 		terminal: profile.terminal.trim() || '00001',
-		provincia: profile.provincia,
-		canton: profile.canton.trim(),
-		distrito: profile.distrito.trim(),
+		provincia: normalizeHaciendaProvincia(profile.provincia),
+		canton: normalizeHaciendaCantonDistrito(profile.canton),
+		distrito: normalizeHaciendaCantonDistrito(profile.distrito),
 		otras_senas: profile.otras_senas.trim(),
-		telefono: profile.telefono.trim(),
+		telefono: normalizeEmisorTelefonoForFe(profile.telefono),
 		correo_electronico: profile.correo_electronico.trim(),
 		activo: true
 	};
@@ -359,14 +365,14 @@ function parseInput(form: FeEmisorConfigInput): Partial<FeEmisorConfigRow> {
 		numero_identificacion: form.numero_identificacion.trim(),
 		razon_social: form.razon_social.trim(),
 		nombre_comercial: form.nombre_comercial.trim() || null,
-		codigo_actividad: form.codigo_actividad.trim(),
+		codigo_actividad: normalizeCodigoActividadForFe(form.codigo_actividad),
 		casa_matriz: form.casa_matriz.trim() || '001',
 		terminal: form.terminal.trim() || '00001',
-		provincia: form.provincia,
-		canton: form.canton.trim(),
-		distrito: form.distrito.trim(),
+		provincia: normalizeHaciendaProvincia(form.provincia),
+		canton: normalizeHaciendaCantonDistrito(form.canton),
+		distrito: normalizeHaciendaCantonDistrito(form.distrito),
 		otras_senas: form.otras_senas.trim(),
-		telefono: form.telefono.trim(),
+		telefono: normalizeEmisorTelefonoForFe(form.telefono),
 		correo_electronico: form.correo_electronico.trim(),
 		hacienda_usuario: form.hacienda_usuario.trim()
 	};
@@ -444,14 +450,14 @@ export function emisorRowToFacturadorConfig(row: FeEmisorConfigRow): Record<stri
 		tipo_cedula: row.tipo_identificacion,
 		razon_social: row.razon_social,
 		nombre_comercial: row.nombre_comercial ?? undefined,
-		codigo_actividad: row.codigo_actividad,
+		codigo_actividad: normalizeCodigoActividadForFe(row.codigo_actividad),
 		casa_matriz: row.casa_matriz,
 		terminal: row.terminal,
-		provincia: row.provincia,
-		canton: row.canton,
-		distrito: row.distrito,
+		provincia: normalizeHaciendaProvincia(row.provincia),
+		canton: normalizeHaciendaCantonDistrito(row.canton),
+		distrito: normalizeHaciendaCantonDistrito(row.distrito),
 		otras_senas: row.otras_senas,
-		telefono: row.telefono,
+		telefono: normalizeEmisorTelefonoForFe(row.telefono),
 		correo_electronico: row.correo_electronico,
 		certificado_p12: row.certificado_p12,
 		pin: row.pin_certificado,

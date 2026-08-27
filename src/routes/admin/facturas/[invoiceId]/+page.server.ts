@@ -14,7 +14,7 @@ import {
 } from '$lib/fe/emisor.server';
 import { checkFacturadorConnection } from '$lib/fe/facturador.server';
 import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
-import { loadInvoiceDetailPage } from '$lib/lab/invoice-detail.server';
+import { loadInvoiceDetailPage, reconcileInvoiceAmounts, updateInvoiceLinePrices } from '$lib/lab/invoice-detail.server';
 import { updateInvoiceStatusInDb } from '$lib/lab/invoices-db';
 
 export const load: PageServerLoad = async ({ params, parent }) => {
@@ -69,6 +69,86 @@ export const actions: Actions = {
 			return { success: true, message: 'Estado de cobro actualizado.' };
 		} catch (err) {
 			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo actualizar.' });
+		}
+	},
+
+	updateLineas: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		if (!user) return fail(401, { message: 'Debe iniciar sesión.' });
+
+		const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+		if (!canViewFinancial(profile?.role)) {
+			return fail(403, { message: 'Sin permiso para editar facturas.' });
+		}
+
+		const form = await request.formData();
+		const invoiceId = String(form.get('invoice_id') ?? '').trim();
+		const raw = String(form.get('lineas_json') ?? '').trim();
+		if (!invoiceId || !raw) return fail(400, { message: 'Datos inválidos.' });
+
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw);
+		} catch {
+			return fail(400, { message: 'Formato de líneas inválido.' });
+		}
+
+		if (!Array.isArray(parsed)) return fail(400, { message: 'Formato de líneas inválido.' });
+
+		const updates: { lineId: string; precio_unitario: number }[] = [];
+		for (const row of parsed) {
+			if (!row || typeof row !== 'object') continue;
+			const lineId = String((row as { lineId?: unknown }).lineId ?? '').trim();
+			const precio = Number((row as { precio_unitario?: unknown }).precio_unitario);
+			if (!lineId || !Number.isFinite(precio)) continue;
+			updates.push({ lineId, precio_unitario: precio });
+		}
+
+		if (updates.length === 0) return fail(400, { message: 'No hay líneas para actualizar.' });
+
+		try {
+			await updateInvoiceLinePrices(invoiceId, updates);
+			return { success: true, message: 'Líneas y totales actualizados.' };
+		} catch (err) {
+			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo guardar.' });
+		}
+	},
+
+	reconciliarMontos: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		if (!user) return fail(401, { message: 'Debe iniciar sesión.' });
+
+		const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+		if (!canViewFinancial(profile?.role)) {
+			return fail(403, { message: 'Sin permiso para editar facturas.' });
+		}
+
+		const form = await request.formData();
+		const invoiceId = String(form.get('invoice_id') ?? '').trim();
+		if (!invoiceId) return fail(400, { message: 'Factura no válida.' });
+
+		const { data: feRow } = await supabase
+			.from('fe_comprobantes')
+			.select('estado')
+			.eq('invoice_id', invoiceId)
+			.eq('tipo_documento', '01')
+			.maybeSingle();
+		if (feRow?.estado === 'aceptado') {
+			return fail(400, { message: 'No se pueden corregir montos de una FE aceptada.' });
+		}
+
+		try {
+			const result = await reconcileInvoiceAmounts(invoiceId);
+			const detail =
+				result.linesUpdated > 0
+					? `${result.linesUpdated} línea(s) corregida(s).`
+					: 'Totales del encabezado sincronizados.';
+			return {
+				success: true,
+				message: `Montos actualizados. ${detail} Nuevo total: ${result.total.toFixed(2)}.`
+			};
+		} catch (err) {
+			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo corregir.' });
 		}
 	},
 

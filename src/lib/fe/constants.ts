@@ -3,7 +3,7 @@ import type { FeComprobanteEstado } from './types';
 export const FE_UNIDAD_MEDIDA_OPTIONS = [
 	{ value: 'Sp', label: 'Sp — Servicio profesional' },
 	{ value: 'Spe', label: 'Spe — Servicio profesional especial' },
-	{ value: 'Os', label: 'Os — Otro servicio' },
+	{ value: 'OS', label: 'OS — Otro servicio' },
 	{ value: 'Unid', label: 'Unid — Unidad (mercancía)' }
 ] as const;
 

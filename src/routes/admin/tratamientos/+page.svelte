@@ -34,7 +34,7 @@
 	import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
 	import CabysPicker from '$lib/components/cabys/components/cabys.svelte';
 	import type { CabysCatalogEntry } from '$lib/cabys';
-	import { cabysImpuestoToTarifa, normalizeCabys } from '$lib/cabys';
+	import { cabysImpuestoToTarifa, cabysSuggestedUnidadMedida, normalizeCabys } from '$lib/cabys';
 
 	interface DraftRow {
 		label: string;
@@ -80,10 +80,12 @@
 	function applyCabysToFe(entry: CabysCatalogEntry): {
 		fe_cabys: string | null;
 		impuesto_tarifa: number;
+		fe_unidad_medida: string;
 	} {
 		return {
 			fe_cabys: normalizeCabys(entry.codigo) || null,
-			impuesto_tarifa: normalizeImpuestoTarifaForFe(cabysImpuestoToTarifa(entry.impuesto))
+			impuesto_tarifa: normalizeImpuestoTarifaForFe(cabysImpuestoToTarifa(entry.impuesto)),
+			fe_unidad_medida: cabysSuggestedUnidadMedida(entry)
 		};
 	}
 
@@ -93,16 +95,18 @@
 
 	async function persistTreatmentFeFields(
 		treatmentId: string,
-		fe: { fe_cabys: string | null; impuesto_tarifa: number }
+		fe: { fe_cabys: string | null; impuesto_tarifa: number; fe_unidad_medida: string }
 	) {
 		try {
 			const updated = await updateTreatment(treatmentId, {
 				fe_cabys: fe.fe_cabys,
-				impuesto_tarifa: fe.impuesto_tarifa
+				impuesto_tarifa: fe.impuesto_tarifa,
+				fe_unidad_medida: fe.fe_unidad_medida
 			});
 			patchTreatment(treatmentId, {
 				fe_cabys: updated.fe_cabys,
-				impuesto_tarifa: updated.impuesto_tarifa
+				impuesto_tarifa: updated.impuesto_tarifa,
+				fe_unidad_medida: updated.fe_unidad_medida
 			});
 			clearRowError(treatmentId);
 		} catch (err) {
@@ -1160,6 +1164,7 @@
 								const fe = applyCabysToFe(entry);
 								form.fe_cabys = fe.fe_cabys ?? '';
 								form.impuesto_tarifa = fe.impuesto_tarifa;
+								form.fe_unidad_medida = fe.fe_unidad_medida;
 							}}
 						/>
 						<div class="treatments-form-grid">

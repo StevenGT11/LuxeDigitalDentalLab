@@ -1,11 +1,20 @@
 import { env } from '$env/dynamic/private';
-import {
-	consultarFactura,
-	enviarFactura,
-	validarFactura
-} from '@happy-prod/facturador';
+import { enviarFacturaConDesgloseExento } from './facturador-enviar.server';
+import { installFacturadorExemptDesglosePatch } from './facturador-patch.server';
 
 export const FACTURADOR_LIBRARY_LABEL = '@happy-prod/facturador';
+
+type FacturadorLib = typeof import('@happy-prod/facturador');
+let facturadorLib: FacturadorLib | null = null;
+
+/** Load facturador after exempt-desglose patch (Hacienda -488). */
+async function getFacturador(): Promise<FacturadorLib> {
+	if (!facturadorLib) {
+		installFacturadorExemptDesglosePatch();
+		facturadorLib = await import('@happy-prod/facturador');
+	}
+	return facturadorLib;
+}
 
 export type FacturadorEnviarData = {
 	clave: string;
@@ -55,6 +64,7 @@ export function getFacturadorBaseUrl(): string {
 export async function checkFacturadorConnection(): Promise<{ ok: boolean; url: string; error?: string }> {
 	const url = FACTURADOR_LIBRARY_LABEL;
 	try {
+		const { validarFactura, enviarFactura } = await getFacturador();
 		if (typeof validarFactura !== 'function' || typeof enviarFactura !== 'function') {
 			return {
 				ok: false,
@@ -73,6 +83,7 @@ export async function checkFacturadorConnection(): Promise<{ ok: boolean; url: s
 }
 
 export async function facturadorValidarEnviar(payload: unknown): Promise<FacturadorEnviarResult> {
+	const { validarFactura } = await getFacturador();
 	const result = validarFactura(payload as object, { requireHacienda: true }) as LibraryResult;
 	if (!result.success) {
 		return {
@@ -86,7 +97,7 @@ export async function facturadorValidarEnviar(payload: unknown): Promise<Factura
 
 export async function facturadorEnviar(payload: unknown): Promise<FacturadorEnviarResult> {
 	try {
-		const result = (await enviarFactura(payload as object)) as LibraryResult;
+		const result = (await enviarFacturaConDesgloseExento(payload as object)) as LibraryResult;
 		if (!result.success) {
 			return {
 				ok: false,
@@ -112,6 +123,7 @@ export async function facturadorConsultar(
 	config: Record<string, unknown>
 ): Promise<FacturadorConsultaResult> {
 	try {
+		const { consultarFactura } = await getFacturador();
 		const result = (await consultarFactura({ clave, config })) as LibraryResult;
 
 		if (result.success && result.data) {

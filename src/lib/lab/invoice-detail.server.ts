@@ -1,7 +1,16 @@
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { FeComprobanteEstado } from '$lib/fe/types';
 import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
+import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
+import {
+	normalizeInvoiceLineAmounts,
+	roundMoney
+} from '$lib/lab/invoice-line-amounts';
 import type { InvoiceEstado } from './types';
+
+function lineSubtotal(cantidad: number, precioUnitario: number): number {
+	return roundMoney(Math.max(0, cantidad) * Math.max(0, precioUnitario));
+}
 
 export type InvoiceLineDetail = {
 	id: string;
@@ -67,6 +76,7 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 	invoice: InvoiceDetail;
 	client: ClientFiscalSnapshot;
 	fe: FeComprobanteDetail | null;
+	lineAmountsNeedReconcile: boolean;
 } | null> {
 	const admin = createSupabaseAdminClient();
 
@@ -164,13 +174,21 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 		fecha_emision: inv.fecha_emision,
 		fecha_vencimiento: inv.fecha_vencimiento,
 		estado: inv.estado as InvoiceEstado,
-		lineas: lineas.map((l) => ({
-			...l,
-			precio_unitario: Number(l.precio_unitario),
-			subtotal: Number(l.subtotal),
-			impuesto_tarifa: normalizeImpuestoTarifaForFe(l.impuesto_tarifa),
-			fe_unidad_medida: l.fe_unidad_medida ?? 'Sp'
-		}))
+		lineas: lineas.map((l) => {
+			const normalized = normalizeInvoiceLineAmounts({
+				cantidad: Number(l.cantidad),
+				precio_unitario: Number(l.precio_unitario),
+				subtotal: Number(l.subtotal)
+			});
+			return {
+				...l,
+				cantidad: normalized.cantidad,
+				precio_unitario: normalized.precio_unitario,
+				subtotal: normalized.subtotal,
+				impuesto_tarifa: normalizeImpuestoTarifaForFe(l.impuesto_tarifa),
+				fe_unidad_medida: l.fe_unidad_medida ?? 'Sp'
+			};
+		})
 	};
 
 	const client: ClientFiscalSnapshot = {
@@ -205,5 +223,181 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 			}
 		: null;
 
-	return { invoice, client, fe };
+	return { invoice, client, fe, lineAmountsNeedReconcile: invoiceAmountsNeedReconcile(lineas, invoice) };
+}
+
+function invoiceAmountsNeedReconcile(
+	rawLineas: InvoiceLineDetail[],
+	invoice: InvoiceDetail
+): boolean {
+	const normalizedLines = rawLineas.map((l) => {
+		const normalized = normalizeInvoiceLineAmounts({
+			cantidad: Number(l.cantidad),
+			precio_unitario: Number(l.precio_unitario),
+			subtotal: Number(l.subtotal)
+		});
+		return {
+			subtotal: normalized.subtotal,
+			impuesto_tarifa: normalizeImpuestoTarifaForFe(l.impuesto_tarifa)
+		};
+	});
+
+	const linesStale = rawLineas.some((l) => {
+		const normalized = normalizeInvoiceLineAmounts({
+			cantidad: Number(l.cantidad),
+			precio_unitario: Number(l.precio_unitario),
+			subtotal: Number(l.subtotal)
+		});
+		return (
+			Math.abs(normalized.subtotal - Number(l.subtotal)) > 0.01 ||
+			Math.abs(normalized.precio_unitario - Number(l.precio_unitario)) > 0.01
+		);
+	});
+
+	const totals = computeInvoiceTaxTotals(normalizedLines);
+	const headerStale =
+		Math.abs(totals.subtotal - invoice.subtotal) > 0.01 ||
+		Math.abs(totals.impuesto - invoice.impuesto) > 0.01 ||
+		Math.abs(totals.total - invoice.total) > 0.01;
+
+	return linesStale || headerStale;
+}
+
+/** Corrige líneas (cantidad × precio = subtotal) y totales del encabezado en BD. */
+export async function reconcileInvoiceAmounts(invoiceId: string): Promise<{
+	linesUpdated: number;
+	subtotal: number;
+	impuesto: number;
+	total: number;
+}> {
+	const linesUpdated = await reconcileInvoiceLineSubtotals(invoiceId);
+
+	const admin = createSupabaseAdminClient();
+	const { data: freshLines, error: freshErr } = await admin
+		.from('invoice_lines')
+		.select('subtotal, impuesto_tarifa')
+		.eq('invoice_id', invoiceId);
+	if (freshErr) throw freshErr;
+
+	const totals = computeInvoiceTaxTotals(
+		(freshLines ?? []).map((l) => ({
+			subtotal: Number(l.subtotal),
+			impuesto_tarifa: normalizeImpuestoTarifaForFe(l.impuesto_tarifa)
+		}))
+	);
+
+	const { error: invErr } = await admin
+		.from('invoices')
+		.update({
+			subtotal: totals.subtotal,
+			impuesto: totals.impuesto,
+			total: totals.total
+		})
+		.eq('id', invoiceId);
+	if (invErr) throw invErr;
+
+	return { linesUpdated, ...totals };
+}
+
+/** Corrige subtotales cuando cantidad × precio_unitario no coincide con subtotal guardado. */
+export async function reconcileInvoiceLineSubtotals(invoiceId: string): Promise<number> {
+	const admin = createSupabaseAdminClient();
+	const { data: lines, error } = await admin
+		.from('invoice_lines')
+		.select('id, cantidad, precio_unitario, subtotal')
+		.eq('invoice_id', invoiceId);
+	if (error) throw error;
+
+	let updated = 0;
+	for (const line of lines ?? []) {
+		const normalized = normalizeInvoiceLineAmounts({
+			cantidad: Number(line.cantidad),
+			precio_unitario: Number(line.precio_unitario),
+			subtotal: Number(line.subtotal)
+		});
+		const storedSubtotal = roundMoney(Number(line.subtotal));
+		const storedPrecio = roundMoney(Number(line.precio_unitario));
+		if (
+			Math.abs(normalized.subtotal - storedSubtotal) <= 0.01 &&
+			Math.abs(normalized.precio_unitario - storedPrecio) <= 0.01
+		) {
+			continue;
+		}
+
+		const { error: upErr } = await admin
+			.from('invoice_lines')
+			.update({
+				precio_unitario: normalized.precio_unitario,
+				subtotal: normalized.subtotal
+			})
+			.eq('id', line.id)
+			.eq('invoice_id', invoiceId);
+		if (upErr) throw upErr;
+		updated++;
+	}
+
+	return updated;
+}
+
+/** Actualiza precios de líneas y recalcula subtotal / IVA / total del encabezado. */
+export async function updateInvoiceLinePrices(
+	invoiceId: string,
+	updates: { lineId: string; precio_unitario: number }[]
+): Promise<void> {
+	const admin = createSupabaseAdminClient();
+	const byId = new Map(updates.map((u) => [u.lineId, u.precio_unitario]));
+
+	const { data: lines, error: linesErr } = await admin
+		.from('invoice_lines')
+		.select('id, cantidad, precio_unitario, subtotal, impuesto_tarifa')
+		.eq('invoice_id', invoiceId);
+	if (linesErr) throw linesErr;
+	if (!lines?.length) throw new Error('La factura no tiene líneas.');
+
+	for (const line of lines) {
+		const nextPrecio = byId.get(line.id) ?? Number(line.precio_unitario);
+		if (!Number.isFinite(nextPrecio) || nextPrecio < 0) {
+			throw new Error('Precio unitario inválido.');
+		}
+
+		const normalized = normalizeInvoiceLineAmounts({
+			cantidad: Number(line.cantidad),
+			precio_unitario: nextPrecio,
+			subtotal: lineSubtotal(Number(line.cantidad), nextPrecio)
+		});
+		const { error: upErr } = await admin
+			.from('invoice_lines')
+			.update({
+				precio_unitario: normalized.precio_unitario,
+				subtotal: normalized.subtotal
+			})
+			.eq('id', line.id)
+			.eq('invoice_id', invoiceId);
+		if (upErr) throw upErr;
+		line.precio_unitario = normalized.precio_unitario;
+		line.subtotal = normalized.subtotal;
+	}
+
+	const { data: freshLines, error: freshErr } = await admin
+		.from('invoice_lines')
+		.select('subtotal, impuesto_tarifa')
+		.eq('invoice_id', invoiceId);
+	if (freshErr) throw freshErr;
+
+	const totals = computeInvoiceTaxTotals(
+		(freshLines ?? []).map((l) => ({
+			subtotal: Number(l.subtotal),
+			impuesto_tarifa: normalizeImpuestoTarifaForFe(l.impuesto_tarifa)
+		}))
+	);
+
+	const { error: invErr } = await admin
+		.from('invoices')
+		.update({
+			subtotal: totals.subtotal,
+			impuesto: totals.impuesto,
+			total: totals.total
+		})
+		.eq('id', invoiceId);
+	if (invErr) throw invErr;
 }

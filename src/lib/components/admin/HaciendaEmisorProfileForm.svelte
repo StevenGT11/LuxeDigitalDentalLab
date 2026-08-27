@@ -159,6 +159,7 @@
 					bind:codigo={draft.codigo_actividad}
 					inputName="codigo_actividad"
 					label="Código actividad (CIIU)"
+					helperText="Debe coincidir exactamente con el código registrado en su RUT ante Hacienda (ej. 3250.0)."
 					required
 				/>
 			</div>
@@ -171,6 +172,9 @@
 			</label>
 			<label class="field field--full">
 				<span class="field-label">Ubicación (Hacienda)</span>
+				<p class="type-caption hacienda-profile__hint">
+					Provincia, cantón y distrito deben coincidir con su dirección fiscal en el RUT (error Hacienda -37).
+				</p>
 				<AddressPicker
 					bind:address={draft.otras_senas}
 					bind:province={pickProvince}
@@ -185,7 +189,15 @@
 			</label>
 			<label class="field">
 				<span class="field-label">Teléfono</span>
-				<input class="field-input" name="telefono" bind:value={draft.telefono} />
+				<input
+					class="field-input"
+					name="telefono"
+					bind:value={draft.telefono}
+					inputmode="numeric"
+					placeholder="88888888"
+					maxlength="20"
+				/>
+				<span class="type-caption" style="margin-top: 0.25rem; opacity: 0.75;">8 dígitos (sin +506)</span>
 			</label>
 			<label class="field">
 				<span class="field-label">Correo electrónico</span>
@@ -207,6 +219,10 @@
 	}
 	.field--full {
 		grid-column: 1 / -1;
+	}
+	.hacienda-profile__hint {
+		margin: 0 0 0.5rem;
+		opacity: 0.75;
 	}
 	.hacienda-profile__inline {
 		display: grid;

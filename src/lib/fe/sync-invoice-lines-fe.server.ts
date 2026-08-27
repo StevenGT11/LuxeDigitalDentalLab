@@ -1,5 +1,13 @@
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
+import { cabysImpuestoToTarifa, cabysSuggestedUnidadMedida } from '$lib/cabys';
+import { loadCabysCatalog } from '$lib/cabys/loadCatalog.server';
+import { findCabysByCodigo } from '$lib/cabys/searchCatalog';
 import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
+import {
+	normalizeInvoiceLineAmounts,
+	roundMoney
+} from '$lib/lab/invoice-line-amounts';
+import { normalizeFeUnidadMedida } from './emisor-normalize';
 import { normalizeImpuestoTarifaForFe } from './impuesto-tarifa';
 
 /**
@@ -55,11 +63,50 @@ export async function syncInvoiceLinesFeFromCase(invoiceId: string): Promise<num
 			.from('invoice_lines')
 			.update({
 				fe_cabys: t.fe_cabys?.trim() || null,
-				fe_unidad_medida: t.fe_unidad_medida?.trim() || 'Sp',
+				fe_unidad_medida: normalizeFeUnidadMedida(t.fe_unidad_medida),
 				impuesto_tarifa
 			})
 			.eq('id', line.id);
 		if (error) throw error;
+		updated++;
+	}
+
+	return updated;
+}
+
+/** Alinea IVA y unidad de medida de cada línea con el catálogo CABYS. */
+export async function syncInvoiceLinesImpuestoFromCabys(invoiceId: string): Promise<number> {
+	const admin = createSupabaseAdminClient();
+	const { data: lines, error } = await admin
+		.from('invoice_lines')
+		.select('id, fe_cabys, impuesto_tarifa, fe_unidad_medida')
+		.eq('invoice_id', invoiceId);
+	if (error) throw error;
+
+	const catalog = loadCabysCatalog();
+	let updated = 0;
+
+	for (const line of lines ?? []) {
+		const cabys = line.fe_cabys?.trim();
+		if (!cabys) continue;
+
+		const entry = findCabysByCodigo(catalog, cabys);
+		if (!entry) continue;
+
+		const fromCabys = normalizeImpuestoTarifaForFe(cabysImpuestoToTarifa(entry.impuesto));
+		const unidad = cabysSuggestedUnidadMedida(entry);
+		const patch: { impuesto_tarifa?: number; fe_unidad_medida?: string } = {};
+
+		if (Math.abs(Number(line.impuesto_tarifa) - fromCabys) >= 0.001) {
+			patch.impuesto_tarifa = fromCabys;
+		}
+		if (normalizeFeUnidadMedida(line.fe_unidad_medida) !== unidad) {
+			patch.fe_unidad_medida = unidad;
+		}
+		if (Object.keys(patch).length === 0) continue;
+
+		const { error: upErr } = await admin.from('invoice_lines').update(patch).eq('id', line.id);
+		if (upErr) throw upErr;
 		updated++;
 	}
 
@@ -89,8 +136,8 @@ export async function normalizeInvoiceLinesImpuestoTarifa(invoiceId: string): Pr
 	return updated;
 }
 
-/** Ajusta subtotal / impuesto / total del encabezado según impuesto_tarifa de cada línea. */
-export async function recalculateAndPersistInvoiceTotals(invoiceId: string): Promise<{
+/** Corrige subtotales de líneas (cantidad × precio) y recalcula totales del encabezado. */
+export async function reconcileInvoiceLineAmountsAndTotals(invoiceId: string): Promise<{
 	subtotal: number;
 	impuesto: number;
 	total: number;
@@ -98,14 +145,48 @@ export async function recalculateAndPersistInvoiceTotals(invoiceId: string): Pro
 	const admin = createSupabaseAdminClient();
 	const { data: lines, error } = await admin
 		.from('invoice_lines')
-		.select('subtotal, impuesto_tarifa')
+		.select('id, cantidad, precio_unitario, subtotal, impuesto_tarifa')
 		.eq('invoice_id', invoiceId)
 		.order('sort_order', { ascending: true });
 	if (error) throw error;
 
+	const normalizedLines = (lines ?? []).map((l) => {
+		const storedSubtotal = roundMoney(Number(l.subtotal));
+		const storedPrecio = roundMoney(Number(l.precio_unitario));
+		const normalized = normalizeInvoiceLineAmounts({
+			cantidad: Number(l.cantidad),
+			precio_unitario: storedPrecio,
+			subtotal: storedSubtotal
+		});
+		return {
+			id: l.id,
+			impuesto_tarifa: l.impuesto_tarifa,
+			storedSubtotal,
+			storedPrecio,
+			...normalized
+		};
+	});
+
+	for (const line of normalizedLines) {
+		if (
+			Math.abs(line.subtotal - line.storedSubtotal) <= 0.01 &&
+			Math.abs(line.precio_unitario - line.storedPrecio) <= 0.01
+		) {
+			continue;
+		}
+		const { error: upErr } = await admin
+			.from('invoice_lines')
+			.update({
+				precio_unitario: line.precio_unitario,
+				subtotal: line.subtotal
+			})
+			.eq('id', line.id);
+		if (upErr) throw upErr;
+	}
+
 	const totals = computeInvoiceTaxTotals(
-		(lines ?? []).map((l) => ({
-			subtotal: Number(l.subtotal),
+		normalizedLines.map((l) => ({
+			subtotal: l.subtotal,
 			impuesto_tarifa: normalizeImpuestoTarifaForFe(l.impuesto_tarifa)
 		}))
 	);
@@ -121,4 +202,13 @@ export async function recalculateAndPersistInvoiceTotals(invoiceId: string): Pro
 	if (upErr) throw upErr;
 
 	return totals;
+}
+
+/** Ajusta subtotal / impuesto / total del encabezado según impuesto_tarifa de cada línea. */
+export async function recalculateAndPersistInvoiceTotals(invoiceId: string): Promise<{
+	subtotal: number;
+	impuesto: number;
+	total: number;
+}> {
+	return reconcileInvoiceLineAmountsAndTotals(invoiceId);
 }

@@ -18,11 +18,18 @@ import { feComprobanteBlocksEmit, feComprobanteCanReemit } from './constants';
 import { feRechazoToUltimoError } from './format-rechazo';
 import { normalizeImpuestoTarifaForFe, impuestoTarifaToCodigoTarifaIva } from './impuesto-tarifa';
 import {
+	normalizeFeUnidadMedida,
+	validateEmisorForEmit
+} from './emisor-normalize';
+import {
 	normalizeInvoiceLinesImpuestoTarifa,
 	recalculateAndPersistInvoiceTotals,
-	syncInvoiceLinesFeFromCase
+	syncInvoiceLinesFeFromCase,
+	syncInvoiceLinesImpuestoFromCabys
 } from './sync-invoice-lines-fe.server';
 import { facturadorConsultar, facturadorEnviar, facturadorValidarEnviar } from './facturador.server';
+import { logFeEmitFiscalDebug } from './fe-emit-debug.server';
+import { normalizeLineAmountsForFe } from './fe-line-amounts';
 import {
 	assertMediosPagoMatchTotal,
 	type FeMedioPagoItem,
@@ -128,13 +135,19 @@ function buildPayload(
 			);
 		}
 		const tarifa = normalizeImpuestoTarifaForFe(l.impuesto_tarifa);
-		return {
-			descripcion: l.descripcion,
+		const unidad_medida = normalizeFeUnidadMedida(l.fe_unidad_medida);
+		const amounts = normalizeLineAmountsForFe({
 			cantidad: l.cantidad,
 			precio_unitario: Number(l.precio_unitario),
+			subtotal: Number(l.subtotal)
+		});
+		return {
+			descripcion: l.descripcion,
+			cantidad: amounts.cantidad,
+			precio_unitario: amounts.precio_unitario,
 			impuesto_tarifa: tarifa,
 			codigo_tarifa_iva: impuestoTarifaToCodigoTarifaIva(tarifa),
-			unidad_medida: l.fe_unidad_medida || 'Sp',
+			unidad_medida,
 			cabys: l.fe_cabys.trim()
 		};
 	});
@@ -146,8 +159,11 @@ function buildPayload(
 	};
 	const correo = client.fe_correo_facturacion?.trim() || client.email?.trim();
 	if (correo) cliente.correo_electronico = correo;
-	if (client.fe_codigo_actividad?.trim()) {
-		cliente.codigo_actividad = client.fe_codigo_actividad.trim();
+	const emisorCodigo = String(emisorConfig.codigo_actividad ?? '').trim();
+	const clientCodigo = client.fe_codigo_actividad?.trim();
+	// Receptor: omitir si repite el del emisor (copia incorrecta → Hacienda -410)
+	if (clientCodigo && clientCodigo !== emisorCodigo) {
+		cliente.codigo_actividad = clientCodigo;
 	}
 
 	const total = roundMoney(Number(invoice.total));
@@ -189,9 +205,17 @@ export async function emitirFacturaElectronica(
 	const client = await loadClientFiscal(invoice.client_id);
 
 	await syncInvoiceLinesFeFromCase(invoiceId);
+	await syncInvoiceLinesImpuestoFromCabys(invoiceId);
 	await normalizeInvoiceLinesImpuestoTarifa(invoiceId);
 	await recalculateAndPersistInvoiceTotals(invoiceId);
 	const invoiceFresh = await loadInvoice(invoiceId);
+
+	const emisorCheck = validateEmisorForEmit(emisor);
+	if (!emisorCheck.ok) {
+		throw new Error(
+			`Datos del emisor incompletos o inválidos (Admin → Factura electrónica):\n${emisorCheck.errors.join('\n')}\n\nPara error -37: provincia/cantón/distrito deben coincidir con su RUT en Hacienda. Para -407: el código de actividad debe ser el autorizado en su RUT (ej. 3250.0).`
+		);
+	}
 
 	let fe = await fetchFeComprobanteForInvoice(invoiceId);
 	if (fe && feComprobanteBlocksEmit(fe.estado)) {
@@ -233,6 +257,16 @@ export async function emitirFacturaElectronica(
 
 	const config = emisorRowToFacturadorConfig(emisor);
 	const payload = buildPayload(config, client, invoiceFresh, consecutivoNum, options?.mediosPago);
+
+	logFeEmitFiscalDebug({
+		invoiceId,
+		ambiente: emitAmbiente,
+		emisorDb: emisor,
+		config,
+		cliente: payload.cliente,
+		clientDb: client,
+		lineas: payload.lineas
+	});
 
 	const validation = await facturadorValidarEnviar(payload);
 	if (!validation.ok) {

@@ -1,5 +1,8 @@
 import { createSupabaseServerClient } from '$lib/supabase/server';
+import { installFacturadorExemptDesglosePatch } from '$lib/fe/facturador-patch.server';
 import type { Handle } from '@sveltejs/kit';
+
+installFacturadorExemptDesglosePatch();
 
 export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.supabase = createSupabaseServerClient(event.cookies);

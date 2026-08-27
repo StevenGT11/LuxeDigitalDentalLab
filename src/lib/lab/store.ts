@@ -1,10 +1,9 @@
 import { browser } from '$app/environment';
-import { DOCTORS, ESTADOS_EN_PROCESO, getCaseItemTipoLabel, isGuiaQuirurgica } from './constants';
+import { DOCTORS, ESTADOS_EN_PROCESO } from './constants';
 import { getClientProfileFromCache, getDoctorDisplayName, isSupabaseClientLinked, syncCachedClient } from './client-session';
 import { fetchClientById, fetchOwnClient } from './clients-db';
 import { buildCaseItem, migrateCaseRow } from './case-builder';
-import { computeInvoiceTaxTotals, impuestoTarifaForCaseItem } from './invoice-tax';
-import { getTreatmentByValue } from './treatments';
+import { buildInvoiceDraft } from './invoice-builder';
 import { uploadCaseFilesFromInputs } from './case-files-db';
 import {
 	createCaseInDb,
@@ -450,49 +449,11 @@ export function getAdminStats() {
 	};
 }
 
-function invoiceLineLabel(item: CaseItem): string {
-	const tipo = getCaseItemTipoLabel(item);
-	if (isGuiaQuirurgica(item.tipo_trabajo)) {
-		return `${tipo} — Diseño`;
-	}
-	const pieza = item.numero_pieza ? ` · pieza ${item.numero_pieza}` : '';
-	const servicios: string[] = [];
-	if (item.incluye_diseno) servicios.push('Diseño');
-	if (item.incluye_fresado) servicios.push('Fresado');
-	const serv = servicios.length ? ` — ${servicios.join(' + ')}` : '';
-	return `${tipo}${pieza}${serv} ×${item.piezas}`;
-}
-
 function createInvoiceForCase(caso: LabCase, client: LabClient): Invoice {
-	const lineas = caso.items.map((item) => ({
-		descripcion: item.descripcion ?? invoiceLineLabel(item),
-		cantidad: item.piezas,
-		precio_unitario: item.unit_price,
-		subtotal: item.subtotal
-	}));
-
-	const taxLines = caso.items.map((item) => ({
-		subtotal: item.subtotal,
-		impuesto_tarifa: impuestoTarifaForCaseItem(item.tipo_trabajo, getTreatmentByValue)
-	}));
-	const { subtotal, impuesto, total } = computeInvoiceTaxTotals(taxLines);
-	const now = new Date();
-
+	const { invoice: draft, lineas } = buildInvoiceDraft(caso, client, nextInvoiceNumber());
 	return {
 		id: uid(),
-		invoice_number: nextInvoiceNumber(),
-		client_id: client.id,
-		client_name: client.nombre,
-		client_clinica: client.clinica,
-		case_id: caso.id,
-		case_number: caso.case_number,
-		paciente_name: caso.paciente_name,
-		subtotal,
-		impuesto,
-		total,
-		fecha_emision: now.toISOString(),
-		fecha_vencimiento: new Date(now.getTime() + 30 * 86400000).toISOString(),
-		estado: 'pendiente',
+		...draft,
 		lineas
 	};
 }

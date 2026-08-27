@@ -1,5 +1,6 @@
 import { createSupabaseBrowserClient } from '$lib/supabase/client';
 import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
+import { normalizeFeUnidadMedida } from '$lib/fe/emisor-normalize';
 import {
 	applyCatalogToSnapshot,
 	type CatalogAddon,
@@ -71,7 +72,7 @@ function mapTreatment(row: DbTreatment): LabTreatment {
 		}),
 		sobre_implante: row.sobre_implante === true,
 		fe_cabys: row.fe_cabys?.trim() || null,
-		fe_unidad_medida: row.fe_unidad_medida?.trim() || 'Sp',
+		fe_unidad_medida: normalizeFeUnidadMedida(row.fe_unidad_medida),
 		impuesto_tarifa: normalizeImpuestoTarifaForFe(
 			row.impuesto_tarifa != null && Number.isFinite(Number(row.impuesto_tarifa))
 				? Number(row.impuesto_tarifa)
@@ -220,7 +221,7 @@ export async function createTreatmentInDb(
 			modo_seleccion_piezas: input.modo_seleccion_piezas ?? 'ninguno',
 			sobre_implante: input.sobre_implante === true,
 			fe_cabys: input.fe_cabys?.trim() || null,
-			fe_unidad_medida: input.fe_unidad_medida?.trim() || 'Sp',
+			fe_unidad_medida: normalizeFeUnidadMedida(input.fe_unidad_medida),
 			impuesto_tarifa: input.impuesto_tarifa ?? 13
 		})
 		.select(
@@ -266,7 +267,9 @@ export async function updateTreatmentInDb(
 	if (patch.modo_seleccion_piezas !== undefined) payload.modo_seleccion_piezas = patch.modo_seleccion_piezas;
 	if (patch.sobre_implante !== undefined) payload.sobre_implante = patch.sobre_implante;
 	if (patch.fe_cabys !== undefined) payload.fe_cabys = patch.fe_cabys?.trim() || null;
-	if (patch.fe_unidad_medida !== undefined) payload.fe_unidad_medida = patch.fe_unidad_medida?.trim() || 'Sp';
+	if (patch.fe_unidad_medida !== undefined) {
+		payload.fe_unidad_medida = normalizeFeUnidadMedida(patch.fe_unidad_medida);
+	}
 	if (patch.impuesto_tarifa !== undefined) {
 		payload.impuesto_tarifa = normalizeImpuestoTarifaForFe(Math.max(0, patch.impuesto_tarifa));
 	}

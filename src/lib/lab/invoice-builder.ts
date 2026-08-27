@@ -1,4 +1,5 @@
 import { getCaseItemTipoLabel, isGuiaQuirurgica } from './constants';
+import { caseItemToInvoiceLineAmounts } from './invoice-line-amounts';
 import { computeInvoiceTaxTotals, impuestoTarifaForCaseItem } from './invoice-tax';
 import { getTreatmentByValue } from './treatments';
 import type { CaseItem, Invoice, LabCase, LabClient } from './types';
@@ -20,16 +21,19 @@ export function buildInvoiceDraft(caso: LabCase, client: LabClient, invoiceNumbe
 	invoice: Omit<Invoice, 'id'>;
 	lineas: Invoice['lineas'];
 } {
-	const lineas = caso.items.map((item) => ({
-		descripcion: item.descripcion ?? invoiceLineLabel(item),
-		cantidad: item.piezas,
-		precio_unitario: item.unit_price,
-		subtotal: item.subtotal
-	}));
+	const lineas = caso.items.map((item) => {
+		const amounts = caseItemToInvoiceLineAmounts(item);
+		return {
+			descripcion: item.descripcion ?? invoiceLineLabel(item),
+			cantidad: amounts.cantidad,
+			precio_unitario: amounts.precio_unitario,
+			subtotal: amounts.subtotal
+		};
+	});
 
-	const taxLines = caso.items.map((item) => ({
-		subtotal: item.subtotal,
-		impuesto_tarifa: impuestoTarifaForCaseItem(item.tipo_trabajo, getTreatmentByValue)
+	const taxLines = lineas.map((line, i) => ({
+		subtotal: line.subtotal,
+		impuesto_tarifa: impuestoTarifaForCaseItem(caso.items[i]!.tipo_trabajo, getTreatmentByValue)
 	}));
 	const { subtotal, impuesto, total } = computeInvoiceTaxTotals(taxLines);
 	const now = new Date();
