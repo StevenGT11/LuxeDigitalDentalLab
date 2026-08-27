@@ -68,6 +68,7 @@
 	let reconcilingMontos = $state(false);
 	let emittingFe = $state(false);
 	let consultingFe = $state(false);
+	let feFeedback = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
 
 	const feBusy = $derived(emittingFe || consultingFe);
 	const lineAmountsNeedReconcile = $derived(data.lineAmountsNeedReconcile);
@@ -153,10 +154,35 @@
 
 	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
 		mediosPagoJson = JSON.stringify(medios);
+		feFeedback = null;
 		emittingFe = true;
 		emitModalOpen = false;
 		await tick();
 		emitFormEl?.requestSubmit();
+	}
+
+	function actionResultMessage(data: Record<string, unknown> | undefined, fallback: string): string {
+		return typeof data?.message === 'string' && data.message.trim() ? data.message : fallback;
+	}
+
+	async function afterFeFormAction(
+		result: import('@sveltejs/kit').ActionResult,
+		update: (opts?: { reset?: boolean }) => Promise<void>
+	) {
+		await update({ reset: false });
+		if (result.type === 'success') {
+			feFeedback = {
+				kind: 'success',
+				message: actionResultMessage(result.data as Record<string, unknown>, 'Operación completada.')
+			};
+			await invalidate('app:invoice-detail');
+		} else if (result.type === 'failure') {
+			feFeedback = {
+				kind: 'error',
+				message: actionResultMessage(result.data as Record<string, unknown>, 'No se pudo completar la operación.')
+			};
+			await invalidate('app:invoice-detail');
+		}
 	}
 
 	async function copyXml() {
@@ -221,14 +247,15 @@
 		</div>
 	</header>
 
-	{#if form?.message}
-		<p
-			class="invoice-detail__alert type-caption"
-			class:invoice-detail__alert--ok={form.success === true}
+	{#if feFeedback || form?.message}
+		<div
+			class="invoice-detail__alert"
+			class:invoice-detail__alert--ok={feFeedback?.kind === 'success' || (!feFeedback && form?.success === true)}
+			class:invoice-detail__alert--pre={feFeedback?.kind === 'error' || (!feFeedback && form?.success !== true)}
 			role="alert"
 		>
-			{form.message}
-		</p>
+			{feFeedback?.message ?? form?.message}
+		</div>
 	{/if}
 
 	{#if !data.facturadorOk}
@@ -447,6 +474,17 @@
 			{/if}
 		{/if}
 
+		{#if feFeedback}
+			<div
+				class="invoice-detail__fe-feedback"
+				class:invoice-detail__fe-feedback--ok={feFeedback.kind === 'success'}
+				class:invoice-detail__fe-feedback--error={feFeedback.kind === 'error'}
+				role="alert"
+			>
+				{feFeedback.message}
+			</div>
+		{/if}
+
 		{#if fe && feComprobanteCanReemit(fe.estado)}
 			<p class="type-caption invoice-detail__reemit-hint">
 				Corrija emisor, cliente o líneas (CABYS, dirección, etc.) y use <strong>Reemitir FE</strong> para
@@ -463,11 +501,11 @@
 					class="fe-emit-form-hidden"
 					aria-hidden="true"
 					use:enhance={() => {
-						return async ({ update }) => {
+						return async ({ update, result }) => {
 							emittingFe = true;
+							feFeedback = null;
 							try {
-								await update({ reset: false });
-								await invalidate('app:invoice-detail');
+								await afterFeFormAction(result, update);
 							} finally {
 								emittingFe = false;
 							}
@@ -487,10 +525,10 @@
 					action="?/consultar"
 					use:enhance={() => {
 						consultingFe = true;
-						return async ({ update }) => {
+						feFeedback = null;
+						return async ({ update, result }) => {
 							try {
-								await update({ reset: false });
-								await invalidate('app:invoice-detail');
+								await afterFeFormAction(result, update);
 							} finally {
 								consultingFe = false;
 							}
@@ -730,6 +768,33 @@
 	.invoice-detail__alert--ok {
 		background: color-mix(in srgb, var(--color-success) 12%, transparent);
 		color: var(--color-success);
+	}
+
+	.invoice-detail__alert--pre {
+		white-space: pre-wrap;
+		line-height: 1.45;
+		font-size: 0.875rem;
+	}
+
+	.invoice-detail__fe-feedback {
+		margin: var(--spacing-md) 0 0;
+		padding: 0.75rem 0.9rem;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		line-height: 1.45;
+		white-space: pre-wrap;
+	}
+
+	.invoice-detail__fe-feedback--error {
+		background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+		color: var(--color-danger);
+		border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+	}
+
+	.invoice-detail__fe-feedback--ok {
+		background: color-mix(in srgb, var(--color-success) 12%, transparent);
+		color: var(--color-success);
+		border: 1px solid color-mix(in srgb, var(--color-success) 25%, transparent);
 	}
 
 	.invoice-detail__error {
