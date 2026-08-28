@@ -2,7 +2,11 @@ import { createSupabaseServerClient } from '$lib/supabase/server';
 import { installFacturadorExemptDesglosePatch } from '$lib/fe/facturador-patch.server';
 import type { Handle } from '@sveltejs/kit';
 
-installFacturadorExemptDesglosePatch();
+try {
+	installFacturadorExemptDesglosePatch();
+} catch (err) {
+	console.warn('[facturador] No se pudo aplicar el parche de desglose exento:', err);
+}
 
 export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.supabase = createSupabaseServerClient(event.cookies);

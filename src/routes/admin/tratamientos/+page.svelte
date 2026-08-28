@@ -2,11 +2,12 @@
 	import { afterNavigate } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
-	import { ChevronDown, Plus, Trash2, X } from '@lucide/svelte';
+	import { ChevronDown, Plus, Search, Trash2, X } from '@lucide/svelte';
 	import { formatColones, formatCurrency } from '$lib/lab/helpers';
 	import {
 		TOOTH_SELECTION_MODE_OPTIONS,
-		defaultToothSelectionModeForCategory
+		defaultToothSelectionModeForCategory,
+		toothSelectionModeLabel
 	} from '$lib/lab/constants';
 	import { initializeLabStorage } from '$lib/lab/store';
 	import {
@@ -54,6 +55,10 @@
 	let materialDrafts = $state<Record<string, TreatmentMaterialOption[]>>({});
 	let materialsMode = $state<Record<string, boolean>>({});
 	let materialsExpanded = $state<Record<string, boolean>>({});
+	let expandedTreatments = $state<Record<string, boolean>>({});
+	let collapsedCategories = $state<Record<string, boolean>>({});
+	let feExpanded = $state<Record<string, boolean>>({});
+	let searchQuery = $state('');
 	let newMaterialNames = $state<Record<string, string>>({});
 	let modalOpen = $state(false);
 	let saving = $state(false);
@@ -110,11 +115,10 @@
 			});
 			clearRowError(treatmentId);
 		} catch (err) {
-			rowErrors = {
-				...rowErrors,
-				[treatmentId]:
-					err instanceof Error ? err.message : 'No se pudo guardar CABYS / tarifa IVA.'
-			};
+			setRowError(
+				treatmentId,
+				err instanceof Error ? err.message : 'No se pudo guardar CABYS / tarifa IVA.'
+			);
 		}
 	}
 
@@ -130,8 +134,13 @@
 
 	let clientVisibleCount = $derived(treatments.filter((t) => t.activo).length);
 	let grouped = $derived.by(() => {
+		const q = searchQuery.trim().toLowerCase();
 		const groups = new Map<TreatmentCategory, LabTreatment[]>();
 		for (const t of treatments) {
+			if (q) {
+				const hay = `${t.label} ${t.value} ${t.fe_cabys ?? ''}`.toLowerCase();
+				if (!hay.includes(q)) continue;
+			}
 			const list = groups.get(t.categoria) ?? [];
 			list.push(t);
 			groups.set(t.categoria, list);
@@ -142,6 +151,7 @@
 			items: groups.get(categoria) ?? []
 		}));
 	});
+	let visibleCount = $derived(grouped.reduce((n, g) => n + g.items.length, 0));
 
 	onMount(() => refresh());
 	afterNavigate(() => refresh());
@@ -179,10 +189,96 @@
 		return n === 1 ? '1 material' : `${n} materiales`;
 	}
 
+	function isCategoryOpen(categoria: TreatmentCategory): boolean {
+		if (searchQuery.trim()) return true;
+		return collapsedCategories[categoria] !== true;
+	}
+
+	function toggleCategory(categoria: TreatmentCategory) {
+		if (searchQuery.trim()) return;
+		collapsedCategories = {
+			...collapsedCategories,
+			[categoria]: isCategoryOpen(categoria)
+		};
+	}
+
+	function isTreatmentExpanded(treatmentId: string): boolean {
+		return expandedTreatments[treatmentId] === true;
+	}
+
+	function expandTreatment(treatmentId: string) {
+		if (expandedTreatments[treatmentId]) return;
+		expandedTreatments = { ...expandedTreatments, [treatmentId]: true };
+	}
+
+	function toggleTreatment(treatmentId: string) {
+		expandedTreatments = {
+			...expandedTreatments,
+			[treatmentId]: !isTreatmentExpanded(treatmentId)
+		};
+	}
+
+	function isFeExpanded(treatmentId: string): boolean {
+		return feExpanded[treatmentId] === true;
+	}
+
+	function toggleFeExpanded(treatmentId: string) {
+		feExpanded = { ...feExpanded, [treatmentId]: !isFeExpanded(treatmentId) };
+	}
+
+	function expandAllTreatments() {
+		const next: Record<string, boolean> = {};
+		for (const t of treatments) next[t.id] = true;
+		expandedTreatments = next;
+		collapsedCategories = {};
+	}
+
+	function collapseAllTreatments() {
+		expandedTreatments = {};
+		feExpanded = {};
+		materialsExpanded = {};
+	}
+
+	function hasCabys(treatment: LabTreatment): boolean {
+		return Boolean(treatment.fe_cabys?.trim());
+	}
+
+	function feSummary(treatment: LabTreatment): string {
+		const cabys = treatment.fe_cabys?.trim() ?? '';
+		const iva = treatmentFeTarifa(treatment);
+		if (!cabys) return `Sin CABYS · IVA ${iva}%`;
+		return `${cabys} · IVA ${iva}%`;
+	}
+
+	function treatmentPriceSummary(treatment: LabTreatment): string {
+		if (usesMaterialsMode(treatment.id)) {
+			const mats = materialList(treatment.id);
+			if (mats.length === 0) return 'Sin materiales';
+			const usds = mats.map((m) => Number(m.precio_usd)).filter((n) => Number.isFinite(n));
+			if (usds.length === 0) return materialsCountLabel(treatment.id);
+			const min = Math.min(...usds);
+			const max = Math.max(...usds);
+			const range =
+				min === max ? formatCurrency(min) : `${formatCurrency(min)} – ${formatCurrency(max)}`;
+			return `${materialsCountLabel(treatment.id)} · ${range}`;
+		}
+		if (isDisenoCategory(treatment.categoria)) {
+			return `${formatCurrency(treatment.precio_diseno)} · ${formatColones(treatment.precio_crc_diseno)}`;
+		}
+		if (treatment.precio_diseno > 0 && treatment.precio_fresado > 0) {
+			return `Diseño ${formatCurrency(treatment.precio_diseno)} · Fresado ${formatCurrency(treatment.precio_fresado)}`;
+		}
+		if (treatment.precio_fresado > 0) {
+			return `${formatCurrency(treatment.precio_fresado)} · ${formatColones(treatment.precio_crc_fresado)}`;
+		}
+		return `${formatCurrency(treatment.precio_diseno)} · ${formatColones(treatment.precio_crc_diseno)}`;
+	}
+
 	function toggleMaterialsMode(treatment: LabTreatment) {
 		const next = !usesMaterialsMode(treatment.id);
 		materialsMode = { ...materialsMode, [treatment.id]: next };
 		if (next) {
+			expandTreatment(treatment.id);
 			materialsExpanded = { ...materialsExpanded, [treatment.id]: true };
 		} else {
 			materialDrafts = { ...materialDrafts, [treatment.id]: [] };
@@ -211,10 +307,7 @@
 	function addCustomMaterial(treatment: LabTreatment) {
 		const label = (newMaterialNames[treatment.id] ?? '').trim();
 		if (label.length < 2) {
-			rowErrors = {
-				...rowErrors,
-				[treatment.id]: 'Indica un nombre de material (mín. 2 caracteres).'
-			};
+			setRowError(treatment.id, 'Indica un nombre de material (mín. 2 caracteres).');
 			return;
 		}
 		const existing = new Set(materialList(treatment.id).map((m) => m.key));
@@ -299,9 +392,14 @@
 		rowErrors = next;
 	}
 
+	function setRowError(id: string, message: string) {
+		rowErrors = { ...rowErrors, [id]: message };
+		expandTreatment(id);
+	}
+
 	async function saveRow(treatment: LabTreatment) {
 		if (!treatment.label.trim()) {
-			rowErrors = { ...rowErrors, [treatment.id]: 'El nombre es obligatorio.' };
+			setRowError(treatment.id, 'El nombre es obligatorio.');
 			return;
 		}
 
@@ -310,11 +408,10 @@
 		const hasMaterials = materials.length > 0;
 
 		if (materialsEnabled && !hasMaterials) {
-			rowErrors = {
-				...rowErrors,
-				[treatment.id]:
-					'Agrega al menos un material o desactiva «Varios materiales» para usar precio base.'
-			};
+			setRowError(
+				treatment.id,
+				'Agrega al menos un material o desactiva «Varios materiales» para usar precio base.'
+			);
 			return;
 		}
 
@@ -328,10 +425,10 @@
 			const dc = parsePrice(String(treatment.precio_crc_diseno), 0);
 			if (isDisenoCategory(treatment.categoria)) {
 				if (d === null || dc === null) {
-					rowErrors = {
-						...rowErrors,
-						[treatment.id]: 'Los precios de diseño deben ser números válidos (0 o más).'
-					};
+					setRowError(
+						treatment.id,
+						'Los precios de diseño deben ser números válidos (0 o más).'
+					);
 					return;
 				}
 				precio_diseno = d;
@@ -342,10 +439,7 @@
 				const f = parsePrice(String(treatment.precio_fresado));
 				const fc = parsePrice(String(treatment.precio_crc_fresado), 0);
 				if (d === null || f === null || dc === null || fc === null) {
-					rowErrors = {
-						...rowErrors,
-						[treatment.id]: 'Los precios deben ser números válidos (0 o más).'
-					};
+					setRowError(treatment.id, 'Los precios deben ser números válidos (0 o más).');
 					return;
 				}
 				precio_diseno = d;
@@ -356,14 +450,11 @@
 		} else {
 			for (const m of materials) {
 				if (parsePrice(m.precio_usd) === null || parsePrice(m.precio_crc, 0) === null) {
-					rowErrors = {
-						...rowErrors,
-						[treatment.id]: 'Revisa el precio de cada material.'
-					};
+					setRowError(treatment.id, 'Revisa el precio de cada material.');
 					return;
 				}
 				if (!m.label.trim()) {
-					rowErrors = { ...rowErrors, [treatment.id]: 'Cada material necesita nombre.' };
+					setRowError(treatment.id, 'Cada material necesita nombre.');
 					return;
 				}
 			}
@@ -385,10 +476,7 @@
 
 		const cabys = treatment.fe_cabys?.trim() ?? '';
 		if (cabys && !isValidFeCabys(cabys)) {
-			rowErrors = {
-				...rowErrors,
-				[treatment.id]: 'CABYS debe tener exactamente 13 dígitos numéricos.'
-			};
+			setRowError(treatment.id, 'CABYS debe tener exactamente 13 dígitos numéricos.');
 			return;
 		}
 
@@ -429,10 +517,7 @@
 			clearRowError(treatment.id);
 			await refresh();
 		} catch (err) {
-			rowErrors = {
-				...rowErrors,
-				[treatment.id]: err instanceof Error ? err.message : 'No se pudo guardar.'
-			};
+			setRowError(treatment.id, err instanceof Error ? err.message : 'No se pudo guardar.');
 		}
 	}
 
@@ -533,10 +618,7 @@
 			await deleteTreatment(treatment.id);
 			await refresh();
 		} catch (err) {
-			rowErrors = {
-				...rowErrors,
-				[treatment.id]: err instanceof Error ? err.message : 'No se pudo eliminar.'
-			};
+			setRowError(treatment.id, err instanceof Error ? err.message : 'No se pudo eliminar.');
 		} finally {
 			deletingId = null;
 		}
@@ -564,8 +646,8 @@
 
 <div class="dash-page">
 	<p class="dash-lead">
-		Por defecto cada tratamiento usa un <strong>precio base</strong>. Activa «Varios materiales» solo si quieres
-		que el cliente elija entre opciones (Zirconio, Resina, etc.) con precio distinto por material.
+		Cada fila muestra un resumen. Ábrela para editar precios, materiales o factura electrónica. Activa
+		«Varios materiales» solo si el cliente debe elegir entre opciones (Zirconio, Resina, etc.).
 	</p>
 
 	{#if loading}
@@ -583,378 +665,542 @@
 		</div>
 	</div>
 
-	<div class="dash-toolbar">
-		<p class="treatments-toolbar__hint type-caption" style="margin: 0; flex: 1;">
-			{clientVisibleCount} visibles al cliente · {treatments.length} en catálogo · USD (diseño / fresado) y CRC
-		</p>
+	<div class="dash-toolbar treatments-toolbar">
+		<label class="treatments-toolbar__search">
+			<span class="treatments-toolbar__search-icon" aria-hidden="true">
+				<Search size={16} strokeWidth={2} />
+			</span>
+			<input
+				class="search-input treatments-toolbar__search-input"
+				type="search"
+				placeholder="Buscar por nombre, código o CABYS…"
+				aria-label="Buscar tratamiento"
+				bind:value={searchQuery}
+			/>
+		</label>
+		<div class="treatments-toolbar__fold">
+			<button type="button" class="text-link" onclick={expandAllTreatments}>Expandir todo</button>
+			<span class="treatments-toolbar__sep" aria-hidden="true">·</span>
+			<button type="button" class="text-link" onclick={collapseAllTreatments}>Contraer todo</button>
+		</div>
 		<button type="button" class="btn-primary" onclick={openModal}>
 			<Plus size={16} strokeWidth={2} />
 			Agregar tratamiento
 		</button>
 	</div>
 
+	{#if searchQuery.trim()}
+		<p class="type-caption treatments-filter-hint">
+			Mostrando {visibleCount} de {treatments.length}
+		</p>
+	{/if}
+
 	{#each grouped as group (group.categoria)}
-		<section class="dash-panel treatments-category">
-			<h2 class="dash-panel__title">{group.label}</h2>
-			{#if group.categoria === 'guias'}
-				<p class="type-caption treatments-guia-lead">
-					Un solo servicio «Guía quirúrgica». El precio depende de la cantidad de implantes (1–6) al
-					crear el caso.
-				</p>
-				<div class="treatments-guia-tiers data-table-wrap">
-					<table class="data-table">
-						<thead>
-							<tr>
-								<th>Implantes</th>
-								<th>USD</th>
-								<th>CRC</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each IMPLANTES_GUIA_OPTIONS as n (n)}
+		<section
+			class="dash-panel treatments-category"
+			class:treatments-category--open={isCategoryOpen(group.categoria)}
+		>
+			<button
+				type="button"
+				class="treatments-category__toggle"
+				aria-expanded={isCategoryOpen(group.categoria)}
+				aria-controls="treatments-cat-{group.categoria}"
+				onclick={() => toggleCategory(group.categoria)}
+			>
+				<span
+					class="treatment-card__chevron"
+					class:treatment-card__chevron--open={isCategoryOpen(group.categoria)}
+				>
+					<ChevronDown size={18} />
+				</span>
+				<span class="dash-panel__title treatments-category__title">{group.label}</span>
+				<span class="treatments-category__count type-caption">
+					{group.items.length}
+					{group.items.length === 1 ? 'tratamiento' : 'tratamientos'}
+				</span>
+			</button>
+
+			{#if isCategoryOpen(group.categoria)}
+				<div id="treatments-cat-{group.categoria}">
+				{#if group.categoria === 'guias'}
+					<p class="type-caption treatments-guia-lead">
+						Un solo servicio «Guía quirúrgica». El precio depende de la cantidad de implantes (1–6) al
+						crear el caso.
+					</p>
+					<div class="treatments-guia-tiers data-table-wrap">
+						<table class="data-table">
+							<thead>
 								<tr>
-									<td>{n} {n === 1 ? 'implante' : 'implantes'}</td>
-									<td>{formatCurrency(GUIA_PRECIOS_POR_IMPLANTES[n].usd)}</td>
-									<td>{formatColones(GUIA_PRECIOS_POR_IMPLANTES[n].crc)}</td>
+									<th>Implantes</th>
+									<th>USD</th>
+									<th>CRC</th>
 								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-
-			<div class="treatments-list">
-				{#each group.items as treatment (treatment.id)}
-					<article class="treatment-card">
-						<header class="treatment-card__head">
-							<div class="treatment-card__identity">
-								<input
-									type="text"
-									class="field-input treatment-card__name"
-									value={treatment.label}
-									oninput={(e) =>
-										patchTreatment(treatment.id, {
-											label: (e.currentTarget as HTMLInputElement).value
-										})}
-								/>
-								<p class="treatment-card__code type-fine-print">{treatment.value}</p>
-								{#if rowErrors[treatment.id]}
-									<p class="treatment-card__error" role="alert">{rowErrors[treatment.id]}</p>
-								{/if}
-							</div>
-
-							<div class="treatment-card__flags">
-								<label class="treatment-card__mode">
-									<span class="treatment-card__mode-label">Selección de piezas</span>
-									<select
-										class="field-select treatment-card__mode-select"
-										value={treatment.modo_seleccion_piezas}
-										onchange={(e) =>
-											patchTreatment(treatment.id, {
-												modo_seleccion_piezas: (e.currentTarget as HTMLSelectElement)
-													.value as ToothSelectionMode
-											})}
-									>
-										{#each TOOTH_SELECTION_MODE_OPTIONS as option (option.value)}
-											<option value={option.value}>{option.label}</option>
-										{/each}
-									</select>
-								</label>
-								<button
-									type="button"
-									class="treatments-table__arcadas-btn"
-									class:treatments-table__arcadas-btn--active={treatment.sobre_implante}
-									aria-pressed={treatment.sobre_implante}
-									title="El cliente puede marcar «sobre implante» y capturar datos del implante"
-									onclick={() =>
-										patchTreatment(treatment.id, {
-											sobre_implante: !treatment.sobre_implante
-										})}
-								>
-									Sobre implante
-								</button>
-								<button
-									type="button"
-									class="treatments-table__arcadas-btn"
-									class:treatments-table__arcadas-btn--active={usesMaterialsMode(treatment.id)}
-									aria-pressed={usesMaterialsMode(treatment.id)}
-									title="Opcional: el cliente elige material al crear el caso"
-									onclick={() => toggleMaterialsMode(treatment)}
-								>
-									Varios materiales
-								</button>
-							</div>
-
-							<div class="treatment-card__meta">
-								<div class="treatment-card__actions">
-									<button
-										type="button"
-										class="btn-pearl-capsule"
-										onclick={() => saveRow(treatment)}
-									>
-										Guardar
-									</button>
-									<button
-										type="button"
-										class="text-link treatment-card__delete"
-										disabled={deletingId === treatment.id}
-										onclick={() => removeTreatment(treatment)}
-									>
-										{deletingId === treatment.id ? 'Eliminando…' : 'Eliminar'}
-									</button>
-								</div>
-							</div>
-						</header>
-
-						<div class="treatment-card__fe">
-							<p class="type-caption treatment-card__flat-lead">Factura electrónica (Hacienda)</p>
-							<div class="treatment-card__price-field treatment-card__price-field--full">
-								<CabysPicker
-									codigo={treatment.fe_cabys ?? ''}
-									label="CABYS (13 dígitos)"
-									onSelect={(entry, source) =>
-										onTreatmentCabysSelect(treatment.id, entry, source)}
-								/>
-							</div>
-							<label class="treatment-card__price-field">
-								<span class="field-label">Tarifa IVA (FE)</span>
-								<select
-									class="field-select"
-									value={String(treatmentFeTarifa(treatment))}
-									onchange={(e) =>
-										patchTreatment(treatment.id, {
-											impuesto_tarifa: normalizeImpuestoTarifaForFe(
-												Number((e.currentTarget as HTMLSelectElement).value)
-											)
-										})}
-								>
-									{#each FE_IMPUESTO_TARIFA_OPTIONS as opt (opt.value)}
-										<option value={String(opt.value)}>{opt.label}</option>
-									{/each}
-								</select>
-								<span class="type-fine-print">Se completa al elegir CABYS; puede ajustarla.</span>
-							</label>
-							<label class="treatment-card__price-field">
-								<span class="field-label">Unidad de medida</span>
-								<select
-									class="field-select"
-									value={treatment.fe_unidad_medida}
-									onchange={(e) =>
-										patchTreatment(treatment.id, {
-											fe_unidad_medida: (e.currentTarget as HTMLSelectElement).value
-										})}
-								>
-									{#each FE_UNIDAD_MEDIDA_OPTIONS as u (u.value)}
-										<option value={u.value}>{u.label}</option>
-									{/each}
-								</select>
-							</label>
-						</div>
-
-						{#if usesMaterialsMode(treatment.id)}
-						<div class="treatment-card__materials">
-							<button
-								type="button"
-								class="treatment-card__materials-toggle"
-								aria-expanded={isMaterialsExpanded(treatment.id)}
-								aria-controls="materials-panel-{treatment.id}"
-								onclick={() => toggleMaterialsExpanded(treatment.id)}
-							>
-								<span
-									class="treatment-card__materials-chevron"
-									class:treatment-card__materials-chevron--open={isMaterialsExpanded(
-										treatment.id
-									)}
-								>
-									<ChevronDown size={16} />
-								</span>
-								<span class="treatment-card__materials-toggle-title">Lista de materiales</span>
-								<span class="treatment-card__materials-toggle-meta type-caption">
-									{materialsCountLabel(treatment.id)}
-								</span>
-							</button>
-
-							{#if isMaterialsExpanded(treatment.id)}
-								<div
-									id="materials-panel-{treatment.id}"
-									class="treatment-card__materials-panel data-table-wrap"
-								>
-									<p class="treatment-card__materials-lead type-caption">
-										Agrega los materiales que el cliente podrá elegir. Cada uno con su precio por pieza.
-									</p>
-									<table class="data-table treatment-materials-table">
-								<thead>
+							</thead>
+							<tbody>
+								{#each IMPLANTES_GUIA_OPTIONS as n (n)}
 									<tr>
-										<th>Material</th>
-										<th>Precio USD/pza</th>
-										<th>Precio CRC/pza</th>
-										<th></th>
+										<td>{n} {n === 1 ? 'implante' : 'implantes'}</td>
+										<td>{formatCurrency(GUIA_PRECIOS_POR_IMPLANTES[n].usd)}</td>
+										<td>{formatColones(GUIA_PRECIOS_POR_IMPLANTES[n].crc)}</td>
 									</tr>
-								</thead>
-								<tbody>
-									{#each materialList(treatment.id) as mat (mat.key)}
-										<tr>
-											<td>
-												<input
-													type="text"
-													class="field-input treatment-materials-table__name"
-													value={mat.label}
-													oninput={(e) =>
-														patchMaterialOption(treatment.id, mat.key, {
-															label: (e.currentTarget as HTMLInputElement).value
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+
+				<div class="treatments-list">
+					{#each group.items as treatment (treatment.id)}
+						<article
+							class="treatment-card"
+							class:treatment-card--open={isTreatmentExpanded(treatment.id)}
+						>
+							{#if !isTreatmentExpanded(treatment.id)}
+								<button
+									type="button"
+									class="treatment-card__summary"
+									aria-expanded="false"
+									onclick={() => toggleTreatment(treatment.id)}
+								>
+									<span class="treatment-card__chevron">
+										<ChevronDown size={16} />
+									</span>
+									<div class="treatment-card__summary-main">
+										<p class="treatment-card__summary-name">{treatment.label}</p>
+										<p class="treatment-card__summary-code type-fine-print">{treatment.value}</p>
+										{#if rowErrors[treatment.id]}
+											<p class="treatment-card__error" role="alert">{rowErrors[treatment.id]}</p>
+										{/if}
+									</div>
+									<div class="treatment-card__chips">
+										<span class="treatment-card__chip">
+											{toothSelectionModeLabel(treatment.modo_seleccion_piezas)}
+										</span>
+										{#if treatment.sobre_implante}
+											<span class="treatment-card__chip treatment-card__chip--accent">
+												Sobre implante
+											</span>
+										{/if}
+										{#if usesMaterialsMode(treatment.id)}
+											<span class="treatment-card__chip">
+												{materialsCountLabel(treatment.id)}
+											</span>
+										{/if}
+										{#if !hasCabys(treatment)}
+											<span class="treatment-card__chip treatment-card__chip--warn">Sin CABYS</span>
+										{/if}
+									</div>
+									<p class="treatment-card__summary-price">{treatmentPriceSummary(treatment)}</p>
+								</button>
+							{:else}
+								<header class="treatment-card__head">
+									<button
+										type="button"
+										class="treatment-card__collapse"
+										aria-expanded="true"
+										aria-label="Contraer {treatment.label}"
+										onclick={() => toggleTreatment(treatment.id)}
+									>
+										<span class="treatment-card__chevron treatment-card__chevron--open">
+											<ChevronDown size={16} />
+										</span>
+									</button>
+									<div class="treatment-card__identity">
+										<input
+											type="text"
+											class="field-input treatment-card__name"
+											value={treatment.label}
+											aria-label="Nombre del tratamiento"
+											oninput={(e) =>
+												patchTreatment(treatment.id, {
+													label: (e.currentTarget as HTMLInputElement).value
+												})}
+										/>
+										<p class="treatment-card__code type-fine-print">{treatment.value}</p>
+										{#if rowErrors[treatment.id]}
+											<p class="treatment-card__error" role="alert">{rowErrors[treatment.id]}</p>
+										{/if}
+									</div>
+									<div class="treatment-card__actions">
+										<button
+											type="button"
+											class="btn-pearl-capsule"
+											onclick={() => saveRow(treatment)}
+										>
+											Guardar
+										</button>
+										<button
+											type="button"
+											class="text-link treatment-card__delete"
+											disabled={deletingId === treatment.id}
+											onclick={() => removeTreatment(treatment)}
+										>
+											{deletingId === treatment.id ? 'Eliminando…' : 'Eliminar'}
+										</button>
+									</div>
+								</header>
+
+								<div class="treatment-card__body">
+									<section class="treatment-card__section">
+										<h3 class="treatment-card__section-title">Configuración</h3>
+										<div class="treatment-card__config">
+											<label class="treatment-card__mode">
+												<span class="treatment-card__mode-label">Selección de piezas</span>
+												<select
+													class="field-select treatment-card__mode-select"
+													value={treatment.modo_seleccion_piezas}
+													onchange={(e) =>
+														patchTreatment(treatment.id, {
+															modo_seleccion_piezas: (e.currentTarget as HTMLSelectElement)
+																.value as ToothSelectionMode
 														})}
-												/>
-											</td>
-											<td>
-												<input
-													type="number"
-													class="field-input treatments-table__price"
-													min="0"
-													step="0.01"
-													value={mat.precio_usd}
-													oninput={(e) =>
-														patchMaterialOption(treatment.id, mat.key, {
-															precio_usd: Number((e.currentTarget as HTMLInputElement).value)
-														})}
-												/>
-											</td>
-											<td>
-												<input
-													type="number"
-													class="field-input treatments-table__price treatments-table__price--crc"
-													min="0"
-													step="1"
-													value={mat.precio_crc}
-													oninput={(e) =>
-														patchMaterialOption(treatment.id, mat.key, {
-															precio_crc: Number((e.currentTarget as HTMLInputElement).value)
-														})}
-												/>
-											</td>
-											<td>
+												>
+													{#each TOOTH_SELECTION_MODE_OPTIONS as option (option.value)}
+														<option value={option.value}>{option.label}</option>
+													{/each}
+												</select>
+											</label>
+											<div class="treatment-card__flags">
 												<button
 													type="button"
-													class="treatment-materials-table__remove"
-													aria-label="Quitar material"
-													onclick={() => removeMaterialLocal(treatment.id, mat.key)}
+													class="treatments-table__arcadas-btn"
+													class:treatments-table__arcadas-btn--active={treatment.sobre_implante}
+													aria-pressed={treatment.sobre_implante}
+													title="El cliente puede marcar «sobre implante» y capturar datos del implante"
+													onclick={() =>
+														patchTreatment(treatment.id, {
+															sobre_implante: !treatment.sobre_implante
+														})}
 												>
-													<Trash2 size={14} />
+													Sobre implante
 												</button>
-											</td>
-										</tr>
-									{:else}
-										<tr>
-											<td colspan="4" class="type-caption treatment-materials-table__empty">
-												Aún no hay materiales — agrega al menos uno abajo.
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-								<div class="treatment-card__add-material">
-									<input
-										type="text"
-										class="field-input treatment-card__add-name"
-										placeholder="Nombre del material (ej. Zirconio, Resina PEI)"
-										value={newMaterialNames[treatment.id] ?? ''}
-										oninput={(e) =>
-											(newMaterialNames = {
-												...newMaterialNames,
-												[treatment.id]: (e.currentTarget as HTMLInputElement).value
-											})}
-									/>
-									<button
-										type="button"
-										class="btn-pearl-capsule"
-										onclick={() => onAddMaterialSelect(treatment)}
-									>
-										<Plus size={14} />
-										Agregar material
-									</button>
-								</div>
+												<button
+													type="button"
+													class="treatments-table__arcadas-btn"
+													class:treatments-table__arcadas-btn--active={usesMaterialsMode(
+														treatment.id
+													)}
+													aria-pressed={usesMaterialsMode(treatment.id)}
+													title="Opcional: el cliente elige material al crear el caso"
+													onclick={() => toggleMaterialsMode(treatment)}
+												>
+													Varios materiales
+												</button>
+											</div>
+										</div>
+									</section>
+
+									{#if showFlatPrices(treatment)}
+										<section class="treatment-card__section">
+											<h3 class="treatment-card__section-title">
+												{isDisenoCategory(treatment.categoria)
+													? 'Precio base del servicio de diseño'
+													: 'Precio base'}
+											</h3>
+											<div
+												class="treatment-card__flat-prices"
+												class:treatment-card__flat-prices--diseno={isDisenoCategory(
+													treatment.categoria
+												)}
+											>
+												<label class="treatment-card__price-field">
+													<span class="field-label">Diseño USD</span>
+													<input
+														type="number"
+														class="field-input treatments-table__price"
+														min="0"
+														step="0.01"
+														value={treatment.precio_diseno}
+														oninput={(e) =>
+															patchTreatment(treatment.id, {
+																precio_diseno: Number(
+																	(e.currentTarget as HTMLInputElement).value
+																)
+															})}
+													/>
+												</label>
+												<label class="treatment-card__price-field">
+													<span class="field-label">Diseño CRC</span>
+													<input
+														type="number"
+														class="field-input treatments-table__price treatments-table__price--crc"
+														min="0"
+														step="1"
+														value={treatment.precio_crc_diseno}
+														disabled={treatment.precio_diseno <= 0}
+														oninput={(e) =>
+															patchTreatment(treatment.id, {
+																precio_crc_diseno: Number(
+																	(e.currentTarget as HTMLInputElement).value
+																)
+															})}
+													/>
+												</label>
+												{#if !isDisenoCategory(treatment.categoria)}
+													<label class="treatment-card__price-field">
+														<span class="field-label">Fresado USD</span>
+														<input
+															type="number"
+															class="field-input treatments-table__price"
+															min="0"
+															step="0.01"
+															value={treatment.precio_fresado}
+															oninput={(e) =>
+																patchTreatment(treatment.id, {
+																	precio_fresado: Number(
+																		(e.currentTarget as HTMLInputElement).value
+																	)
+																})}
+														/>
+													</label>
+													<label class="treatment-card__price-field">
+														<span class="field-label">Fresado CRC</span>
+														<input
+															type="number"
+															class="field-input treatments-table__price treatments-table__price--crc"
+															min="0"
+															step="1"
+															value={treatment.precio_crc_fresado}
+															disabled={treatment.precio_fresado <= 0}
+															oninput={(e) =>
+																patchTreatment(treatment.id, {
+																	precio_crc_fresado: Number(
+																		(e.currentTarget as HTMLInputElement).value
+																	)
+																})}
+														/>
+													</label>
+												{/if}
+											</div>
+										</section>
+									{/if}
+
+									{#if usesMaterialsMode(treatment.id)}
+										<section class="treatment-card__section treatment-card__section--flush">
+											<button
+												type="button"
+												class="treatment-card__subtoggle"
+												aria-expanded={isMaterialsExpanded(treatment.id)}
+												aria-controls="materials-panel-{treatment.id}"
+												onclick={() => toggleMaterialsExpanded(treatment.id)}
+											>
+												<span
+													class="treatment-card__chevron"
+													class:treatment-card__chevron--open={isMaterialsExpanded(
+														treatment.id
+													)}
+												>
+													<ChevronDown size={16} />
+												</span>
+												<span class="treatment-card__subtoggle-title">Materiales</span>
+												<span class="treatment-card__subtoggle-meta type-caption">
+													{materialsCountLabel(treatment.id)}
+												</span>
+											</button>
+
+											{#if isMaterialsExpanded(treatment.id)}
+												<div
+													id="materials-panel-{treatment.id}"
+													class="treatment-card__materials-panel data-table-wrap"
+												>
+													<p class="treatment-card__materials-lead type-caption">
+														Agrega los materiales que el cliente podrá elegir. Cada uno con su
+														precio por pieza.
+													</p>
+													<table class="data-table treatment-materials-table">
+														<thead>
+															<tr>
+																<th>Material</th>
+																<th>Precio USD/pza</th>
+																<th>Precio CRC/pza</th>
+																<th></th>
+															</tr>
+														</thead>
+														<tbody>
+															{#each materialList(treatment.id) as mat (mat.key)}
+																<tr>
+																	<td>
+																		<input
+																			type="text"
+																			class="field-input treatment-materials-table__name"
+																			value={mat.label}
+																			oninput={(e) =>
+																				patchMaterialOption(treatment.id, mat.key, {
+																					label: (e.currentTarget as HTMLInputElement)
+																						.value
+																				})}
+																		/>
+																	</td>
+																	<td>
+																		<input
+																			type="number"
+																			class="field-input treatments-table__price"
+																			min="0"
+																			step="0.01"
+																			value={mat.precio_usd}
+																			oninput={(e) =>
+																				patchMaterialOption(treatment.id, mat.key, {
+																					precio_usd: Number(
+																						(e.currentTarget as HTMLInputElement).value
+																					)
+																				})}
+																		/>
+																	</td>
+																	<td>
+																		<input
+																			type="number"
+																			class="field-input treatments-table__price treatments-table__price--crc"
+																			min="0"
+																			step="1"
+																			value={mat.precio_crc}
+																			oninput={(e) =>
+																				patchMaterialOption(treatment.id, mat.key, {
+																					precio_crc: Number(
+																						(e.currentTarget as HTMLInputElement).value
+																					)
+																				})}
+																		/>
+																	</td>
+																	<td>
+																		<button
+																			type="button"
+																			class="treatment-materials-table__remove"
+																			aria-label="Quitar material"
+																			onclick={() =>
+																				removeMaterialLocal(treatment.id, mat.key)}
+																		>
+																			<Trash2 size={14} />
+																		</button>
+																	</td>
+																</tr>
+															{:else}
+																<tr>
+																	<td
+																		colspan="4"
+																		class="type-caption treatment-materials-table__empty"
+																	>
+																		Aún no hay materiales — agrega al menos uno abajo.
+																	</td>
+																</tr>
+															{/each}
+														</tbody>
+													</table>
+													<div class="treatment-card__add-material">
+														<input
+															type="text"
+															class="field-input treatment-card__add-name"
+															placeholder="Nombre del material (ej. Zirconio, Resina PEI)"
+															value={newMaterialNames[treatment.id] ?? ''}
+															oninput={(e) =>
+																(newMaterialNames = {
+																	...newMaterialNames,
+																	[treatment.id]: (
+																		e.currentTarget as HTMLInputElement
+																	).value
+																})}
+														/>
+														<button
+															type="button"
+															class="btn-pearl-capsule"
+															onclick={() => onAddMaterialSelect(treatment)}
+														>
+															<Plus size={14} />
+															Agregar material
+														</button>
+													</div>
+												</div>
+											{/if}
+										</section>
+									{/if}
+
+									<section class="treatment-card__section treatment-card__section--flush">
+										<button
+											type="button"
+											class="treatment-card__subtoggle"
+											aria-expanded={isFeExpanded(treatment.id)}
+											aria-controls="fe-panel-{treatment.id}"
+											onclick={() => toggleFeExpanded(treatment.id)}
+										>
+											<span
+												class="treatment-card__chevron"
+												class:treatment-card__chevron--open={isFeExpanded(treatment.id)}
+											>
+												<ChevronDown size={16} />
+											</span>
+											<span class="treatment-card__subtoggle-title">Factura electrónica</span>
+											<span
+												class="treatment-card__subtoggle-meta type-caption"
+												class:treatment-card__subtoggle-meta--warn={!hasCabys(treatment)}
+											>
+												{feSummary(treatment)}
+											</span>
+										</button>
+
+										{#if isFeExpanded(treatment.id)}
+											<div id="fe-panel-{treatment.id}" class="treatment-card__fe">
+												<div class="treatment-card__price-field treatment-card__price-field--full">
+													<CabysPicker
+														codigo={treatment.fe_cabys ?? ''}
+														label="CABYS (13 dígitos)"
+														onSelect={(entry, source) =>
+															onTreatmentCabysSelect(treatment.id, entry, source)}
+													/>
+												</div>
+												<label class="treatment-card__price-field">
+													<span class="field-label">Tarifa IVA (FE)</span>
+													<select
+														class="field-select"
+														value={String(treatmentFeTarifa(treatment))}
+														onchange={(e) =>
+															patchTreatment(treatment.id, {
+																impuesto_tarifa: normalizeImpuestoTarifaForFe(
+																	Number((e.currentTarget as HTMLSelectElement).value)
+																)
+															})}
+													>
+														{#each FE_IMPUESTO_TARIFA_OPTIONS as opt (opt.value)}
+															<option value={String(opt.value)}>{opt.label}</option>
+														{/each}
+													</select>
+													<span class="type-fine-print">
+														Se completa al elegir CABYS; puede ajustarla.
+													</span>
+												</label>
+												<label class="treatment-card__price-field">
+													<span class="field-label">Unidad de medida</span>
+													<select
+														class="field-select"
+														value={treatment.fe_unidad_medida}
+														onchange={(e) =>
+															patchTreatment(treatment.id, {
+																fe_unidad_medida: (e.currentTarget as HTMLSelectElement)
+																	.value
+															})}
+													>
+														{#each FE_UNIDAD_MEDIDA_OPTIONS as u (u.value)}
+															<option value={u.value}>{u.label}</option>
+														{/each}
+													</select>
+												</label>
+											</div>
+										{/if}
+									</section>
 								</div>
 							{/if}
-						</div>
-						{/if}
-
-						{#if showFlatPrices(treatment)}
-							<div
-								class="treatment-card__flat-prices"
-								class:treatment-card__flat-prices--diseno={isDisenoCategory(treatment.categoria)}
-							>
-								<p class="type-caption treatment-card__flat-lead">
-									{isDisenoCategory(treatment.categoria)
-										? 'Precio base del servicio de diseño'
-										: 'Precio base del tratamiento'}
-								</p>
-								<label class="treatment-card__price-field">
-									<span class="field-label">Diseño USD</span>
-									<input
-										type="number"
-										class="field-input treatments-table__price"
-										min="0"
-										step="0.01"
-										value={treatment.precio_diseno}
-										oninput={(e) =>
-											patchTreatment(treatment.id, {
-												precio_diseno: Number((e.currentTarget as HTMLInputElement).value)
-											})}
-									/>
-								</label>
-								<label class="treatment-card__price-field">
-									<span class="field-label">Diseño CRC</span>
-									<input
-										type="number"
-										class="field-input treatments-table__price treatments-table__price--crc"
-										min="0"
-										step="1"
-										value={treatment.precio_crc_diseno}
-										disabled={treatment.precio_diseno <= 0}
-										oninput={(e) =>
-											patchTreatment(treatment.id, {
-												precio_crc_diseno: Number((e.currentTarget as HTMLInputElement).value)
-											})}
-									/>
-								</label>
-								{#if !isDisenoCategory(treatment.categoria)}
-								<label class="treatment-card__price-field">
-									<span class="field-label">Fresado USD</span>
-									<input
-										type="number"
-										class="field-input treatments-table__price"
-										min="0"
-										step="0.01"
-										value={treatment.precio_fresado}
-										oninput={(e) =>
-											patchTreatment(treatment.id, {
-												precio_fresado: Number((e.currentTarget as HTMLInputElement).value)
-											})}
-									/>
-								</label>
-								<label class="treatment-card__price-field">
-									<span class="field-label">Fresado CRC</span>
-									<input
-										type="number"
-										class="field-input treatments-table__price treatments-table__price--crc"
-										min="0"
-										step="1"
-										value={treatment.precio_crc_fresado}
-										disabled={treatment.precio_fresado <= 0}
-										oninput={(e) =>
-											patchTreatment(treatment.id, {
-												precio_crc_fresado: Number((e.currentTarget as HTMLInputElement).value)
-											})}
-									/>
-								</label>
-								{/if}
-							</div>
-						{/if}
-					</article>
-				{/each}
-			</div>
+						</article>
+					{/each}
+				</div>
+				</div>
+			{/if}
 		</section>
 	{:else}
-		<p class="type-caption">No hay tratamientos en el catálogo.</p>
+		<p class="type-caption">
+			{#if searchQuery.trim() && treatments.length > 0}
+				No hay tratamientos que coincidan con «{searchQuery.trim()}».
+			{:else}
+				No hay tratamientos en el catálogo.
+			{/if}
+		</p>
 	{/each}
 </div>
 
@@ -969,7 +1215,9 @@
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="add-treatment-title"
+			tabindex="-1"
 			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
 		>
 			<div class="case-file-modal__header">
 				<div>
@@ -1232,15 +1480,85 @@
 		margin-bottom: 0;
 	}
 
-	.treatments-toolbar__hint {
-		align-self: center;
+	.treatments-category__toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		margin: 0;
+		padding: 0;
+		border: none;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.treatments-category--open .treatments-category__toggle {
+		margin-bottom: 0.75rem;
+	}
+
+	.treatments-filter-hint {
+		margin: -0.35rem 0 0.85rem;
+	}
+
+	.treatments-category__toggle:hover .treatments-category__title {
+		color: var(--dash-accent, #2563eb);
+	}
+
+	.treatments-category__title {
+		margin: 0;
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.treatments-category__count {
+		margin: 0;
+		flex-shrink: 0;
+		color: var(--dash-muted);
+	}
+
+	.treatments-toolbar {
+		gap: 0.65rem 0.75rem;
+	}
+
+	.treatments-toolbar__search {
+		position: relative;
+		flex: 1 1 14rem;
+		min-width: 0;
+	}
+
+	.treatments-toolbar__search-icon {
+		position: absolute;
+		top: 50%;
+		left: 0.7rem;
+		display: flex;
+		color: var(--dash-muted);
+		transform: translateY(-50%);
+		pointer-events: none;
+	}
+
+	.treatments-toolbar__search-input {
+		width: 100%;
+		padding-left: 2.15rem;
+	}
+
+	.treatments-toolbar__fold {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		flex-shrink: 0;
+	}
+
+	.treatments-toolbar__sep {
 		color: var(--dash-muted);
 	}
 
 	.treatments-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.5rem;
 	}
 
 	.treatment-card {
@@ -1250,13 +1568,132 @@
 		overflow: hidden;
 	}
 
+	.treatment-card--open {
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent, #2563eb) 18%, transparent);
+	}
+
+	.treatment-card__chevron {
+		display: inline-flex;
+		flex-shrink: 0;
+		color: var(--dash-muted);
+		transition: transform 0.2s ease;
+	}
+
+	.treatment-card__chevron--open {
+		transform: rotate(180deg);
+	}
+
+	.treatment-card__summary {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		grid-template-areas:
+			'chevron main price'
+			'chevron chips price';
+		align-items: center;
+		column-gap: 0.75rem;
+		row-gap: 0.35rem;
+		width: 100%;
+		padding: 0.75rem 1rem;
+		border: none;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.treatment-card__summary:hover {
+		background: color-mix(in srgb, var(--dash-border) 35%, transparent);
+	}
+
+	.treatment-card__summary .treatment-card__chevron {
+		grid-area: chevron;
+		align-self: start;
+		margin-top: 0.15rem;
+	}
+
+	.treatment-card__summary-main {
+		grid-area: main;
+		min-width: 0;
+	}
+
+	.treatment-card__summary-name {
+		margin: 0;
+		font-weight: 600;
+		font-size: 0.9375rem;
+		line-height: 1.3;
+	}
+
+	.treatment-card__summary-code {
+		margin: 0.15rem 0 0;
+	}
+
+	.treatment-card__chips {
+		grid-area: chips;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+	}
+
+	.treatment-card__chip {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.15rem 0.5rem;
+		border-radius: 999px;
+		border: 1px solid var(--dash-border);
+		background: color-mix(in srgb, var(--dash-border) 28%, transparent);
+		font-size: 0.6875rem;
+		font-weight: 600;
+		color: var(--dash-muted);
+		white-space: nowrap;
+	}
+
+	.treatment-card__chip--accent {
+		border-color: var(--dash-accent, #2563eb);
+		background: color-mix(in srgb, var(--dash-accent, #2563eb) 12%, transparent);
+		color: var(--dash-text);
+	}
+
+	.treatment-card__chip--warn {
+		border-color: color-mix(in srgb, #b45309 45%, var(--dash-border));
+		background: color-mix(in srgb, #b45309 10%, transparent);
+		color: #b45309;
+	}
+
+	.treatment-card__summary-price {
+		grid-area: price;
+		margin: 0;
+		justify-self: end;
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--dash-text);
+		white-space: nowrap;
+	}
+
 	.treatment-card__head {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: flex-start;
-		gap: 0.75rem 1rem;
+		gap: 0.65rem 0.85rem;
 		padding: 0.85rem 1rem;
 		border-bottom: 1px solid var(--dash-border);
+	}
+
+	.treatment-card__collapse {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		margin: 0.2rem 0 0;
+		padding: 0.2rem;
+		border: none;
+		border-radius: 0.35rem;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+	}
+
+	.treatment-card__collapse:hover {
+		background: color-mix(in srgb, var(--dash-border) 45%, transparent);
 	}
 
 	.treatment-card__identity {
@@ -1280,26 +1717,13 @@
 		color: #b91c1c;
 	}
 
-	.treatment-card__flags {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.35rem;
-		align-items: center;
-	}
-
-	.treatment-card__meta {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: 0.5rem;
-		margin-left: auto;
-	}
-
 	.treatment-card__actions {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.35rem 0.65rem;
+		align-items: center;
 		justify-content: flex-end;
+		margin-left: auto;
 	}
 
 	.treatment-card__delete {
@@ -1315,19 +1739,56 @@
 		cursor: not-allowed;
 	}
 
-	.treatment-card__materials {
-		padding: 0;
-		border-bottom: 1px solid var(--dash-border);
+	.treatment-card__body {
+		display: flex;
+		flex-direction: column;
 	}
 
-	.treatment-card__materials-toggle {
+	.treatment-card__section {
+		padding: 0.85rem 1rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--dash-border) 80%, transparent);
+	}
+
+	.treatment-card__section:last-child {
+		border-bottom: none;
+	}
+
+	.treatment-card__section--flush {
+		padding: 0;
+	}
+
+	.treatment-card__section-title {
+		margin: 0 0 0.65rem;
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--dash-muted);
+	}
+
+	.treatment-card__config {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 0.75rem 1.25rem;
+	}
+
+	.treatment-card__flags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		align-items: center;
+		padding-bottom: 0.1rem;
+	}
+
+	.treatment-card__subtoggle {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 		width: 100%;
 		padding: 0.75rem 1rem;
 		border: none;
-		background: color-mix(in srgb, var(--dash-border) 35%, transparent);
+		background: color-mix(in srgb, var(--dash-border) 28%, transparent);
 		color: inherit;
 		font: inherit;
 		text-align: left;
@@ -1335,43 +1796,31 @@
 		transition: background 0.15s ease;
 	}
 
-	.treatment-card__materials-toggle:hover {
-		background: color-mix(in srgb, var(--dash-border) 55%, transparent);
+	.treatment-card__subtoggle:hover {
+		background: color-mix(in srgb, var(--dash-border) 50%, transparent);
 	}
 
-	.treatment-card__materials-toggle-title {
+	.treatment-card__subtoggle-title {
 		font-weight: 600;
 		font-size: 0.875rem;
 	}
 
-	.treatment-card__materials-toggle-meta {
-		margin-left: auto;
+	.treatment-card__subtoggle-meta {
+		margin: 0 0 0 auto;
 		color: var(--dash-muted);
 	}
 
-	.treatment-card__materials-chevron {
-		display: inline-flex;
-		flex-shrink: 0;
-		color: var(--dash-muted);
-		transition: transform 0.2s ease;
-	}
-
-	.treatment-card__materials-chevron--open {
-		transform: rotate(180deg);
+	.treatment-card__subtoggle-meta--warn {
+		color: #b45309;
+		font-weight: 600;
 	}
 
 	.treatment-card__materials-panel {
-		padding: 0 1rem 0.75rem;
+		padding: 0 1rem 0.85rem;
 	}
 
 	.treatment-card__materials-lead {
 		margin: 0.65rem 0 0.65rem;
-		color: var(--dash-muted);
-	}
-
-	.treatment-card__flat-lead {
-		grid-column: 1 / -1;
-		margin: 0 0 0.25rem;
 		color: var(--dash-muted);
 	}
 
@@ -1391,11 +1840,6 @@
 	.treatment-card__add-name {
 		flex: 1 1 14rem;
 		min-width: 10rem;
-	}
-
-	.treatment-materials-table__label {
-		font-weight: 600;
-		white-space: nowrap;
 	}
 
 	.treatment-materials-table__empty {
@@ -1425,32 +1869,17 @@
 		cursor: not-allowed;
 	}
 
-	.treatment-card__add-material {
-		padding: 0.65rem 0 0.25rem;
-	}
-
-	.treatment-card__add-select {
-		max-width: 16rem;
-	}
-
 	.treatment-card__fe {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 0.75rem;
-		padding: 0 1rem 0.85rem;
-		border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
-	}
-
-	.treatment-card__fe .treatment-card__flat-lead {
-		grid-column: 1 / -1;
-		margin: 0 0 0.15rem;
+		padding: 0.15rem 1rem 0.95rem;
 	}
 
 	.treatment-card__flat-prices {
 		display: grid;
 		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 0.75rem;
-		padding: 0.85rem 1rem 1rem;
 	}
 
 	.treatment-card__flat-prices--diseno {
@@ -1557,12 +1986,27 @@
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 
-		.treatment-card__meta {
+		.treatment-card__summary {
+			grid-template-columns: auto minmax(0, 1fr);
+			grid-template-areas:
+				'chevron main'
+				'chevron chips'
+				'chevron price';
+		}
+
+		.treatment-card__summary-price {
+			justify-self: start;
+			white-space: normal;
+		}
+
+		.treatment-card__actions {
 			width: 100%;
-			flex-direction: row;
-			align-items: center;
-			justify-content: space-between;
 			margin-left: 0;
+			justify-content: flex-start;
+		}
+
+		.treatment-card__fe {
+			grid-template-columns: 1fr;
 		}
 	}
 
@@ -1570,6 +2014,11 @@
 		.treatments-form-grid,
 		.treatment-card__flat-prices {
 			grid-template-columns: 1fr;
+		}
+
+		.treatments-toolbar__fold {
+			width: 100%;
+			order: 3;
 		}
 	}
 </style>

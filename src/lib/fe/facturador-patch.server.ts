@@ -4,6 +4,15 @@ import { patchFacturaXmlExemptDesglose } from './facturador-exempt-desglose';
 
 let installed = false;
 
+function isModuleNotFound(err: unknown): boolean {
+	return (
+		typeof err === 'object' &&
+		err !== null &&
+		'code' in err &&
+		(err as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND'
+	);
+}
+
 function facturadorPkgRoot(require: NodeRequire): string {
 	const pkgEntry = require.resolve('@happy-prod/facturador');
 	return join(dirname(pkgEntry), '..');
@@ -43,11 +52,22 @@ function bustFacturadorEntryCache(require: NodeRequire, pkgRoot: string): void {
  */
 export function installFacturadorExemptDesglosePatch(): void {
 	if (installed) return;
-	installed = true;
 
 	const require = createRequire(import.meta.url);
-	const pkgRoot = facturadorPkgRoot(require);
+	let pkgRoot: string;
+	try {
+		pkgRoot = facturadorPkgRoot(require);
+	} catch (err) {
+		if (isModuleNotFound(err)) {
+			console.warn(
+				'[facturador] @happy-prod/facturador no está instalado. La app arranca sin el parche FE. Ejecute npm install con un PAT de GitHub Packages (read:packages).'
+			);
+			return;
+		}
+		throw err;
+	}
 
+	installed = true;
 	bustFacturadorEntryCache(require, pkgRoot);
 	patchXmlModule(require, pkgRoot);
 	bustFacturadorEntryCache(require, pkgRoot);
