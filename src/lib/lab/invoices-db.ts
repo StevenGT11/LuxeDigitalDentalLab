@@ -112,6 +112,8 @@ export async function fetchInvoiceByCaseId(caseId: string): Promise<Invoice | nu
 		.from('invoices')
 		.select(INVOICE_SELECT)
 		.eq('case_id', caseId)
+		.order('created_at', { ascending: false })
+		.limit(1)
 		.maybeSingle();
 
 	if (error) throw error;

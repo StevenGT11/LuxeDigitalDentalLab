@@ -42,6 +42,10 @@ export const FE_CONSECUTIVO_DOC_TYPES = [
 	{ tipo: '08', label: 'Factura compra (FEC)' }
 ] as const;
 
+export function getFeTipoDocumentoLabel(tipo: string): string {
+	return FE_CONSECUTIVO_DOC_TYPES.find((d) => d.tipo === tipo)?.label ?? `Tipo ${tipo}`;
+}
+
 export const FE_COMPROBANTE_ESTADOS: { value: FeComprobanteEstado; label: string }[] = [
 	{ value: 'pendiente_envio', label: 'Sin enviar' },
 	{ value: 'enviado', label: 'Enviado a Hacienda' },
@@ -82,4 +86,9 @@ export function feComprobanteCanReemit(estado: FeComprobanteEstado | null | unde
 
 export function feComprobanteCanConsultar(estado: FeComprobanteEstado | null | undefined): boolean {
 	return estado === 'enviado' || estado === 'procesando' || estado === 'error';
+}
+
+/** Borrador creado pero aún no enviado a Hacienda. */
+export function feComprobanteNeedsEnviar(estado: FeComprobanteEstado | null | undefined): boolean {
+	return estado === 'pendiente_envio';
 }

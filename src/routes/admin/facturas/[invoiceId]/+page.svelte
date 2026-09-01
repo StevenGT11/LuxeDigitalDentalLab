@@ -1,16 +1,19 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
-	import { invalidate } from '$app/navigation';
+	import { enhance, deserialize, applyAction } from '$app/forms';
+	import { goto, invalidate } from '$app/navigation';
 	import { tick } from 'svelte';
 	import FeMediosPagoModal from '$lib/components/fe/FeMediosPagoModal.svelte';
+	import FeNotaEmitModal from '$lib/components/fe/FeNotaEmitModal.svelte';
 	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
 	import {
 		feComprobanteBlocksEmit,
 		feComprobanteCanReemit,
 		feComprobanteCanConsultar,
+		feComprobanteNeedsEnviar,
 		FE_TIPO_IDENTIFICACION_OPTIONS,
 		getFeComprobanteEstadoClass,
-		getFeComprobanteEstadoLabel
+		getFeComprobanteEstadoLabel,
+		getFeTipoDocumentoLabel
 	} from '$lib/fe/constants';
 	import {
 		getInvoiceEstadoClass,
@@ -22,6 +25,7 @@
 	import type { InvoiceLineDetail } from '$lib/lab/invoice-detail.server';
 	import FeRechazoDetail from '$lib/components/fe/FeRechazoDetail.svelte';
 	import { parseFeRechazoFromStored, parseFeRechazoObject } from '$lib/fe/format-rechazo';
+	import { defaultRazonForCodigo } from '$lib/fe/fe-referencia';
 
 	let { data, form } = $props();
 
@@ -30,6 +34,7 @@
 
 	const invoice = $derived(data.invoice);
 	const fe = $derived(data.fe);
+	const notas = $derived(data.notas ?? []);
 	const client = $derived(data.client);
 
 	const xmlContent = $derived(
@@ -57,20 +62,55 @@
 	);
 
 	const canEmitFe = $derived(
-		data.hasActiveEmisor && data.facturadorOk && (!fe || !feComprobanteBlocksEmit(fe.estado))
+		data.hasActiveEmisor &&
+			data.facturadorOk &&
+			(!fe || !feComprobanteBlocksEmit(fe.estado)) &&
+			(!data.correctionContext || data.correctionContext.sourceNcAceptada)
+	);
+	const correctionFeBlocked = $derived(
+		Boolean(data.correctionContext && !data.correctionContext.sourceNcAceptada)
+	);
+	const notaNcAceptada = $derived(notas.some((n) => n.tipo_documento === '03' && n.estado === 'aceptado'));
+	const notaNcPendienteCorreccion = $derived(
+		fe?.estado === 'aceptado' &&
+			!notaNcAceptada &&
+			notas.some((n) => n.tipo_documento === '03' && n.estado !== 'aceptado')
 	);
 	const emitFeLabel = $derived(fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura');
 
 	let emitModalOpen = $state(false);
+	let notaModalOpen = $state(false);
 	let emitFormEl = $state<HTMLFormElement | null>(null);
 	let mediosPagoJson = $state('');
+	let mediosModalMode = $state<'fe' | 'nota'>('fe');
+	let notaDraft = $state<{
+		tipoDocumento: '02' | '03';
+		codigoReferencia: string;
+		razon: string;
+		feComprobanteId?: string;
+		crearFacturaCorreccion?: boolean;
+	} | null>(null);
+	let notaFormTipo = $state('');
+	let notaFormCodigo = $state('');
+	let notaFormRazon = $state('');
+	let notaFormFeId = $state('');
+	let notaFormCrearFactura = $state(false);
+	let reemitNotaId = $state<string | undefined>(undefined);
 	let savingLineas = $state(false);
 	let reconcilingMontos = $state(false);
 	let emittingFe = $state(false);
+	let emittingNota = $state(false);
 	let consultingFe = $state(false);
+	let consultingNotaId = $state<string | null>(null);
 	let feFeedback = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
 
-	const feBusy = $derived(emittingFe || consultingFe);
+	const feBusy = $derived(emittingFe || consultingFe || emittingNota || consultingNotaId !== null);
+	const canEmitNota = $derived(
+		data.hasActiveEmisor &&
+			data.facturadorOk &&
+			fe?.estado === 'aceptado' &&
+			Boolean(fe.clave)
+	);
 	const lineAmountsNeedReconcile = $derived(data.lineAmountsNeedReconcile);
 
 	function roundMoney(n: number): number {
@@ -123,6 +163,15 @@
 		)
 	);
 
+	const mediosModalTotal = $derived(
+		mediosModalMode === 'nota' ? (fe?.total ?? computedTotals.total) : computedTotals.total
+	);
+	const mediosModalSubtitle = $derived(
+		mediosModalMode === 'nota'
+			? `Nota — ${invoice.invoice_number}`
+			: `Factura ${invoice.invoice_number}`
+	);
+
 	const lineasDirty = $derived(
 		invoice.lineas.some((l: InvoiceLineDetail) => {
 			const raw = priceDrafts[l.id];
@@ -138,6 +187,19 @@
 			Math.abs(computedTotals.total - invoice.total) > 0.01
 	);
 
+	function notaRechazoDetail(nota: (typeof notas)[number]) {
+		return parseFeRechazoFromStored(nota.rechazo, nota.ultimo_error);
+	}
+
+	function notaShowRechazo(nota: (typeof notas)[number]): boolean {
+		return (
+			nota.estado === 'rechazado' ||
+			nota.estado === 'error' ||
+			Boolean(nota.ultimo_error?.trim()) ||
+			Boolean(nota.rechazo && Object.keys(nota.rechazo).length > 0)
+		);
+	}
+
 	function lineasPayloadJson(): string {
 		return JSON.stringify(
 			invoice.lineas.map((l: InvoiceLineDetail) => ({
@@ -148,16 +210,136 @@
 	}
 
 	function openEmitModal() {
+		mediosModalMode = 'fe';
 		mediosPagoJson = '';
 		emitModalOpen = true;
 	}
 
-	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
-		mediosPagoJson = JSON.stringify(medios);
+	function setNotaFormFields(draft: {
+		tipoDocumento: '02' | '03';
+		codigoReferencia: string;
+		razon: string;
+		feComprobanteId?: string;
+		crearFacturaCorreccion?: boolean;
+	}) {
+		notaFormTipo = draft.tipoDocumento;
+		notaFormCodigo = draft.codigoReferencia;
+		notaFormRazon = draft.razon;
+		notaFormFeId = draft.feComprobanteId ?? '';
+		notaFormCrearFactura = draft.crearFacturaCorreccion ?? false;
+	}
+
+	function openNotaModal(reemitId?: string) {
+		reemitNotaId = reemitId;
+		notaModalOpen = true;
+	}
+
+	function enviarNotaPendiente(nota: (typeof notas)[number]) {
+		setNotaFormFields({
+			tipoDocumento: nota.tipo_documento as '02' | '03',
+			codigoReferencia: nota.referencia_codigo ?? '01',
+			razon:
+				nota.referencia_razon ??
+				defaultRazonForCodigo(
+					nota.referencia_codigo ?? '01',
+					nota.tipo_documento === '02' ? '02' : '03'
+				),
+			feComprobanteId: nota.id,
+			crearFacturaCorreccion: false
+		});
+		void emitNotaAction();
+	}
+
+	async function emitNotaAction(medios?: FeMedioPagoItem[]) {
+		if (!notaFormTipo || !notaFormCodigo || !notaFormRazon) {
+			feFeedback = { kind: 'error', message: 'Complete tipo, motivo y razón de la nota.' };
+			return;
+		}
+
+		emittingNota = true;
 		feFeedback = null;
-		emittingFe = true;
+
+		const formData = new FormData();
+		formData.set('invoice_id', invoice.id);
+		formData.set('tipo_documento', notaFormTipo);
+		formData.set('codigo_referencia', notaFormCodigo);
+		formData.set('razon', notaFormRazon);
+		formData.set('crear_factura_correccion', notaFormCrearFactura ? '1' : '0');
+		if (notaFormFeId) formData.set('fe_comprobante_id', notaFormFeId);
+		if (medios?.length) formData.set('medios_pago', JSON.stringify(medios));
+
+		try {
+			const response = await fetch('?/emitirNota', { method: 'POST', body: formData });
+			const result = deserialize(await response.text());
+			await applyAction(result);
+
+			if (result.type === 'success') {
+				const data = result.data as Record<string, unknown> | undefined;
+				feFeedback = {
+					kind: 'success',
+					message: actionResultMessage(data, 'Nota enviada a Hacienda.')
+				};
+				notaDraft = null;
+				const redirectTo = typeof data?.redirectTo === 'string' ? data.redirectTo : null;
+				if (redirectTo) {
+					await goto(redirectTo);
+					return;
+				}
+				await invalidate('app:invoice-detail');
+			} else if (result.type === 'failure') {
+				feFeedback = {
+					kind: 'error',
+					message: actionResultMessage(result.data as Record<string, unknown>, 'No se pudo emitir la nota.')
+				};
+				await invalidate('app:invoice-detail');
+			}
+		} catch {
+			feFeedback = { kind: 'error', message: 'No se pudo enviar la nota a Hacienda.' };
+		} finally {
+			emittingNota = false;
+		}
+	}
+
+	function onNotaModalConfirm(draft: {
+		tipoDocumento: '02' | '03';
+		codigoReferencia: string;
+		razon: string;
+		crearFacturaCorreccion: boolean;
+	}) {
+		notaDraft = { ...draft, feComprobanteId: reemitNotaId };
+		setNotaFormFields({ ...notaDraft, feComprobanteId: reemitNotaId });
+		reemitNotaId = undefined;
+		void emitNotaAction();
+	}
+
+	function openNotaMediosModal() {
+		mediosModalMode = 'nota';
+		mediosPagoJson = '';
+		emitModalOpen = true;
+	}
+
+	function onNotaModalMedios(draft: {
+		tipoDocumento: '02' | '03';
+		codigoReferencia: string;
+		razon: string;
+		crearFacturaCorreccion: boolean;
+	}) {
+		notaDraft = { ...draft, feComprobanteId: reemitNotaId };
+		setNotaFormFields({ ...notaDraft, feComprobanteId: reemitNotaId });
+		reemitNotaId = undefined;
+		openNotaMediosModal();
+	}
+
+	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
+		feFeedback = null;
 		emitModalOpen = false;
+		if (mediosModalMode === 'nota') {
+			await emitNotaAction(medios);
+			return;
+		}
+		mediosPagoJson = JSON.stringify(medios);
 		await tick();
+		emittingFe = true;
 		emitFormEl?.requestSubmit();
 	}
 
@@ -171,10 +353,16 @@
 	) {
 		await update({ reset: false });
 		if (result.type === 'success') {
+			const data = result.data as Record<string, unknown> | undefined;
 			feFeedback = {
 				kind: 'success',
-				message: actionResultMessage(result.data as Record<string, unknown>, 'Operación completada.')
+				message: actionResultMessage(data, 'Operación completada.')
 			};
+			const redirectTo = typeof data?.redirectTo === 'string' ? data.redirectTo : null;
+			if (redirectTo) {
+				await goto(redirectTo);
+				return;
+			}
 			await invalidate('app:invoice-detail');
 		} else if (result.type === 'failure') {
 			feFeedback = {
@@ -209,7 +397,16 @@
 			<p class="type-caption">Firmando XML, enviando y consultando en Hacienda…</p>
 		</div>
 	</div>
-{:else if consultingFe}
+{:else if emittingNota}
+	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
+		<div class="fe-emit-overlay__panel">
+			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
+			<p class="fe-emit-overlay__title">Emitiendo nota de crédito/débito</p>
+			<p class="type-caption fe-emit-overlay__subtitle">{invoice.invoice_number}</p>
+			<p class="type-caption">Firmando XML, enviando y consultando en Hacienda…</p>
+		</div>
+	</div>
+{:else if consultingFe || consultingNotaId}
 	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
 		<div class="fe-emit-overlay__panel">
 			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
@@ -247,7 +444,18 @@
 		</div>
 	</header>
 
-	{#if feFeedback || form?.message}
+		{#if correctionFeBlocked && data.correctionContext}
+			<p class="invoice-detail__alert invoice-detail__alert--pre" role="alert">
+				Esta factura es una corrección de
+				<a href="/admin/facturas/{data.correctionContext.sourceInvoiceId}" class="text-link">
+					{data.correctionContext.sourceInvoiceNumber}
+				</a>.
+				Debe existir una <strong>nota de crédito aceptada</strong> en la factura original antes de emitir la nueva FE.
+				Corrija y reenvíe la NC hasta que Hacienda la acepte.
+			</p>
+		{/if}
+
+		{#if feFeedback || form?.message}
 		<div
 			class="invoice-detail__alert"
 			class:invoice-detail__alert--ok={feFeedback?.kind === 'success' || (!feFeedback && form?.success === true)}
@@ -544,6 +752,120 @@
 		</div>
 	</section>
 
+	{#if fe?.estado === 'aceptado'}
+		<section class="dash-panel dash-panel--section">
+			<div class="invoice-detail__lines-head">
+				<h2 class="dash-panel__section-title">Notas de crédito / débito</h2>
+				{#if canEmitNota}
+					<button type="button" class="btn-primary-pill" onclick={() => openNotaModal()} disabled={feBusy}>
+						Emitir y enviar a Hacienda
+					</button>
+				{/if}
+			</div>
+
+			{#if notaNcPendienteCorreccion}
+				<p class="invoice-detail__alert invoice-detail__alert--pre" role="alert">
+					Hay una nota de crédito sin aceptar (rechazada, en trámite o sin enviar). Debe quedar
+					<strong>aceptada por Hacienda</strong> antes de crear la factura corregida o emitir una nueva FE sobre la original.
+				</p>
+			{/if}
+
+			{#if notas.length === 0}
+				<p class="type-caption">No hay notas emitidas para esta factura.</p>
+			{:else}
+				<div class="data-table-wrap">
+					<table class="data-table">
+						<thead>
+							<tr>
+								<th>Tipo</th>
+								<th>Estado</th>
+								<th>Clave</th>
+								<th>Total</th>
+								<th>Enviado</th>
+								<th>Acciones</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each notas as nota (nota.id)}
+								<tr>
+									<td>{getFeTipoDocumentoLabel(nota.tipo_documento)}</td>
+									<td>
+										<span class={getFeComprobanteEstadoClass(nota.estado)}>
+											{getFeComprobanteEstadoLabel(nota.estado)}
+										</span>
+									</td>
+									<td class="invoice-detail__mono" title={nota.clave ?? ''}>
+										{nota.clave ? `…${nota.clave.slice(-10)}` : '—'}
+									</td>
+									<td>{formatCurrency(nota.total)}</td>
+									<td>{nota.enviado_at ? formatDate(nota.enviado_at) : '—'}</td>
+									<td class="invoice-detail__nota-actions">
+										{#if feComprobanteNeedsEnviar(nota.estado)}
+											<button
+												type="button"
+												class="btn-primary-pill btn-secondary-pill--sm"
+												disabled={feBusy}
+												onclick={() => enviarNotaPendiente(nota)}
+											>
+												Enviar a Hacienda
+											</button>
+										{/if}
+										{#if feComprobanteCanReemit(nota.estado)}
+											<button
+												type="button"
+												class="btn-secondary-pill btn-secondary-pill--sm"
+												disabled={feBusy}
+												onclick={() => openNotaModal(nota.id)}
+											>
+												Reemitir
+											</button>
+										{/if}
+										{#if feComprobanteCanConsultar(nota.estado) && nota.clave}
+											<form
+												method="POST"
+												action="?/consultarNota"
+												use:enhance={() => {
+													consultingNotaId = nota.id;
+													feFeedback = null;
+													return async ({ update, result }) => {
+														try {
+															await afterFeFormAction(result, update);
+														} finally {
+															consultingNotaId = null;
+														}
+													};
+												}}
+											>
+												<input type="hidden" name="fe_comprobante_id" value={nota.id} />
+												<button type="submit" class="btn-secondary-pill btn-secondary-pill--sm" disabled={feBusy}>
+													{consultingNotaId === nota.id ? 'Consultando…' : 'Consultar'}
+												</button>
+											</form>
+										{/if}
+									</td>
+								</tr>
+								{#if notaShowRechazo(nota)}
+									{@const rechazo = notaRechazoDetail(nota)}
+									<tr>
+										<td colspan="6" class="invoice-detail__nota-rechazo">
+											{#if rechazo}
+												<FeRechazoDetail formatted={rechazo} />
+											{:else}
+												<div class="invoice-detail__error" role="alert">
+													Rechazada por Hacienda. Use «Consultar» para actualizar el detalle o «Reemitir» tras corregir los datos.
+												</div>
+											{/if}
+										</td>
+									</tr>
+								{/if}
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</section>
+	{/if}
+
 	{#if fe && (fe.xml_firmado || fe.respuesta_xml)}
 		<section class="dash-panel dash-panel--section">
 			<div class="invoice-detail__xml-head">
@@ -576,10 +898,16 @@
 		</section>
 	{/if}
 
+	<FeNotaEmitModal
+		bind:open={notaModalOpen}
+		onConfirm={onNotaModalConfirm}
+		onMedios={onNotaModalMedios}
+	/>
+
 	<FeMediosPagoModal
 		bind:open={emitModalOpen}
-		total={computedTotals.total}
-		subtitle={`Factura ${invoice.invoice_number}`}
+		total={mediosModalTotal}
+		subtitle={mediosModalSubtitle}
 		onCancel={() => {}}
 		onConfirm={onMediosConfirm}
 	/>
@@ -685,6 +1013,28 @@
 		flex-wrap: wrap;
 		gap: var(--spacing-sm);
 		margin-top: var(--spacing-md);
+	}
+
+	.invoice-detail__nota-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		align-items: center;
+	}
+
+	.invoice-detail__nota-rechazo {
+		padding-top: 0;
+		padding-bottom: var(--spacing-md);
+		vertical-align: top;
+	}
+
+	.invoice-detail__nota-rechazo :global(.fe-rechazo) {
+		margin-bottom: 0;
+	}
+
+	.btn-secondary-pill--sm {
+		padding: 0.35rem 0.75rem;
+		font-size: 0.8125rem;
 	}
 
 	.fe-emit-form-hidden {

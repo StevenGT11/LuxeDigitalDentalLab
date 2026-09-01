@@ -1,12 +1,233 @@
-# 🚀 Easy Implementation Guide - Facturador API
+# Facturador Integration Guide
 
-## For Apps That Want to Use Facturador
+Package: **`@happy-prod/facturador`** **v2.0.2** (library + optional HTTP API in the same repo).
 
-This guide shows how to integrate the Facturador service from **any app** (web, POS, mobile, backend).
+This guide is for apps that integrate Facturador (POS, ERP, `facturador-ui`, other backends).
+
+**Install (pin the version you publish):**
+
+```bash
+npm install @happy-prod/facturador@2.0.2
+npx @happy-prod/facturador@2.0.2 install-mcp   # MCP + docs into the consuming app
+```
 
 ---
 
-## 📋 Base URL
+## Choose how to integrate
+
+| Mode | When to use | Breaking for existing deploys? |
+|------|-------------|-------------------------------|
+| **A. HTTP API** (already deployed) | External POS / services that already call the server | **No** — same URLs, body, and responses |
+| **B. npm library** (recommended for Happy Prod apps) | SvelteKit / Node backends in the same org | N/A — new install path |
+
+**Compatibility promise:** Mode A keeps the existing HTTP contract. The Express server is a thin wrapper over the same library functions used in Mode B.
+
+```
+@happy-prod/facturador  (src/)
+        ↑
+   Express routes (npm start)     ← Mode A — deployed API
+        ↑
+   import in your backend         ← Mode B — npm install
+```
+
+**Security (both modes):**
+- Never send `certificado_p12`, `pin`, or Hacienda passwords from the browser.
+- Call Facturador only from a trusted server (BFF). Store secrets in a vault; pass them in-process (lib) or over private HTTPS (HTTP API).
+
+---
+
+## Mode B — npm library (recommended for new Happy Prod apps)
+
+### Install (GitHub Packages)
+
+Same registry pattern as `@happy-prod/design-system`.
+
+1. In the consuming repo, ensure `.npmrc`:
+
+```
+@happy-prod:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+2. Authenticate with a GitHub token that can `read:packages` (and SSO-authorize for the org if needed).
+
+3. Install:
+
+```bash
+npm install @happy-prod/facturador@2.0.2
+```
+
+### Server-only usage (SvelteKit example)
+
+```js
+// src/lib/server/facturador.ts  (or .js) — NEVER import from client code
+import {
+  validarFactura,
+  generarFactura,
+  enviarFactura,
+  consultarFactura
+} from '@happy-prod/facturador';
+
+export async function emitirComprobante(payload) {
+  const check = validarFactura(payload, { requireHacienda: true });
+  if (!check.success) return check;
+
+  // Load P12 / PIN / Hacienda creds from your vault here — not from the browser
+  return enviarFactura(payload);
+}
+```
+
+CommonJS:
+
+```js
+const { enviarFactura, consultarFactura } = require('@happy-prod/facturador');
+```
+
+### Library API (high level)
+
+| Function | Same as HTTP | Notes |
+|----------|--------------|--------|
+| `validarFactura(payload, { requireHacienda? })` | `POST /api/factura/validar` | No side effects |
+| `generarFactura(payload)` | `POST /api/factura/generar` | Sign only |
+| `enviarFactura(payload)` | `POST /api/factura/enviar` | Sign + Hacienda recepción |
+| `consultarFactura({ clave, config })` | `POST /api/factura/consultar` | Poll status |
+
+Each function returns an object shaped like the HTTP JSON body, plus an optional `status` (HTTP-style code) that the Express wrapper uses. When calling from npm you can ignore `status` or map it yourself.
+
+**Payload shape is identical** to the HTTP body documented below (`config`, `tipo_documento`, `consecutivo_num`, `cliente`, `lineas`, …).
+
+### Lower-level exports
+
+Also exported for advanced use: `generarClave`, `generarFacturaXML`, `validarXML`, `signXML`, `validateCertificate`, `enviarComprobante`, `consultarEstado`, `obtenerToken`, `invalidarToken`, `validateFacturaPayload`, `parseRespuestaHacienda`.
+
+Prefer the high-level functions unless you know you need the building blocks.
+
+### Local development against the monorepo (optional)
+
+Before the package is published, you can link:
+
+```bash
+# in facturador/
+npm link
+
+# in consuming app/
+npm link @happy-prod/facturador
+```
+
+Or in the consumer `package.json`:
+
+```json
+"@happy-prod/facturador": "file:../facturador"
+```
+
+---
+
+## 🤖 MCP for AI assistants
+
+The package ships an **MCP server** so Cursor / Claude / other agents learn how to use the library (payloads, document types, IVA codes, security).
+
+### Install with the library
+
+```bash
+npm install @happy-prod/facturador@2.0.2
+
+# From your app repo — writes Cursor MCP config + copies usage docs
+npx @happy-prod/facturador@2.0.2 install-mcp
+```
+
+That command:
+
+1. Creates/updates `.cursor/mcp.json` with the Facturador MCP server  
+2. Copies docs into `docs/facturador/` (`KNOWLEDGE.md`, `INTEGRATION_GUIDE.md`, example payload)  
+3. Adds `.cursor/rules/facturador.mdc` so Cursor knows to use them  
+
+Then **reload Cursor**.
+
+### Enable in Cursor (manual alternative)
+
+Project `.cursor/mcp.json` (or user MCP settings):
+
+```json
+{
+  "mcpServers": {
+    "facturador": {
+      "command": "npx",
+      "args": ["-y", "@happy-prod/facturador", "mcp"]
+    }
+  }
+}
+```
+
+Local / linked package:
+
+```json
+{
+  "mcpServers": {
+    "facturador": {
+      "command": "node",
+      "args": ["./node_modules/@happy-prod/facturador/mcp/server.mjs"]
+    }
+  }
+}
+```
+
+Or from this repo: `npm run mcp`.
+
+### What the MCP exposes
+
+| Kind | Name | Purpose |
+|------|------|---------|
+| Resource | `facturador://knowledge` | Condensed AI knowledge base |
+| Resource | `facturador://integration-guide` | Full `INTEGRATION_GUIDE.md` |
+| Resource | `facturador://example-payload` | Example JSON payload |
+| Tool | `facturador_overview` | Install + API + security + flow |
+| Tool | `facturador_library_api` | High/low-level exports |
+| Tool | `facturador_payload_requirements` | Required fields (optional `tipo_documento`) |
+| Tool | `facturador_example_payload` | Sample payload |
+| Tool | `facturador_iva_codes` | `impuesto_tarifa` → `CodigoTarifaIVA` |
+| Tool | `facturador_get_section` | Extract a guide section |
+| Tool | `facturador_search_docs` | Search the integration guide |
+| Tool | `facturador_validate_payload` | Same rules as `validarFactura` |
+| Prompt | `integrate-facturador` | Wire the lib into a backend |
+| Prompt | `emit-factura-payload` | Build a valid emit payload |
+
+Example copy for consumers: `mcp/mcp.json.example`.
+
+---
+
+## 📊 Usage telemetry (Supabase)
+
+The library reports **metadata-only** usage to **Happy Prod’s Supabase**. Consuming apps do **not** configure database URL or keys.
+
+**Consumer setup (only this):**
+
+```js
+config: {
+  project_name: 'luxe-dental', // identifies the app in your dashboard
+  // ... fiscal fields
+}
+```
+
+Optional: `FACTURADOR_PROJECT_NAME=luxe-dental` as a default.  
+Disable: `FACTURADOR_TELEMETRY_DISABLED=true`.
+
+**What is stored:** `project_name`, operation (`validar`|`generar`|`enviar`|`consultar`), success/fail, status, short error / validation codes, `tipo_documento`, Hacienda ambiente/status/estado, library version, duration.
+
+**What is never sent:** payloads, XML, P12, PIN, Hacienda passwords, cédulas, names, or line items.
+
+### Happy Prod maintainer setup (once)
+
+1. Run [`supabase/facturador_usage.sql`](./supabase/facturador_usage.sql) in **your** Supabase SQL editor.
+2. Put your project URL + **Publishable key** in [`utils/telemetryDefaults.js`](./utils/telemetryDefaults.js) before publishing the package.
+3. RLS must allow **INSERT only** on `facturador_usage` for the publishable/`anon` role — never ship a **Secret key** (`sb_secret_…`).
+
+Telemetry failures never break invoicing. If defaults are still placeholders, reporting is a no-op.
+
+---
+
+## Mode A — HTTP API (existing deploy; unchanged contract)
+
+### Base URL
 
 ```
 Development:  http://localhost:3000
@@ -15,15 +236,18 @@ Production:  https://your-facturador-server.com
 
 All endpoints use prefix: `/api/`
 
----
+### API Authentication (PASSWORD_FACTURADOR)
 
-## 🔐 API Authentication (PASSWORD_FACTURADOR)
-
-When the server has `PASSWORD_FACTURADOR` set in its environment, **all API endpoints** (except `/api/health`) require authentication.
+**All API endpoints** (except `/api/health`) require authentication when `PASSWORD_FACTURADOR` is set.
 
 | Header | Required value |
 |--------|-----------------|
-| `X-Facturador-Password` | The same value as `PASSWORD_FACTURADOR` in the server's `.env` |
+| `X-Facturador-Password` | Same value as `PASSWORD_FACTURADOR` |
+| **or** `Authorization: Bearer <secret>` | Same value as `PASSWORD_FACTURADOR` |
+
+**Production (`NODE_ENV=production`):** `PASSWORD_FACTURADOR` is **mandatory** — the process exits on boot if missing.
+
+**Local open API:** only when `ALLOW_OPEN_API=true` **and** password is unset **and** not production.
 
 **Example:**
 ```http
@@ -34,14 +258,18 @@ X-Facturador-Password: your-secret-password
 { "config": ..., "tipo_documento": "01", ... }
 ```
 
-- If the header is missing or incorrect → `401 Unauthorized`
-- If `PASSWORD_FACTURADOR` is *not* set on the server → no auth required (e.g. local dev)
+- Missing/incorrect secret → `401 Unauthorized`
+- Password unset without `ALLOW_OPEN_API=true` → `503`
+- Prefer calling from your backend (BFF). Do **not** put this secret in browser code.
 
----
+### Low-level endpoints
 
-## ⚡ Quick Start (3 Steps)
+`/api/signer/*`, `/api/auth/*`, and `/api/xml/*` are **disabled by default** (`403`).  
+Prefer `/api/factura/*`. To enable for diagnostics: `ENABLE_LOW_LEVEL_ENDPOINTS=true`.
 
-### 1. Call the API
+### Quick Start (HTTP — 3 Steps)
+
+#### 1. Call the API
 
 ```
 POST {BASE_URL}/api/factura/enviar
@@ -49,7 +277,7 @@ Content-Type: application/json
 X-Facturador-Password: <your-password>   # required when PASSWORD_FACTURADOR is set
 ```
 
-### 2. Send Your Data
+#### 2. Send Your Data
 
 ```json
 {
@@ -61,7 +289,7 @@ X-Facturador-Password: <your-password>   # required when PASSWORD_FACTURADOR is 
 }
 ```
 
-### 3. Handle the Response
+#### 3. Handle the Response
 
 ```json
 {
@@ -75,11 +303,9 @@ X-Facturador-Password: <your-password>   # required when PASSWORD_FACTURADOR is 
 }
 ```
 
----
+### Endpoint Overview
 
-## 🎯 Endpoint Overview
-
-### High level (most apps only need these)
+#### High level (most apps only need these)
 
 | What you want | Endpoint | Method |
 |----------------|----------|--------|
@@ -89,7 +315,7 @@ X-Facturador-Password: <your-password>   # required when PASSWORD_FACTURADOR is 
 | **Consult** acceptance/rejection | `/api/factura/consultar` | POST |
 | **Health** (no auth when password is set) | `/api/health` | GET |
 
-### Full API surface (this repo)
+#### Full API surface (this repo)
 
 All paths assume base `http://localhost:3000` (or your host). Unless noted, they are under `/api` and respect `PASSWORD_FACTURADOR` + `X-Facturador-Password` the same as the rest of `/api/*`.
 
@@ -115,18 +341,27 @@ All paths assume base `http://localhost:3000` (or your host). Unless noted, they
 
 **Not exposed as routes:** `routes/facturas.js` and `routes/hacienda/*.ts` exist in the repo but are **not** mounted by `server.js`. The running service uses the `.js` routers above.
 
-### Checklist for a consuming project
+---
 
-Use this to compare your app with what Facturador already does vs what you must still own.
+## Checklist for a consuming project
 
 | Topic | Handled by Facturador | Your app must still |
 |-------|------------------------|---------------------|
-| Clave + consecutivo | Yes (`/api/factura/*`, `/api/clave/generar`) | Store next `consecutivo_num` per tipo doc + sucursal/terminal; never reuse |
-| XML schema v4.4 | Yes (`services/xml.js`) | Send valid `cabys` (13 digits), `unidad_medida`, amounts |
-| XAdES-BES signing | Yes (P12 in `config`) | Safely store P12 / PIN; rotate certs |
-| Hacienda OAuth2 | Yes (cached token in process) | Valid `hacienda_usuario` / `hacienda_password` per environment |
+| Clave + consecutivo | Yes (lib or `/api/factura/*`) | Store next `consecutivo_num` per tipo doc + sucursal/terminal; never reuse |
+| XML schema v4.4 | Yes | Send valid `cabys` (13 digits), `unidad_medida`, amounts |
+| XAdES-BES signing | Yes (P12 in `config`) | Safely store P12 / PIN in a vault; rotate certs; never in the browser |
+| Hacienda OAuth2 | Yes (cached token per credential) | Valid `hacienda_usuario` / `hacienda_password` per environment |
 | Recepción + consulta | Yes | Poll `consultar` after 202; persist `xml` + final `respuesta_xml` |
+| Usage telemetry | Yes (metadata → Happy Prod Supabase) | Set `config.project_name` |
 | UI / products DB | No | Catalog, customers, printing PDF, email to client |
+| Multi-tenant isolation | No | Enforce tenant auth + RLS in your app before calling Facturador |
+
+### Migrating from HTTP-only → npm library
+
+1. Keep the deployed HTTP API running (no change required for other clients).
+2. Add `@happy-prod/facturador` to your app; call `enviarFactura` / `consultarFactura` from **server code only**.
+3. Reuse the same payload objects you already send over HTTP.
+4. Remove the HTTP client for that app when ready — other repos can keep using Mode A.
 
 ---
 
@@ -517,6 +752,7 @@ See **PAYLOAD_COMPLETO_EJEMPLO.json** for a full example. Summary:
 ```json
 {
   "config": {
+    "project_name": "your-app-name",
     "cedula": "310123456789",
     "razon_social": "MI EMPRESA SA",
     "codigo_actividad": "4773.0",
@@ -583,6 +819,7 @@ See **PAYLOAD_COMPLETO_EJEMPLO.json** for a full example. Summary:
 - **`cabys`**: optional per line in the validator, but Hacienda expects a valid 13-digit CABYS on the XML — always send it in production.
 - **`unidad_medida`**: drives **servicios gravados** vs **mercancías gravadas** in `ResumenFactura`. Units treated as **servicio** in this API: `Sp`, `Spe`, `OS`, `STE`, `STN`. Any other value (e.g. `Unid`, `kg`) is treated as **mercancía**. Pick the unit that matches how Hacienda classifies the CABYS line.
 - **`config.codigo_actividad`**: non-empty string as registered (e.g. `6201.0`, `4773.0`); the server trims whitespace and passes it through to the XML as **`CodigoActividadEmisor`**.
+- **`config.project_name`** (optional but recommended for lib mode): identifies the consuming app for Happy Prod usage telemetry (metadata only).
 - **`cliente.codigo_actividad`** (optional): when present, emitted as **`CodigoActividadReceptor`** (Hacienda v4.4). Optional for FE/NC/ND until DGT makes it mandatory; omit if the client has no code. Use the exact RUT code (e.g. `6201.0`).
 
 ---
@@ -1132,16 +1369,26 @@ The `tipo_cedula: "06"` is only accepted on the NC/ND `cliente` when `referencia
 
 ## 🌐 CORS & Network
 
-### Browser apps (Svelte, React, etc.)
+### Default (recommended for SaaS)
 
-- CORS is enabled (`Access-Control-Allow-Origin: *`)
-- If calls fail: confirm the Facturador server is running and reachable
-- For production: set `Access-Control-Allow-Origin` to your domain if you restrict it
+- **No browser CORS** when `ALLOWED_ORIGINS` / `CORS_ORIGINS` is empty — Facturador is a private signing worker.
+- Call it only from your backend (e.g. SvelteKit `+server.ts` / form actions). Never send P12/PIN from the browser.
 
-### Server-to-server (Node, Python, etc.)
+### Optional browser access (allowed domains)
 
-- No CORS
-- Ensure the Facturador server is reachable from your backend (firewall, network)
+```bash
+ALLOWED_ORIGINS=https://app.tudominio.com,http://localhost:5173
+```
+
+- Browser requests whose `Origin` is **not** in the list get **403**.
+- Server-to-server calls (no `Origin` header) are still allowed if `PASSWORD_FACTURADOR` matches.
+- `CORS_ORIGINS` is an alias for the same list.
+- `ALLOWED_ORIGINS=*` is allowed only outside production and is discouraged.
+
+### Server-to-server
+
+- Ensure the Facturador host is reachable from your backend (private network / allowlist).
+- Do not expose Facturador publicly without auth + network controls.
 
 ---
 
@@ -1256,7 +1503,7 @@ export async function healthCheck() {
 | Facturador not running | Run `npm start` in the facturador project |
 | Wrong URL | Use `http://localhost:3000` for local, or your server URL |
 | 401 Unauthorized | Add `X-Facturador-Password` header with the server's `PASSWORD_FACTURADOR` value |
-| CORS from browser | Prefer calling from SvelteKit `+page.server.ts` |
+| CORS from browser | Call from SvelteKit server only; set `ALLOWED_ORIGINS` (or `CORS_ORIGINS`) only if you must allow a browser origin |
 | OPTIONS fails | Server uses 204 for preflight; restart Facturador after changes |
 
 ### Check connectivity
@@ -1286,9 +1533,16 @@ curl http://localhost:3000/api/health
 ## 📚 More Details
 
 - **PAYLOAD_COMPLETO_EJEMPLO.json** – Complete payload with all optional fields
-- **test-invoice.json** – Minimal example request body
-- **SHARE_WITH_POS.md** – POS-specific guide (if exists)
+- **supabase/facturador_usage.sql** – Telemetry table + RLS for Supabase
+- **mcp/** – MCP server + `install-mcp` docs for AI assistants
+- **`npm run check`** – Dependency audit (high/critical) + scan for raw `console.*` in runtime code (runs on `prepublishOnly`)
+
+### Production logging (library + HTTP server)
+
+- With `NODE_ENV=production`, Facturador does **not** write console logs by default (secrets-safe).
+- Enable temporarily: `FACTURADOR_DEBUG=true` (or legacy `DEBUG_FACTURADOR=true` / `DEBUG_XML=true`).
+- Force silence even in development: `FACTURADOR_SILENT=true`.
 
 ---
 
-**Summary:** Use `POST /api/factura/enviar` with `config`, `tipo_documento`, `consecutivo_num`, `cliente` (when required), and `lineas`. Persist `data.xml` and `data.clave`. Poll `POST /api/factura/consultar` with `{ clave, config }` until `success: true`, then store `data.respuesta_xml` and handle `data.estado`. Optional `medios_pago` splits payment methods for v4.4. For a route-by-route map and ownership checklist, see **Endpoint Overview** and **Checklist for a consuming project** above.
+**Summary:** Prefer `@happy-prod/facturador@2.0.2` (`enviarFactura` / `consultarFactura`) from your backend, or keep calling `POST /api/factura/enviar` if you already use the HTTP deploy — same payload. Set `config.project_name` for telemetry. Persist `data.xml` and `data.clave`. Poll `consultar` until accepted/rejected, then store `data.respuesta_xml`. Never expose P12/PIN/Hacienda passwords to the browser. See **Choose how to integrate** and the checklist above.

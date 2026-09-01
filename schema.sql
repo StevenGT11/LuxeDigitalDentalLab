@@ -72,6 +72,7 @@ CREATE TABLE public.treatments (
         OR fe_cabys ~ '^\d{13}$'::text
     ),
     fe_unidad_medida text DEFAULT 'Sp'::text,
+    impuesto_tarifa numeric NOT NULL DEFAULT 13,
     CONSTRAINT treatments_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.restoration_prices (
@@ -304,7 +305,76 @@ CREATE TABLE public.fe_comprobantes (
     resuelto_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    ambiente text CHECK (
+        ambiente IS NULL
+        OR (
+            ambiente = ANY (ARRAY ['staging'::text, 'production'::text])
+        )
+    ),
     CONSTRAINT fe_comprobantes_pkey PRIMARY KEY (id),
     CONSTRAINT fe_comprobantes_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES public.invoices(id),
     CONSTRAINT fe_comprobantes_referencia_comprobante_id_fkey FOREIGN KEY (referencia_comprobante_id) REFERENCES public.fe_comprobantes(id)
+);
+CREATE TABLE public.fe_hacienda_settings (
+    id smallint NOT NULL DEFAULT 1 CHECK (id = 1),
+    emit_ambiente text NOT NULL DEFAULT 'staging'::text CHECK (
+        emit_ambiente = ANY (ARRAY ['staging'::text, 'production'::text])
+    ),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT fe_hacienda_settings_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.fe_recibidos (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    clave text NOT NULL UNIQUE,
+    tipo_documento text NOT NULL CHECK (
+        tipo_documento = ANY (
+            ARRAY ['01'::text, '02'::text, '03'::text, '04'::text, '09'::text]
+        )
+    ),
+    emisor_tipo_identificacion text NOT NULL CHECK (
+        emisor_tipo_identificacion = ANY (
+            ARRAY ['01'::text, '02'::text, '03'::text, '04'::text]
+        )
+    ),
+    emisor_numero_identificacion text NOT NULL,
+    emisor_nombre text NOT NULL DEFAULT ''::text,
+    fecha_emision timestamp with time zone NOT NULL,
+    subtotal numeric NOT NULL DEFAULT 0,
+    impuesto numeric NOT NULL DEFAULT 0,
+    total numeric NOT NULL DEFAULT 0,
+    moneda text NOT NULL DEFAULT 'CRC'::text,
+    xml_recibido text NOT NULL,
+    estado USER - DEFINED NOT NULL DEFAULT 'pendiente_aceptacion'::fe_recibido_estado,
+    plazo_limite date,
+    notas text,
+    ambiente text NOT NULL DEFAULT 'staging'::text CHECK (
+        ambiente = ANY (ARRAY ['staging'::text, 'production'::text])
+    ),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT fe_recibidos_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.fe_mensajes_receptor (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    fe_recibido_id uuid NOT NULL,
+    mensaje USER - DEFINED NOT NULL,
+    detalle_mensaje text NOT NULL DEFAULT ''::text,
+    consecutivo_num bigint NOT NULL,
+    clave text UNIQUE,
+    consecutivo text,
+    estado USER - DEFINED NOT NULL DEFAULT 'pendiente_envio'::fe_comprobante_estado,
+    hacienda_status integer,
+    xml_firmado text,
+    respuesta_xml text,
+    rechazo jsonb,
+    ultimo_error text,
+    enviado_at timestamp with time zone,
+    resuelto_at timestamp with time zone,
+    ambiente text NOT NULL DEFAULT 'staging'::text CHECK (
+        ambiente = ANY (ARRAY ['staging'::text, 'production'::text])
+    ),
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT fe_mensajes_receptor_pkey PRIMARY KEY (id),
+    CONSTRAINT fe_mensajes_receptor_fe_recibido_id_fkey FOREIGN KEY (fe_recibido_id) REFERENCES public.fe_recibidos(id)
 );

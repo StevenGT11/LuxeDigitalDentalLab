@@ -1,13 +1,16 @@
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import {
+	fetchFeComprobanteById,
 	fetchFeComprobanteForInvoice,
 	insertFeComprobanteDraft,
 	resetFeComprobanteForReemit,
 	reserveNextFeConsecutivo,
 	updateFeComprobanteAfterConsulta,
 	updateFeComprobanteAfterEnviar,
-	updateFeComprobanteError
+	updateFeComprobanteError,
+	assertNotaCreditoAceptadaParaFeCorregida
 } from './comprobantes.server';
+import { buildReferenciaFromFe, type FeReferenciaPayload } from './fe-referencia';
 import {
 	emisorRowToConsultaConfig,
 	emisorRowToFacturadorConfig,
@@ -30,6 +33,8 @@ import {
 import { facturadorConsultar, facturadorEnviar, facturadorValidarEnviar } from './facturador.server';
 import { logFeEmitFiscalDebug } from './fe-emit-debug.server';
 import { normalizeLineAmountsForFe } from './fe-line-amounts';
+import { duplicateInvoiceForCorrection } from '$lib/lab/invoice-detail.server';
+import { parseFeXmlLineas, parseFeXmlTotals } from './parse-fe-xml-lineas';
 import {
 	assertMediosPagoMatchTotal,
 	type FeMedioPagoItem,
@@ -117,7 +122,11 @@ function buildPayload(
 	client: ClientFiscalRow,
 	invoice: InvoiceRow,
 	consecutivoNum: number,
-	mediosPago?: FeMedioPagoItem[]
+	options?: {
+		tipoDocumento?: string;
+		referencia?: FeReferenciaPayload;
+		mediosPago?: FeMedioPagoItem[];
+	}
 ) {
 	if (!client.fe_numero_identificacion?.trim() || !client.fe_tipo_identificacion?.trim()) {
 		throw new Error(
@@ -168,14 +177,16 @@ function buildPayload(
 
 	const total = roundMoney(Number(invoice.total));
 	const medios =
-		mediosPago && mediosPago.length > 0
-			? mediosPago
+		options?.mediosPago && options.mediosPago.length > 0
+			? options.mediosPago
 			: [{ tipo: '01', monto: total } satisfies FeMedioPagoItem];
 	assertMediosPagoMatchTotal(medios, total);
 
+	const tipoDocumento = options?.tipoDocumento ?? '01';
+
 	return {
 		config: emisorConfig,
-		tipo_documento: '01',
+		tipo_documento: tipoDocumento,
 		consecutivo_num: consecutivoNum,
 		condicion_venta: '01',
 		medio_pago: medios[0]!.tipo,
@@ -183,7 +194,48 @@ function buildPayload(
 		moneda: 'CRC',
 		tipo_cambio: 1,
 		cliente,
-		lineas: lineasPayload
+		lineas: lineasPayload,
+		...(options?.referencia ? { referencia: options.referencia } : {})
+	};
+}
+
+/** NC/ND deben repetir CABYS, unidades e importes de la FE aceptada (Hacienda -509). */
+function invoiceForNotaFromReferenciaFe(
+	invoice: InvoiceRow,
+	referenciaFe: {
+		xml_firmado?: string | null;
+		subtotal?: number;
+		impuesto?: number;
+		total?: number;
+	}
+): InvoiceRow {
+	const parsedLineas = parseFeXmlLineas(referenciaFe.xml_firmado);
+	if (parsedLineas.length === 0) {
+		throw new Error(
+			'No se pudo leer el XML firmado de la FE aceptada. La nota debe usar los mismos CABYS que la factura original (error Hacienda -509).'
+		);
+	}
+
+	const xmlTotals = parseFeXmlTotals(referenciaFe.xml_firmado);
+	const subtotal = xmlTotals?.subtotal ?? Number(referenciaFe.subtotal ?? invoice.subtotal);
+	const impuesto = xmlTotals?.impuesto ?? Number(referenciaFe.impuesto ?? invoice.impuesto);
+	const total = xmlTotals?.total ?? Number(referenciaFe.total ?? invoice.total);
+
+	return {
+		...invoice,
+		subtotal,
+		impuesto,
+		total,
+		invoice_lines: parsedLineas.map((l, i) => ({
+			sort_order: i,
+			descripcion: l.descripcion,
+			cantidad: l.cantidad,
+			precio_unitario: l.precio_unitario,
+			subtotal: l.subtotal,
+			fe_cabys: l.fe_cabys,
+			fe_unidad_medida: l.fe_unidad_medida,
+			impuesto_tarifa: l.impuesto_tarifa
+		}))
 	};
 }
 
@@ -200,6 +252,8 @@ export async function emitirFacturaElectronica(
 	}
 
 	const emitAmbiente = emisor.ambiente;
+
+	await assertNotaCreditoAceptadaParaFeCorregida(invoiceId);
 
 	const invoice = await loadInvoice(invoiceId);
 	const client = await loadClientFiscal(invoice.client_id);
@@ -256,7 +310,9 @@ export async function emitirFacturaElectronica(
 	}
 
 	const config = emisorRowToFacturadorConfig(emisor);
-	const payload = buildPayload(config, client, invoiceFresh, consecutivoNum, options?.mediosPago);
+	const payload = buildPayload(config, client, invoiceFresh, consecutivoNum, {
+		mediosPago: options?.mediosPago
+	});
 
 	logFeEmitFiscalDebug({
 		invoiceId,
@@ -308,6 +364,44 @@ export async function emitirFacturaElectronica(
 			: (result.message ?? 'Comprobante enviado a Hacienda.'),
 		clave: data.clave
 	};
+}
+
+export async function consultarComprobanteElectronicoById(
+	feComprobanteId: string
+): Promise<{ message: string; estado: string }> {
+	const emisor = await getFeEmisorConfigForEmit();
+	if (!emisor) throw new Error('No hay configuración de emisor para el ambiente actual.');
+
+	const fe = await fetchFeComprobanteById(feComprobanteId);
+	if (!fe?.clave) throw new Error('Este comprobante no tiene clave de Hacienda. Envíelo primero.');
+
+	const consulta = await facturadorConsultar(fe.clave, emisorRowToConsultaConfig(emisor));
+
+	if (!consulta.ok) {
+		if (consulta.estado === 'procesando') {
+			await updateFeComprobanteAfterConsulta(fe.id, {
+				estado: 'procesando',
+				ultimo_error: null
+			});
+			return { message: 'Hacienda aún procesa el comprobante. Intente de nuevo en unos segundos.', estado: 'procesando' };
+		}
+		await updateFeComprobanteError(fe.id, consulta.message);
+		throw new Error(consulta.message);
+	}
+
+	const estado = mapConsultaEstado(consulta.estado);
+	await updateFeComprobanteAfterConsulta(fe.id, {
+		estado,
+		respuesta_xml: consulta.data.respuesta_xml,
+		rechazo: (consulta.data.rechazo as Record<string, unknown> | undefined) ?? null,
+		ultimo_error:
+			estado === 'rechazado'
+				? feRechazoToUltimoError(consulta.data.rechazo as Record<string, unknown> | undefined)
+				: null
+	});
+
+	const label = estado === 'aceptado' ? 'aceptada' : estado === 'rechazado' ? 'rechazada' : estado;
+	return { message: `Comprobante ${label} por Hacienda.`, estado };
 }
 
 export async function consultarFacturaElectronica(invoiceId: string): Promise<{ message: string; estado: string }> {
@@ -398,5 +492,252 @@ export async function emitirYConsultarFacturaElectronica(
 		clave: emit.clave,
 		feEstado: consult.estado,
 		consultaPending
+	};
+}
+
+export type EmitNotaOptions = {
+	tipoDocumento: '02' | '03';
+	codigoReferencia: string;
+	razon: string;
+	mediosPago?: FeMedioPagoItem[];
+	/** Reemitir una NC/ND rechazada existente o enviar borrador pendiente. */
+	feComprobanteId?: string;
+	/** Tras NC/ND aceptada, copiar ítems a nueva factura interna para emitir FE corregida. */
+	crearFacturaCorreccion?: boolean;
+};
+
+async function emitComprobanteReferenciado(
+	invoiceId: string,
+	tipoDocumento: '02' | '03',
+	referenciaFeId: string,
+	options: EmitNotaOptions
+): Promise<{ message: string; clave?: string; feComprobanteId: string }> {
+	const emisor = await getFeEmisorConfigForEmit();
+	if (!emisor) {
+		const amb = await getEmitAmbiente();
+		throw new Error(
+			`No hay configuración de emisor para ${amb === 'production' ? 'producción' : 'pruebas (staging)'}.`
+		);
+	}
+
+	const emitAmbiente = emisor.ambiente;
+	const referenciaFe = await fetchFeComprobanteById(referenciaFeId);
+	if (!referenciaFe?.clave || referenciaFe.estado !== 'aceptado') {
+		throw new Error('La factura electrónica original debe estar aceptada por Hacienda con clave válida.');
+	}
+	if (referenciaFe.tipo_documento !== '01') {
+		throw new Error('Solo se pueden emitir NC/ND referenciando la FE principal (tipo 01).');
+	}
+
+	const invoice = await loadInvoice(invoiceId);
+	const client = await loadClientFiscal(invoice.client_id);
+
+	if (!referenciaFe.xml_firmado?.trim()) {
+		throw new Error(
+			'La FE aceptada no tiene XML firmado guardado. No se puede emitir NC/ND con CABYS coincidentes (Hacienda -509).'
+		);
+	}
+
+	const invoiceForNota = invoiceForNotaFromReferenciaFe(invoice, referenciaFe);
+
+	const emisorCheck = validateEmisorForEmit(emisor);
+	if (!emisorCheck.ok) {
+		throw new Error(
+			`Datos del emisor incompletos o no coinciden con su RUT en Hacienda (Admin → Factura electrónica):\n${emisorCheck.errors.join('\n')}\n\nRevise provincia, cantón y distrito exactamente como aparecen en ATV/Hacienda.`
+		);
+	}
+
+	let fe = options.feComprobanteId ? await fetchFeComprobanteById(options.feComprobanteId) : null;
+	if (fe && fe.tipo_documento !== tipoDocumento) {
+		throw new Error('Tipo de comprobante no coincide.');
+	}
+	if (fe && feComprobanteBlocksEmit(fe.estado)) {
+		throw new Error('Esta nota ya está en trámite o fue aceptada.');
+	}
+
+	const codigoReferencia = options.codigoReferencia.trim() || fe?.referencia_codigo?.trim() || '';
+	const razonReferencia = options.razon.trim() || fe?.referencia_razon?.trim() || '';
+
+	const referencia = buildReferenciaFromFe({
+		feClave: referenciaFe.clave,
+		feFechaEmision: referenciaFe.fecha_emision,
+		feTipoDocumento: referenciaFe.tipo_documento,
+		codigo: codigoReferencia,
+		razon: razonReferencia
+	});
+
+	if (referencia.razon.length < 3) {
+		throw new Error('La razón de la nota debe tener al menos 3 caracteres.');
+	}
+
+	const isReemit = fe && feComprobanteCanReemit(fe.estado);
+	let feId = fe?.id;
+	let consecutivoNum = fe?.consecutivo_num;
+
+	if (fe && feComprobanteCanReemit(fe.estado)) {
+		consecutivoNum = await reserveNextFeConsecutivo(tipoDocumento, emitAmbiente);
+		await resetFeComprobanteForReemit(fe.id, {
+			consecutivo_num: consecutivoNum,
+			ambiente: emitAmbiente,
+			subtotal: Number(invoiceForNota.subtotal),
+			impuesto: Number(invoiceForNota.impuesto),
+			total: Number(invoiceForNota.total)
+		});
+		feId = fe.id;
+	} else if (!feId || consecutivoNum == null) {
+		consecutivoNum = await reserveNextFeConsecutivo(tipoDocumento, emitAmbiente);
+		feId = await insertFeComprobanteDraft({
+			invoice_id: invoiceId,
+			tipo_documento: tipoDocumento,
+			referencia_comprobante_id: referenciaFeId,
+			referencia_codigo: codigoReferencia,
+			referencia_razon: razonReferencia,
+			consecutivo_num: consecutivoNum,
+			ambiente: emitAmbiente,
+			subtotal: Number(invoiceForNota.subtotal),
+			impuesto: Number(invoiceForNota.impuesto),
+			total: Number(invoiceForNota.total)
+		});
+	}
+
+	if (!feId || consecutivoNum == null) {
+		throw new Error('No se pudo preparar la nota de crédito/débito.');
+	}
+
+	const config = emisorRowToFacturadorConfig(emisor);
+	const payload = buildPayload(config, client, invoiceForNota, consecutivoNum, {
+		tipoDocumento,
+		referencia,
+		mediosPago: options.mediosPago
+	});
+
+	logFeEmitFiscalDebug({
+		invoiceId,
+		ambiente: emitAmbiente,
+		emisorDb: emisor,
+		config,
+		cliente: payload.cliente,
+		clientDb: client,
+		lineas: payload.lineas
+	});
+
+	const validation = await facturadorValidarEnviar(payload);
+	if (!validation.ok) {
+		const detail = validation.errors?.length ? validation.errors.join('; ') : validation.error;
+		await updateFeComprobanteError(feId, detail);
+		throw new Error(detail);
+	}
+
+	const result = await facturadorEnviar(payload);
+	if (!result.ok) {
+		const detail = result.errors?.length ? result.errors.join('; ') : result.error;
+		await updateFeComprobanteError(feId, detail);
+		throw new Error(detail);
+	}
+
+	const data = result.data;
+	const haciendaStatus = data.hacienda_status ?? 202;
+	const estado: FeComprobanteEstado =
+		haciendaStatus === 202 ? 'enviado' : haciendaStatus >= 400 ? 'error' : 'enviado';
+
+	await updateFeComprobanteAfterEnviar(feId, {
+		clave: data.clave,
+		consecutivo: data.consecutivo,
+		hacienda_status: haciendaStatus,
+		xml_firmado: data.xml ?? '',
+		fecha_emision: data.fecha_emision ?? new Date().toISOString(),
+		subtotal: Number(data.subtotal ?? invoiceForNota.subtotal),
+		impuesto: Number(data.impuesto ?? invoiceForNota.impuesto),
+		total: Number(data.total ?? invoiceForNota.total),
+		estado
+	});
+
+	return {
+		message: isReemit
+			? (result.message ?? 'Nota reenviada a Hacienda.')
+			: (result.message ?? 'Nota enviada a Hacienda.'),
+		clave: data.clave,
+		feComprobanteId: feId
+	};
+}
+
+export async function emitirNotaCreditoDebito(
+	invoiceId: string,
+	options: EmitNotaOptions
+): Promise<{ message: string; clave?: string; feComprobanteId: string }> {
+	const fePrincipal = await fetchFeComprobanteForInvoice(invoiceId);
+	if (!fePrincipal?.id) {
+		throw new Error('Emita y acepte la factura electrónica antes de crear una nota.');
+	}
+	return emitComprobanteReferenciado(invoiceId, options.tipoDocumento, fePrincipal.id, options);
+}
+
+export async function consultarComprobanteElectronicaConReintentos(
+	feComprobanteId: string,
+	options?: { maxAttempts?: number; delayMs?: number }
+): Promise<{ message: string; estado: string }> {
+	const maxAttempts = options?.maxAttempts ?? 6;
+	const delayMs = options?.delayMs ?? 2000;
+	let last: { message: string; estado: string } | null = null;
+
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		if (attempt > 0) await sleep(delayMs);
+		try {
+			last = await consultarComprobanteElectronicoById(feComprobanteId);
+			if (last.estado !== 'procesando') return last;
+		} catch (err) {
+			if (attempt === maxAttempts - 1) throw err;
+		}
+	}
+
+	return last ?? { message: 'Hacienda aún procesa el comprobante.', estado: 'procesando' };
+}
+
+export async function emitirYConsultarNotaCreditoDebito(
+	invoiceId: string,
+	options: EmitNotaOptions
+): Promise<{
+	message: string;
+	clave?: string;
+	feEstado: string;
+	feComprobanteId: string;
+	consultaPending?: boolean;
+	newInvoiceId?: string;
+	newInvoiceNumber?: string;
+}> {
+	const emit = await emitirNotaCreditoDebito(invoiceId, options);
+	await sleep(1500);
+	const consult = await consultarComprobanteElectronicaConReintentos(emit.feComprobanteId);
+	const consultaPending = consult.estado === 'procesando';
+	let message = consultaPending
+		? `${emit.message} Hacienda sigue procesando; puede consultar en unos segundos.`
+		: `${emit.message} ${consult.message}`;
+
+	let newInvoiceId: string | undefined;
+	let newInvoiceNumber: string | undefined;
+
+	if (options.crearFacturaCorreccion) {
+		if (consult.estado === 'aceptado') {
+			const copy = await duplicateInvoiceForCorrection(invoiceId);
+			newInvoiceId = copy.id;
+			newInvoiceNumber = copy.invoice_number;
+			message += ` Se creó la factura ${copy.invoice_number} con los mismos ítems para emitir FE corregida.`;
+		} else if (consult.estado === 'rechazado') {
+			message +=
+				' No se creó factura corregida: Hacienda rechazó la NC. Corrija los datos, use Reemitir en la nota y espere estado aceptado.';
+		} else {
+			message +=
+				' La factura corregida se creará cuando Hacienda acepte la NC (use Consultar y, si sigue en trámite, espere unos segundos).';
+		}
+	}
+
+	return {
+		message,
+		clave: emit.clave,
+		feEstado: consult.estado,
+		feComprobanteId: emit.feComprobanteId,
+		consultaPending,
+		newInvoiceId,
+		newInvoiceNumber
 	};
 }
