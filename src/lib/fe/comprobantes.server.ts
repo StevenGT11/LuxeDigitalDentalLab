@@ -4,6 +4,7 @@ import type { FeAmbiente, FeComprobanteEstado, FeComprobanteSummary } from './ty
 type DbFe = {
 	id: string;
 	invoice_id: string | null;
+	tipo_documento?: string;
 	consecutivo_num: number;
 	clave: string | null;
 	consecutivo: string | null;
@@ -12,6 +13,13 @@ type DbFe = {
 	ultimo_error: string | null;
 	enviado_at: string | null;
 	resuelto_at: string | null;
+	fecha_emision?: string | null;
+	subtotal?: number;
+	impuesto?: number;
+	total?: number;
+	referencia_codigo?: string | null;
+	referencia_razon?: string | null;
+	xml_firmado?: string | null;
 };
 
 const SUMMARY_COLS =
@@ -50,6 +58,25 @@ export async function fetchFeSummariesByInvoiceIds(
 	return map;
 }
 
+export async function fetchFeComprobanteById(id: string): Promise<DbFe | null> {
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin.from('fe_comprobantes').select('*').eq('id', id).maybeSingle();
+	if (error) throw error;
+	return (data as DbFe | null) ?? null;
+}
+
+export async function fetchNotasComprobantesForInvoice(invoiceId: string): Promise<DbFe[]> {
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin
+		.from('fe_comprobantes')
+		.select('*')
+		.eq('invoice_id', invoiceId)
+		.in('tipo_documento', ['02', '03'])
+		.order('created_at', { ascending: false });
+	if (error) throw error;
+	return (data ?? []) as DbFe[];
+}
+
 export async function fetchFeComprobanteForInvoice(invoiceId: string): Promise<DbFe | null> {
 	const admin = createSupabaseAdminClient();
 	const { data, error } = await admin
@@ -60,6 +87,46 @@ export async function fetchFeComprobanteForInvoice(invoiceId: string): Promise<D
 		.maybeSingle();
 	if (error) throw error;
 	return (data as DbFe | null) ?? null;
+}
+
+/** NC tipo 03 aceptada por Hacienda en la factura origen (requerida antes de FE corregida). */
+export async function hasAcceptedNotaCreditoForInvoice(invoiceId: string): Promise<boolean> {
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin
+		.from('fe_comprobantes')
+		.select('id')
+		.eq('invoice_id', invoiceId)
+		.eq('tipo_documento', '03')
+		.eq('estado', 'aceptado')
+		.limit(1);
+	if (error) throw error;
+	return (data?.length ?? 0) > 0;
+}
+
+export async function fetchInvoiceSourceInvoiceId(invoiceId: string): Promise<string | null> {
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin
+		.from('invoices')
+		.select('source_invoice_id')
+		.eq('id', invoiceId)
+		.maybeSingle();
+	if (error) {
+		if (isUndefinedColumnError(error, 'source_invoice_id')) return null;
+		throw error;
+	}
+	return (data?.source_invoice_id as string | null | undefined) ?? null;
+}
+
+export async function assertNotaCreditoAceptadaParaFeCorregida(invoiceId: string): Promise<void> {
+	const sourceId = await fetchInvoiceSourceInvoiceId(invoiceId);
+	if (!sourceId) return;
+
+	const ok = await hasAcceptedNotaCreditoForInvoice(sourceId);
+	if (!ok) {
+		throw new Error(
+			'La factura corregida requiere una nota de crédito aceptada por Hacienda en la factura original. Corrija y reenvíe la NC hasta que figure como aceptada.'
+		);
+	}
 }
 
 export async function reserveNextFeConsecutivo(
@@ -77,6 +144,10 @@ export async function reserveNextFeConsecutivo(
 
 export async function insertFeComprobanteDraft(input: {
 	invoice_id: string;
+	tipo_documento?: string;
+	referencia_comprobante_id?: string | null;
+	referencia_codigo?: string | null;
+	referencia_razon?: string | null;
 	consecutivo_num: number;
 	ambiente: FeAmbiente;
 	subtotal: number;
@@ -85,20 +156,37 @@ export async function insertFeComprobanteDraft(input: {
 }): Promise<string> {
 	const admin = createSupabaseAdminClient();
 	const id = crypto.randomUUID();
-	const { error } = await admin.from('fe_comprobantes').insert({
+	const rowBase = {
 		id,
 		invoice_id: input.invoice_id,
-		tipo_documento: '01',
+		tipo_documento: input.tipo_documento ?? '01',
+		referencia_comprobante_id: input.referencia_comprobante_id ?? null,
 		ambiente: input.ambiente,
 		consecutivo_num: input.consecutivo_num,
-		estado: 'pendiente_envio',
+		estado: 'pendiente_envio' as const,
 		subtotal: input.subtotal,
 		impuesto: input.impuesto,
 		total: input.total,
 		moneda: 'CRC'
+	};
+
+	let { error } = await admin.from('fe_comprobantes').insert({
+		...rowBase,
+		referencia_codigo: input.referencia_codigo ?? null,
+		referencia_razon: input.referencia_razon ?? null
 	});
+	if (error && isUndefinedColumnError(error, 'referencia_codigo')) {
+		({ error } = await admin.from('fe_comprobantes').insert(rowBase));
+	}
 	if (error) throw error;
 	return id;
+}
+
+function isUndefinedColumnError(error: unknown, column?: string): boolean {
+	if (!error || typeof error !== 'object') return false;
+	const e = error as { code?: string; message?: string };
+	if (e.code !== '42703') return false;
+	return column ? e.message?.includes(column) === true : true;
 }
 
 /** Limpia el comprobante rechazado/erróneo y reserva nuevo consecutivo para reenvío. */

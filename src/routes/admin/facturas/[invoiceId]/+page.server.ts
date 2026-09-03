@@ -3,7 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { requireFinancialProfile } from '$lib/auth/guards.server';
 import { requireAdmin } from '$lib/auth/require-admin';
 import { canViewFinancial } from '$lib/auth/roles';
-import { consultarFacturaElectronica, emitirYConsultarFacturaElectronica } from '$lib/fe/emit.server';
+import { consultarFacturaElectronica, emitirYConsultarFacturaElectronica, emitirYConsultarNotaCreditoDebito, consultarComprobanteElectronicoById } from '$lib/fe/emit.server';
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
 import { reconcileInvoiceAmounts, updateInvoiceLinePrices } from '$lib/lab/invoice-detail.server';
 import { updateInvoiceStatusInDb } from '$lib/lab/invoices-db';
@@ -160,6 +160,75 @@ export const actions: Actions = {
 		try {
 			const result = await consultarFacturaElectronica(invoiceId);
 			return { success: true, message: result.message, feEstado: result.estado };
+		} catch (err) {
+			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo consultar.' });
+		}
+	},
+
+	emitirNota: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		const gate = await requireAdmin(supabase, user?.id, 'Solo administradores pueden emitir notas.');
+		if (!gate.ok) return fail(gate.status, { message: gate.message });
+
+		const form = await request.formData();
+		const invoiceId = String(form.get('invoice_id') ?? '').trim();
+		const tipoDocumento = String(form.get('tipo_documento') ?? '').trim();
+		const codigoReferencia = String(form.get('codigo_referencia') ?? '').trim();
+		const razon = String(form.get('razon') ?? '').trim();
+		const feComprobanteId = String(form.get('fe_comprobante_id') ?? '').trim() || undefined;
+		const crearFacturaCorreccion = form.get('crear_factura_correccion') === '1';
+
+		if (!invoiceId || (tipoDocumento !== '02' && tipoDocumento !== '03')) {
+			return fail(400, { message: 'Datos de nota inválidos.' });
+		}
+		if (!codigoReferencia || !razon) {
+			return fail(400, { message: 'Indique motivo y razón de la nota.' });
+		}
+
+		try {
+			let mediosPago;
+			try {
+				mediosPago = parseMediosPagoFormValue(form.get('medios_pago'));
+			} catch (parseErr) {
+				const message = parseErr instanceof Error ? parseErr.message : 'Medios de pago inválidos.';
+				return fail(400, { message });
+			}
+			const result = await emitirYConsultarNotaCreditoDebito(invoiceId, {
+				tipoDocumento,
+				codigoReferencia,
+				razon,
+				mediosPago,
+				feComprobanteId,
+				crearFacturaCorreccion
+			});
+			return {
+				success: true,
+				message: result.message,
+				feComprobanteId: result.feComprobanteId,
+				clave: result.clave,
+				feEstado: result.feEstado,
+				consultaPending: result.consultaPending ?? false,
+				redirectTo: result.newInvoiceId
+					? `/admin/facturas/${result.newInvoiceId}`
+					: undefined
+			};
+		} catch (err) {
+			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo emitir la nota.' });
+		}
+	},
+
+	consultarNota: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		const gate = await requireAdmin(supabase, user?.id, 'Solo administradores pueden consultar Hacienda.');
+		if (!gate.ok) return fail(gate.status, { message: gate.message });
+
+		const form = await request.formData();
+		const feComprobanteId = String(form.get('fe_comprobante_id') ?? '').trim();
+		if (!feComprobanteId) return fail(400, { message: 'Comprobante no válido.' });
+
+		try {
+			const result = await consultarComprobanteElectronicoById(feComprobanteId);
+			return { success: true, message: result.message, feComprobanteId, feEstado: result.estado };
 		} catch (err) {
 			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo consultar.' });
 		}

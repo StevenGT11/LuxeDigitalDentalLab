@@ -9,6 +9,7 @@
 		BarChart3,
 		CalendarDays,
 		ClipboardList,
+		FileInput,
 		FileText,
 		LayoutDashboard,
 		LogOut,
@@ -32,6 +33,12 @@
 		{ href: '/admin/clientes', label: 'Clientes', icon: Users },
 		{ href: '/admin/tratamientos', label: 'Tratamientos', icon: Tags, financialOnly: true },
 		{ href: '/admin/facturas', label: 'Facturas', icon: FileText, financialOnly: true },
+		{
+			href: '/admin/facturas-recibidas',
+			label: 'Gastos recibidos',
+			icon: FileInput,
+			financialOnly: true
+		},
 		{ href: '/admin/factura-electronica', label: 'Factura electrónica', icon: Settings, financialOnly: true },
 		{ href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3, financialOnly: true }
 	];
@@ -43,6 +50,7 @@
 		'/admin/clientes': 'Clientes',
 		'/admin/tratamientos': 'Tratamientos y precios',
 		'/admin/facturas': 'Facturas',
+		'/admin/facturas-recibidas': 'Gastos recibidos',
 		'/admin/factura-electronica': 'Factura electrónica',
 		'/admin/estadisticas': 'Estadísticas de producción'
 	};

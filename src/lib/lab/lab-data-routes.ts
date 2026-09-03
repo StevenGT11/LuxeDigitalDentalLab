@@ -22,7 +22,11 @@ function isAdminDashboard(path: string): boolean {
 }
 
 /** Facturación usa API dedicada — no store ni catálogo. */
-const ISOLATED_FINANCIAL_PREFIXES = ['/admin/facturas', '/admin/factura-electronica'] as const;
+const ISOLATED_FINANCIAL_PREFIXES = [
+	'/admin/facturas',
+	'/admin/facturas-recibidas',
+	'/admin/factura-electronica'
+] as const;
 
 export function isIsolatedFinancialRoute(pathname?: string): boolean {
 	if (!browser && pathname === undefined) return false;
