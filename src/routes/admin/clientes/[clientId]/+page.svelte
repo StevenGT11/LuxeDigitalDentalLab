@@ -149,6 +149,11 @@
 							Actividad económica: {$page.data.fiscal.fe_codigo_actividad}
 						</p>
 					{/if}
+					{#if $page.data.fiscal?.fe_otras_senas?.trim()}
+						<p class="type-caption">
+							Dirección fiscal: {$page.data.fiscal.fe_otras_senas}
+						</p>
+					{/if}
 				</div>
 			</div>
 			{#if showFinancial}

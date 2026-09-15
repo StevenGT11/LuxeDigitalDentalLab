@@ -8,6 +8,8 @@
 	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
 	import { FE_TIPO_IDENTIFICACION_OPTIONS } from '$lib/fe/constants';
 	import ActividadEconomica from '$lib/components/actividadEconomica/components/actividadEconomica.svelte';
+	import ClientFeAddressFields from '$lib/components/admin/ClientFeAddressFields.svelte';
+	import { emptyClientFeAddress } from '$lib/fe/client-fiscal-address';
 	import { fetchAllClients } from '$lib/lab/clients-db';
 	import { getClientStats, initializeLabStorage } from '$lib/lab/store';
 	import { formatCurrency } from '$lib/lab/helpers';
@@ -52,7 +54,8 @@
 		passwordConfirm: '',
 		fe_tipo_identificacion: '',
 		fe_numero_identificacion: '',
-		fe_codigo_actividad: ''
+		fe_codigo_actividad: '',
+		...emptyClientFeAddress()
 	});
 
 	let filtered = $derived(
@@ -104,7 +107,11 @@
 			email: '',
 			telefono: '',
 			password: '',
-			passwordConfirm: ''
+			passwordConfirm: '',
+			fe_tipo_identificacion: '',
+			fe_numero_identificacion: '',
+			fe_codigo_actividad: '',
+			...emptyClientFeAddress()
 		};
 		modalOpen = true;
 	}
@@ -374,6 +381,10 @@
 						inputName="fe_codigo_actividad"
 						label="Actividad económica (CIIU)"
 					/>
+				</div>
+				<div style="grid-column: 1 / -1;">
+					<span class="field-label">Dirección fiscal</span>
+					<ClientFeAddressFields bind:address={form} />
 				</div>
 			{/if}
 			</div>

@@ -3,7 +3,10 @@
 	import { goto, invalidate } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import { tick } from 'svelte';
-	import FeMediosPagoModal from '$lib/components/fe/FeMediosPagoModal.svelte';
+	import FeMediosPagoModal, {
+		type FeMediosPagoConfirm
+	} from '$lib/components/fe/FeMediosPagoModal.svelte';
+	import FeProcessingBanner from '$lib/components/fe/FeProcessingBanner.svelte';
 	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
 	import {
 		getInvoiceEstadoClass,
@@ -32,6 +35,7 @@
 	let filtroEstado = $state<'todos' | InvoiceEstado>('todos');
 	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
 	let emittingFe = $state(false);
+	let reemittingFactura = $state(false);
 	let emittingLabel = $state('');
 
 	const totalPages = $derived(Math.max(1, Math.ceil(data.totalCount / data.pageSize)));
@@ -109,6 +113,8 @@
 	let emitTarget = $state<{ id: string; label: string; total: number } | null>(null);
 	let emitFormEl = $state<HTMLFormElement | null>(null);
 	let mediosPagoJson = $state('');
+	let emitMoneda = $state('USD');
+	let emitTipoCambio = $state('1');
 
 	function openEmitModal(fac: InvoiceListRow) {
 		emitTarget = { id: fac.id, label: fac.invoice_number, total: fac.total };
@@ -116,33 +122,40 @@
 		emitModalOpen = true;
 	}
 
-	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
-		mediosPagoJson = JSON.stringify(medios);
+	async function onMediosConfirm(result: FeMediosPagoConfirm) {
+		mediosPagoJson = JSON.stringify(result.medios);
+		emitMoneda = result.moneda;
+		emitTipoCambio = String(result.tipoCambio);
 		emittingLabel = emitTarget?.label ?? '';
 		emittingFe = true;
 		emitModalOpen = false;
 		await tick();
 		emitFormEl?.requestSubmit();
 	}
-</script>
 
-{#if emittingFe}
-	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
-		<div class="fe-emit-overlay__panel">
-			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
-			<p class="fe-emit-overlay__title">Generando factura electrónica</p>
-			{#if emittingLabel}
-				<p class="type-caption fe-emit-overlay__subtitle">{emittingLabel}</p>
-			{/if}
-			<p class="type-caption">Firmando XML, enviando y consultando en Hacienda…</p>
-		</div>
-	</div>
-{/if}
+	function canReemitFacturaTrasNc(fac: InvoiceListRow): boolean {
+		return Boolean(fac.fe?.estado === 'aceptado' && fac.reemit?.ncAceptada);
+	}
+</script>
 
 <div class="dash-page">
 	<p class="dash-lead">Facturación por caso y cliente — generadas al registrar cada caso.</p>
 
-	{#if !data.facturadorOk}
+	{#if emittingFe}
+		<FeProcessingBanner
+			title="Generando factura electrónica"
+			subtitle={emittingLabel}
+			detail="Firmando XML, enviando y consultando en Hacienda…"
+		/>
+	{:else if reemittingFactura}
+		<FeProcessingBanner
+			title="Reemitiendo factura"
+			subtitle={emittingLabel}
+			detail="Creando copia corregida con los mismos ítems…"
+		/>
+	{/if}
+
+	{#if !data.facturadorOk && !emittingFe && !reemittingFactura}
 		<p class="fe-facturador-alert" role="alert">
 			<strong>Facturador no disponible</strong> ({data.facturadorUrl}).
 			{data.facturadorError ?? 'Verifique que @happy-prod/facturador esté instalado (npm install).'}
@@ -185,7 +198,7 @@
 		</div>
 	{/if}
 
-	{#if isLoading && data.invoices.length === 0}
+	{#if isLoading && data.invoices.length === 0 && !emittingFe && !reemittingFactura}
 		<div class="store-utility-card empty-state">
 			<p>Cargando facturas…</p>
 		</div>
@@ -214,7 +227,10 @@
 				{#if data.q} — búsqueda «{data.q}»{/if}
 			</p>
 		{/if}
-		<div class="data-table-wrap" class:facturas-table-loading={isLoading}>
+		<div
+			class="data-table-wrap"
+			class:fe-processing-blocked={isLoading || emittingFe || reemittingFactura}
+		>
 			<table class="data-table">
 				<thead>
 					<tr>
@@ -316,6 +332,48 @@
 										<button type="submit" class="btn-secondary-pill fe-actions__btn">Consultar</button>
 									</form>
 								{/if}
+								{#if canReemitFacturaTrasNc(fac)}
+									{#if fac.reemit?.correctionInvoiceId}
+										<a
+											href="/admin/facturas/{fac.reemit.correctionInvoiceId}"
+											class="btn-secondary-pill fe-actions__btn"
+										>
+											FE corregida
+										</a>
+									{:else}
+										<form
+											method="POST"
+											action="?/crearFacturaCorreccion"
+											use:enhance={() => {
+												emittingLabel = fac.invoice_number;
+												reemittingFactura = true;
+												return async ({ result, update }) => {
+													try {
+														await update({ reset: false });
+														if (result.type === 'success') {
+															const payload = result.data as Record<string, unknown> | undefined;
+															const redirectTo =
+																typeof payload?.redirectTo === 'string' ? payload.redirectTo : null;
+															if (redirectTo) {
+																await goto(redirectTo);
+																return;
+															}
+														}
+														await invalidate('app:facturas-list');
+													} finally {
+														reemittingFactura = false;
+														emittingLabel = '';
+													}
+												};
+											}}
+										>
+											<input type="hidden" name="invoice_id" value={fac.id} />
+											<button type="submit" class="btn-secondary-pill fe-actions__btn">
+												Reemitir factura
+											</button>
+										</form>
+									{/if}
+								{/if}
 							</td>
 							<td>
 								<a href="/admin/facturas/{fac.id}" class="btn-secondary-pill fe-actions__btn">Ver</a>
@@ -326,7 +384,11 @@
 			</table>
 		</div>
 
-		<nav class="facturas-pagination" aria-label="Paginación de facturas">
+		<nav
+			class="facturas-pagination"
+			class:fe-processing-blocked={isLoading || emittingFe || reemittingFactura}
+			aria-label="Paginación de facturas"
+		>
 			<p class="type-caption facturas-pagination__summary">
 				Mostrando {pageStart}–{pageEnd} de {data.totalCount}
 			</p>
@@ -390,6 +452,8 @@
 	>
 		<input type="hidden" name="invoice_id" value={emitTarget?.id ?? ''} />
 		<input type="hidden" name="medios_pago" value={mediosPagoJson} />
+		<input type="hidden" name="moneda" value={emitMoneda} />
+		<input type="hidden" name="tipo_cambio" value={emitTipoCambio} />
 	</form>
 
 	<FeMediosPagoModal
@@ -424,10 +488,6 @@
 		margin: 0 0 var(--spacing-sm);
 	}
 
-	.facturas-table-loading {
-		opacity: 0.55;
-	}
-
 	.facturas-pagination {
 		display: flex;
 		flex-wrap: wrap;
@@ -460,57 +520,6 @@
 		width: auto;
 		padding: 4px 8px;
 		font-size: 12px;
-	}
-
-	.fe-emit-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 2000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: rgb(15 23 42 / 55%);
-		backdrop-filter: blur(2px);
-	}
-
-	.fe-emit-overlay__panel {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.65rem;
-		padding: 1.75rem 2rem;
-		min-width: min(20rem, calc(100vw - 2rem));
-		border-radius: 10px;
-		background: var(--color-card, #fff);
-		border: 1px solid var(--color-border, #e2e8f0);
-		box-shadow: 0 20px 48px rgb(15 23 42 / 25%);
-		text-align: center;
-	}
-
-	.fe-emit-overlay__title {
-		margin: 0;
-		font-size: 1rem;
-		font-weight: 600;
-	}
-
-	.fe-emit-overlay__subtitle {
-		margin: 0;
-		font-weight: 500;
-	}
-
-	.fe-emit-overlay__spinner {
-		width: 2.25rem;
-		height: 2.25rem;
-		border: 3px solid color-mix(in srgb, var(--color-border, #cbd5e1) 60%, transparent);
-		border-top-color: var(--color-primary, #0f172a);
-		border-radius: 50%;
-		animation: fe-emit-spin 0.75s linear infinite;
-	}
-
-	@keyframes fe-emit-spin {
-		to {
-			transform: rotate(360deg);
-		}
 	}
 
 	.fe-facturador-alert {

@@ -118,6 +118,73 @@ function mapFeEmbed(raw: FeEmbedRow[] | FeEmbedRow | null | undefined): FeCompro
 	};
 }
 
+/** NC aceptada y factura corregida para filas con FE aceptada. */
+export async function fetchInvoiceReemitContexts(
+	invoiceIds: string[]
+): Promise<
+	Record<
+		string,
+		{
+			ncAceptada: boolean;
+			correctionInvoiceId: string | null;
+			correctionInvoiceNumber: string | null;
+		}
+	>
+> {
+	if (invoiceIds.length === 0) return {};
+	const admin = createSupabaseAdminClient();
+
+	const { data: ncRows, error: ncErr } = await admin
+		.from('fe_comprobantes')
+		.select('invoice_id')
+		.in('invoice_id', invoiceIds)
+		.eq('tipo_documento', '03')
+		.eq('estado', 'aceptado');
+	if (ncErr) throw ncErr;
+	const ncAceptadaIds = new Set((ncRows ?? []).map((r) => r.invoice_id as string));
+
+	let correctionRows: { id: string; invoice_number: string; source_invoice_id: string }[] = [];
+	const corrRes = await admin
+		.from('invoices')
+		.select('id, invoice_number, source_invoice_id')
+		.in('source_invoice_id', invoiceIds);
+	if (corrRes.error && !String(corrRes.error.message ?? '').includes('source_invoice_id')) {
+		throw corrRes.error;
+	}
+	if (!corrRes.error) {
+		correctionRows = (corrRes.data ?? []) as typeof correctionRows;
+	}
+
+	const correctionBySource = new Map<string, { id: string; invoice_number: string }>();
+	for (const row of correctionRows) {
+		if (row.source_invoice_id && !correctionBySource.has(row.source_invoice_id)) {
+			correctionBySource.set(row.source_invoice_id, {
+				id: row.id,
+				invoice_number: String(row.invoice_number)
+			});
+		}
+	}
+
+	const out: Record<
+		string,
+		{
+			ncAceptada: boolean;
+			correctionInvoiceId: string | null;
+			correctionInvoiceNumber: string | null;
+		}
+	> = {};
+	for (const id of invoiceIds) {
+		if (!ncAceptadaIds.has(id)) continue;
+		const corr = correctionBySource.get(id);
+		out[id] = {
+			ncAceptada: true,
+			correctionInvoiceId: corr?.id ?? null,
+			correctionInvoiceNumber: corr?.invoice_number ?? null
+		};
+	}
+	return out;
+}
+
 function mapInvoiceRow(row: DbInvoiceListRow): InvoiceListRow {
 	return {
 		id: row.id,
@@ -208,6 +275,11 @@ export async function fetchInvoiceListPage(query: InvoiceListQuery): Promise<Inv
 	}
 
 	const invoices = ((data ?? []) as DbInvoiceListRow[]).map(mapInvoiceRow);
+	const reemitById = await fetchInvoiceReemitContexts(invoices.map((i) => i.id));
+	for (const inv of invoices) {
+		const ctx = reemitById[inv.id];
+		if (ctx) inv.reemit = ctx;
+	}
 
 	return {
 		invoices,

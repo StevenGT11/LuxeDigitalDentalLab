@@ -35,6 +35,16 @@ CREATE TABLE public.clients (
     fe_numero_identificacion text,
     fe_codigo_actividad text,
     fe_correo_facturacion text,
+    fe_provincia smallint CHECK (
+        fe_provincia IS NULL
+        OR (
+            fe_provincia >= 1
+            AND fe_provincia <= 7
+        )
+    ),
+    fe_canton text,
+    fe_distrito text,
+    fe_otras_senas text,
     CONSTRAINT clients_pkey PRIMARY KEY (id),
     CONSTRAINT clients_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
@@ -210,7 +220,7 @@ CREATE TABLE public.invoices (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     invoice_number text NOT NULL UNIQUE,
     client_id uuid NOT NULL,
-    case_id uuid NOT NULL UNIQUE,
+    case_id uuid NOT NULL,
     client_name text NOT NULL DEFAULT ''::text,
     client_clinica text NOT NULL DEFAULT ''::text,
     case_number text NOT NULL DEFAULT ''::text,
@@ -223,9 +233,11 @@ CREATE TABLE public.invoices (
     estado USER - DEFINED NOT NULL DEFAULT 'pendiente'::invoice_estado,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    source_invoice_id uuid,
     CONSTRAINT invoices_pkey PRIMARY KEY (id),
     CONSTRAINT invoices_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id),
-    CONSTRAINT invoices_case_id_fkey FOREIGN KEY (case_id) REFERENCES public.cases(id)
+    CONSTRAINT invoices_case_id_fkey FOREIGN KEY (case_id) REFERENCES public.cases(id),
+    CONSTRAINT invoices_source_invoice_id_fkey FOREIGN KEY (source_invoice_id) REFERENCES public.invoices(id)
 );
 CREATE TABLE public.invoice_lines (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -311,6 +323,8 @@ CREATE TABLE public.fe_comprobantes (
             ambiente = ANY (ARRAY ['staging'::text, 'production'::text])
         )
     ),
+    referencia_codigo text,
+    referencia_razon text,
     CONSTRAINT fe_comprobantes_pkey PRIMARY KEY (id),
     CONSTRAINT fe_comprobantes_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES public.invoices(id),
     CONSTRAINT fe_comprobantes_referencia_comprobante_id_fkey FOREIGN KEY (referencia_comprobante_id) REFERENCES public.fe_comprobantes(id)
@@ -322,59 +336,4 @@ CREATE TABLE public.fe_hacienda_settings (
     ),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT fe_hacienda_settings_pkey PRIMARY KEY (id)
-);
-CREATE TABLE public.fe_recibidos (
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    clave text NOT NULL UNIQUE,
-    tipo_documento text NOT NULL CHECK (
-        tipo_documento = ANY (
-            ARRAY ['01'::text, '02'::text, '03'::text, '04'::text, '09'::text]
-        )
-    ),
-    emisor_tipo_identificacion text NOT NULL CHECK (
-        emisor_tipo_identificacion = ANY (
-            ARRAY ['01'::text, '02'::text, '03'::text, '04'::text]
-        )
-    ),
-    emisor_numero_identificacion text NOT NULL,
-    emisor_nombre text NOT NULL DEFAULT ''::text,
-    fecha_emision timestamp with time zone NOT NULL,
-    subtotal numeric NOT NULL DEFAULT 0,
-    impuesto numeric NOT NULL DEFAULT 0,
-    total numeric NOT NULL DEFAULT 0,
-    moneda text NOT NULL DEFAULT 'CRC'::text,
-    xml_recibido text NOT NULL,
-    estado USER - DEFINED NOT NULL DEFAULT 'pendiente_aceptacion'::fe_recibido_estado,
-    plazo_limite date,
-    notas text,
-    ambiente text NOT NULL DEFAULT 'staging'::text CHECK (
-        ambiente = ANY (ARRAY ['staging'::text, 'production'::text])
-    ),
-    created_at timestamp with time zone NOT NULL DEFAULT now(),
-    updated_at timestamp with time zone NOT NULL DEFAULT now(),
-    CONSTRAINT fe_recibidos_pkey PRIMARY KEY (id)
-);
-CREATE TABLE public.fe_mensajes_receptor (
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
-    fe_recibido_id uuid NOT NULL,
-    mensaje USER - DEFINED NOT NULL,
-    detalle_mensaje text NOT NULL DEFAULT ''::text,
-    consecutivo_num bigint NOT NULL,
-    clave text UNIQUE,
-    consecutivo text,
-    estado USER - DEFINED NOT NULL DEFAULT 'pendiente_envio'::fe_comprobante_estado,
-    hacienda_status integer,
-    xml_firmado text,
-    respuesta_xml text,
-    rechazo jsonb,
-    ultimo_error text,
-    enviado_at timestamp with time zone,
-    resuelto_at timestamp with time zone,
-    ambiente text NOT NULL DEFAULT 'staging'::text CHECK (
-        ambiente = ANY (ARRAY ['staging'::text, 'production'::text])
-    ),
-    created_at timestamp with time zone NOT NULL DEFAULT now(),
-    updated_at timestamp with time zone NOT NULL DEFAULT now(),
-    CONSTRAINT fe_mensajes_receptor_pkey PRIMARY KEY (id),
-    CONSTRAINT fe_mensajes_receptor_fe_recibido_id_fkey FOREIGN KEY (fe_recibido_id) REFERENCES public.fe_recibidos(id)
 );

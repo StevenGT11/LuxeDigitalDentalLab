@@ -1,4 +1,7 @@
-/** Map address picker values to Hacienda v4.4 location codes (canton/distrito as 2-digit strings). */
+/**
+ * Map address picker values to Hacienda v4.4 location codes (canton/distrito as 2-digit strings).
+ * Catálogo provincia/cantón/distrito: `utils/costa-rica-codes.json` (códigos oficiales CR).
+ */
 export function haciendaCodesFromPicker(
 	province: number,
 	canton: number,

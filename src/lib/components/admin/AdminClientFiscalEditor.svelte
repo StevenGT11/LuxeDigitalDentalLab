@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import ActividadEconomica from '$lib/components/actividadEconomica/components/actividadEconomica.svelte';
+	import ClientFeAddressFields from '$lib/components/admin/ClientFeAddressFields.svelte';
+	import type { ClientFeAddress } from '$lib/fe/client-fiscal-address';
 	import { FE_TIPO_IDENTIFICACION_OPTIONS } from '$lib/fe/constants';
 
 	export type ClientFiscalForm = {
@@ -8,7 +10,7 @@
 		fe_numero_identificacion: string;
 		fe_codigo_actividad: string;
 		fe_correo_facturacion: string;
-	};
+	} & ClientFeAddress;
 
 	let {
 		fiscal,
@@ -29,7 +31,7 @@
 <section class="dash-panel dash-panel--section" style="margin-top: var(--spacing-xxl);">
 	<h3 class="dash-panel__section-title">Datos fiscales (receptor FE)</h3>
 	<p class="type-caption" style="margin-bottom: var(--spacing-md);">
-		Cédula y actividad económica del receptor para factura electrónica (Hacienda v4.4).
+		Cédula, actividad económica y dirección fiscal del receptor para factura electrónica (Hacienda v4.4).
 	</p>
 
 	{#if form?.message}
@@ -90,6 +92,10 @@
 					placeholder="Si difiere del correo del portal"
 				/>
 			</label>
+			<div class="field field--full">
+				<span class="field-label">Dirección fiscal</span>
+				<ClientFeAddressFields bind:address={draft} />
+			</div>
 		</div>
 		<button type="submit" class="btn-primary" style="margin-top: var(--spacing-md);" disabled={saving}>
 			{saving ? 'Guardando…' : 'Guardar datos fiscales'}

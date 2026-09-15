@@ -1,4 +1,5 @@
 import { fail, isRedirect, redirect } from '@sveltejs/kit';
+import { parseClientFeAddressFromForm } from '$lib/fe/client-fiscal-address';
 import { createPortalClientUser } from '$lib/auth/create-portal-user';
 import { requireStaff } from '$lib/auth/require-staff';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
@@ -42,12 +43,24 @@ export const actions: Actions = {
 							'Para datos fiscales al crear, indique tipo y número de identificación, o déjelos vacíos.'
 					});
 				}
+				let feAddress;
+				try {
+					feAddress = parseClientFeAddressFromForm(form);
+				} catch (err) {
+					return fail(400, {
+						message: err instanceof Error ? err.message : 'Dirección fiscal inválida.'
+					});
+				}
 				const { error: feError } = await admin
 					.from('clients')
 					.update({
 						fe_tipo_identificacion,
 						fe_numero_identificacion,
-						fe_codigo_actividad: fe_codigo_actividad || null
+						fe_codigo_actividad: fe_codigo_actividad || null,
+						fe_provincia: feAddress.fe_provincia,
+						fe_canton: feAddress.fe_canton || null,
+						fe_distrito: feAddress.fe_distrito || null,
+						fe_otras_senas: feAddress.fe_otras_senas || null
 					})
 					.eq('id', client.id);
 				if (feError) return fail(400, { message: feError.message });

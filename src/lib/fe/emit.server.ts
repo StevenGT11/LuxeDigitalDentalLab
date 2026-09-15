@@ -35,6 +35,13 @@ import { logFeEmitFiscalDebug } from './fe-emit-debug.server';
 import { normalizeLineAmountsForFe } from './fe-line-amounts';
 import { duplicateInvoiceForCorrection } from '$lib/lab/invoice-detail.server';
 import { parseFeXmlLineas, parseFeXmlTotals } from './parse-fe-xml-lineas';
+import { clientFeAddressToFacturadorCliente } from './client-fiscal-address';
+import {
+	feTipoCambioForPayload,
+	scaleInvoiceForFeMoneda,
+	type FeMoneda,
+	type FeMonedaEmitOptions
+} from './fe-moneda';
 import {
 	assertMediosPagoMatchTotal,
 	type FeMedioPagoItem,
@@ -67,6 +74,10 @@ type ClientFiscalRow = {
 	fe_numero_identificacion: string | null;
 	fe_codigo_actividad: string | null;
 	fe_correo_facturacion: string | null;
+	fe_provincia: number | null;
+	fe_canton: string | null;
+	fe_distrito: string | null;
+	fe_otras_senas: string | null;
 };
 
 function mapConsultaEstado(estado: string): FeComprobanteEstado {
@@ -109,7 +120,7 @@ async function loadClientFiscal(clientId: string): Promise<ClientFiscalRow> {
 	const { data, error } = await admin
 		.from('clients')
 		.select(
-			'nombre, email, fe_tipo_identificacion, fe_numero_identificacion, fe_codigo_actividad, fe_correo_facturacion'
+			'nombre, email, fe_tipo_identificacion, fe_numero_identificacion, fe_codigo_actividad, fe_correo_facturacion, fe_provincia, fe_canton, fe_distrito, fe_otras_senas'
 		)
 		.eq('id', clientId)
 		.single();
@@ -126,6 +137,10 @@ function buildPayload(
 		tipoDocumento?: string;
 		referencia?: FeReferenciaPayload;
 		mediosPago?: FeMedioPagoItem[];
+		moneda?: FeMoneda;
+		tipoCambio?: number;
+		/** Montos del libro interno (USD) vs. ya en moneda del comprobante referenciado (NC/ND). */
+		amountSource?: 'ledger' | 'fe';
 	}
 ) {
 	if (!client.fe_numero_identificacion?.trim() || !client.fe_tipo_identificacion?.trim()) {
@@ -134,7 +149,15 @@ function buildPayload(
 		);
 	}
 
-	const lineas = [...(invoice.invoice_lines ?? [])].sort((a, b) => a.sort_order - b.sort_order);
+	const moneda = options?.moneda ?? 'USD';
+	const tipoCambioInput = options?.tipoCambio ?? 1;
+	const invoiceScaled =
+		options?.amountSource === 'fe'
+			? invoice
+			: scaleInvoiceForFeMoneda(invoice, moneda, tipoCambioInput);
+	const tipoCambioPayload = feTipoCambioForPayload(moneda, tipoCambioInput);
+
+	const lineas = [...(invoiceScaled.invoice_lines ?? [])].sort((a, b) => a.sort_order - b.sort_order);
 	if (lineas.length === 0) throw new Error('La factura no tiene líneas.');
 
 	const lineasPayload = lineas.map((l) => {
@@ -175,12 +198,20 @@ function buildPayload(
 		cliente.codigo_actividad = clientCodigo;
 	}
 
-	const total = roundMoney(Number(invoice.total));
+	const ubicacion = clientFeAddressToFacturadorCliente({
+		fe_provincia: client.fe_provincia,
+		fe_canton: client.fe_canton ?? '',
+		fe_distrito: client.fe_distrito ?? '',
+		fe_otras_senas: client.fe_otras_senas ?? ''
+	});
+	if (ubicacion) Object.assign(cliente, ubicacion);
+
+	const total = roundMoney(Number(invoiceScaled.total));
 	const medios =
 		options?.mediosPago && options.mediosPago.length > 0
 			? options.mediosPago
 			: [{ tipo: '01', monto: total } satisfies FeMedioPagoItem];
-	assertMediosPagoMatchTotal(medios, total);
+	assertMediosPagoMatchTotal(medios, total, moneda);
 
 	const tipoDocumento = options?.tipoDocumento ?? '01';
 
@@ -191,8 +222,8 @@ function buildPayload(
 		condicion_venta: '01',
 		medio_pago: medios[0]!.tipo,
 		medios_pago: medios,
-		moneda: 'CRC',
-		tipo_cambio: 1,
+		moneda,
+		tipo_cambio: tipoCambioPayload,
 		cliente,
 		lineas: lineasPayload,
 		...(options?.referencia ? { referencia: options.referencia } : {})
@@ -239,9 +270,11 @@ function invoiceForNotaFromReferenciaFe(
 	};
 }
 
+export type EmitFeOptions = FeMonedaEmitOptions & { mediosPago?: FeMedioPagoItem[] };
+
 export async function emitirFacturaElectronica(
 	invoiceId: string,
-	options?: { mediosPago?: FeMedioPagoItem[] }
+	options?: EmitFeOptions
 ): Promise<{ message: string; clave?: string }> {
 	const emisor = await getFeEmisorConfigForEmit();
 	if (!emisor) {
@@ -295,13 +328,18 @@ export async function emitirFacturaElectronica(
 		throw new Error('Ya existe un envío con clave. Use «Consultar» para actualizar el estado.');
 	} else if (!feId || !consecutivoNum) {
 		consecutivoNum = await reserveNextFeConsecutivo('01', emitAmbiente);
+		const moneda = options?.moneda ?? 'USD';
+		const tipoCambio = options?.tipoCambio ?? 1;
+		const scaled = scaleInvoiceForFeMoneda(invoiceFresh, moneda, tipoCambio);
 		feId = await insertFeComprobanteDraft({
 			invoice_id: invoiceId,
 			consecutivo_num: consecutivoNum,
 			ambiente: emitAmbiente,
-			subtotal: Number(invoiceFresh.subtotal),
-			impuesto: Number(invoiceFresh.impuesto),
-			total: Number(invoiceFresh.total)
+			subtotal: Number(scaled.subtotal),
+			impuesto: Number(scaled.impuesto),
+			total: Number(scaled.total),
+			moneda,
+			tipo_cambio: feTipoCambioForPayload(moneda, tipoCambio)
 		});
 	}
 
@@ -311,7 +349,9 @@ export async function emitirFacturaElectronica(
 
 	const config = emisorRowToFacturadorConfig(emisor);
 	const payload = buildPayload(config, client, invoiceFresh, consecutivoNum, {
-		mediosPago: options?.mediosPago
+		mediosPago: options?.mediosPago,
+		moneda: options?.moneda ?? 'USD',
+		tipoCambio: options?.tipoCambio ?? 1
 	});
 
 	logFeEmitFiscalDebug({
@@ -400,8 +440,10 @@ export async function consultarComprobanteElectronicoById(
 				: null
 	});
 
-	const label = estado === 'aceptado' ? 'aceptada' : estado === 'rechazado' ? 'rechazada' : estado;
-	return { message: `Comprobante ${label} por Hacienda.`, estado };
+	return {
+		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }),
+		estado
+	};
 }
 
 export async function consultarFacturaElectronica(invoiceId: string): Promise<{ message: string; estado: string }> {
@@ -436,12 +478,29 @@ export async function consultarFacturaElectronica(invoiceId: string): Promise<{ 
 				: null
 	});
 
-	const label = estado === 'aceptado' ? 'aceptada' : estado === 'rechazado' ? 'rechazada' : estado;
-	return { message: `Comprobante ${label} por Hacienda.`, estado };
+	return {
+		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }),
+		estado
+	};
 }
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Mensaje breve según estado final de Hacienda (evita concatenar envío + consulta). */
+export function formatFeHaciendaResultMessage(
+	consultEstado: string,
+	opts?: { kind?: 'fe' | 'nota'; consultaPending?: boolean }
+): string {
+	const kind = opts?.kind ?? 'fe';
+	const label = kind === 'nota' ? 'Nota' : 'Factura electrónica';
+	if (consultEstado === 'aceptado') return `${label} aceptada por Hacienda.`;
+	if (consultEstado === 'rechazado') return `${label} rechazada por Hacienda.`;
+	if (consultEstado === 'procesando' || opts?.consultaPending) {
+		return `${label} enviada. Hacienda sigue procesando; use «Consultar» en unos segundos.`;
+	}
+	return `${label}: estado ${consultEstado}.`;
 }
 
 /** Reintenta mientras Hacienda responde «procesando». */
@@ -472,7 +531,7 @@ export async function consultarFacturaElectronicaConReintentos(
 /** Envía FE, valida XML y consulta Hacienda hasta respuesta final o timeout. */
 export async function emitirYConsultarFacturaElectronica(
 	invoiceId: string,
-	options?: { mediosPago?: FeMedioPagoItem[] }
+	options?: EmitFeOptions
 ): Promise<{
 	message: string;
 	clave?: string;
@@ -483,9 +542,10 @@ export async function emitirYConsultarFacturaElectronica(
 	await sleep(1500);
 	const consult = await consultarFacturaElectronicaConReintentos(invoiceId);
 	const consultaPending = consult.estado === 'procesando';
-	const message = consultaPending
-		? `${emit.message} Hacienda sigue procesando; puede usar «Consultar» en unos segundos.`
-		: `${emit.message} ${consult.message}`;
+	const message = formatFeHaciendaResultMessage(consult.estado, {
+		kind: 'fe',
+		consultaPending
+	});
 
 	return {
 		message,
@@ -604,11 +664,21 @@ async function emitComprobanteReferenciado(
 		throw new Error('No se pudo preparar la nota de crédito/débito.');
 	}
 
+	const notaMoneda = ((referenciaFe.moneda as FeMoneda | undefined) ?? 'USD') as FeMoneda;
+	const notaTipoCambioRaw = Number(referenciaFe.tipo_cambio);
+	const notaTipoCambio =
+		notaMoneda === 'USD' && Number.isFinite(notaTipoCambioRaw) && notaTipoCambioRaw > 0
+			? notaTipoCambioRaw
+			: 1;
+
 	const config = emisorRowToFacturadorConfig(emisor);
 	const payload = buildPayload(config, client, invoiceForNota, consecutivoNum, {
 		tipoDocumento,
 		referencia,
-		mediosPago: options.mediosPago
+		mediosPago: options.mediosPago,
+		moneda: notaMoneda,
+		tipoCambio: notaMoneda === 'USD' ? notaTipoCambio : 1,
+		amountSource: 'fe'
 	});
 
 	logFeEmitFiscalDebug({
@@ -709,9 +779,10 @@ export async function emitirYConsultarNotaCreditoDebito(
 	await sleep(1500);
 	const consult = await consultarComprobanteElectronicaConReintentos(emit.feComprobanteId);
 	const consultaPending = consult.estado === 'procesando';
-	let message = consultaPending
-		? `${emit.message} Hacienda sigue procesando; puede consultar en unos segundos.`
-		: `${emit.message} ${consult.message}`;
+	let message = formatFeHaciendaResultMessage(consult.estado, {
+		kind: 'nota',
+		consultaPending
+	});
 
 	let newInvoiceId: string | undefined;
 	let newInvoiceNumber: string | undefined;

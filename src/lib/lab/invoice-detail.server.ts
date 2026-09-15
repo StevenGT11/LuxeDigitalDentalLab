@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { FeComprobanteEstado } from '$lib/fe/types';
 import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
+import { canReemitFacturaTrasNc } from '$lib/fe/reemit-factura';
 import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
 import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 import {
@@ -263,6 +264,8 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 		sourceInvoiceNumber: string;
 		sourceNcAceptada: boolean;
 	} | null;
+	correctionInvoice: { id: string; invoice_number: string } | null;
+	reemitFacturaEligible: boolean;
 } | null> {
 	const admin = createSupabaseAdminClient();
 
@@ -353,13 +356,26 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 		};
 	}
 
+	let correctionInvoice: { id: string; invoice_number: string } | null = null;
+	const reemitFacturaEligible = canReemitFacturaTrasNc({
+		feEstado: fe?.estado,
+		notas,
+		sourceInvoiceId: invoice.source_invoice_id
+	});
+
+	if (reemitFacturaEligible) {
+		correctionInvoice = await findCorrectionInvoiceForSource(invoiceId);
+	}
+
 	return {
 		invoice,
 		client,
 		fe,
 		notas,
 		lineAmountsNeedReconcile: invoiceAmountsNeedReconcile(lineas, invoice),
-		correctionContext
+		correctionContext,
+		correctionInvoice,
+		reemitFacturaEligible
 	};
 }
 
@@ -537,6 +553,25 @@ export async function updateInvoiceLinePrices(
 		})
 		.eq('id', invoiceId);
 	if (invErr) throw invErr;
+}
+
+/** Factura corregida ya creada a partir de la factura origen (si existe). */
+export async function findCorrectionInvoiceForSource(sourceInvoiceId: string): Promise<{
+	id: string;
+	invoice_number: string;
+} | null> {
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin
+		.from('invoices')
+		.select('id, invoice_number')
+		.eq('source_invoice_id', sourceInvoiceId)
+		.order('created_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+	if (error && isUndefinedColumnError(error, 'source_invoice_id')) return null;
+	if (error) throw error;
+	if (!data?.id) return null;
+	return { id: data.id, invoice_number: String(data.invoice_number) };
 }
 
 /** Copia factura interna y líneas para re-facturar tras NC (mismo caso/cliente). */

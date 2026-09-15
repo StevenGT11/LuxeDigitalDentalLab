@@ -2,6 +2,10 @@ import { fail, isRedirect, redirect } from '@sveltejs/kit';
 import { deletePortalClient } from '$lib/auth/delete-portal-user';
 import { requireAdmin } from '$lib/auth/require-admin';
 import { canViewFinancial } from '$lib/auth/roles';
+import {
+	clientFeAddressRowToForm,
+	parseClientFeAddressFromForm
+} from '$lib/fe/client-fiscal-address';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -19,7 +23,7 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 	const { data, error } = await admin
 		.from('clients')
 		.select(
-			'fe_tipo_identificacion, fe_numero_identificacion, fe_codigo_actividad, fe_correo_facturacion'
+			'fe_tipo_identificacion, fe_numero_identificacion, fe_codigo_actividad, fe_correo_facturacion, fe_provincia, fe_canton, fe_distrito, fe_otras_senas'
 		)
 		.eq('id', clientId)
 		.maybeSingle();
@@ -31,7 +35,8 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 			fe_tipo_identificacion: data?.fe_tipo_identificacion ?? '',
 			fe_numero_identificacion: data?.fe_numero_identificacion ?? '',
 			fe_codigo_actividad: data?.fe_codigo_actividad ?? '',
-			fe_correo_facturacion: data?.fe_correo_facturacion ?? ''
+			fe_correo_facturacion: data?.fe_correo_facturacion ?? '',
+			...clientFeAddressRowToForm(data)
 		}
 	};
 };
@@ -55,6 +60,15 @@ export const actions: Actions = {
 			return fail(400, { message: 'Tipo y número de identificación son requeridos.' });
 		}
 
+		let feAddress;
+		try {
+			feAddress = parseClientFeAddressFromForm(form);
+		} catch (err) {
+			return fail(400, {
+				message: err instanceof Error ? err.message : 'Dirección fiscal inválida.'
+			});
+		}
+
 		const admin = createSupabaseAdminClient();
 		const { error } = await admin
 			.from('clients')
@@ -62,7 +76,11 @@ export const actions: Actions = {
 				fe_tipo_identificacion,
 				fe_numero_identificacion,
 				fe_codigo_actividad: fe_codigo_actividad || null,
-				fe_correo_facturacion: fe_correo_facturacion || null
+				fe_correo_facturacion: fe_correo_facturacion || null,
+				fe_provincia: feAddress.fe_provincia,
+				fe_canton: feAddress.fe_canton || null,
+				fe_distrito: feAddress.fe_distrito || null,
+				fe_otras_senas: feAddress.fe_otras_senas || null
 			})
 			.eq('id', clientId);
 

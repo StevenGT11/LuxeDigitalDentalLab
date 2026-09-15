@@ -9,7 +9,7 @@ const SECRET_CONFIG_KEYS = new Set([
 ]);
 
 export function isFeEmitDebugEnabled(): boolean {
-	return env.DEBUG_FE_EMIT === 'true' || env.NODE_ENV === 'development';
+	return env.DEBUG_FE_EMIT === 'true';
 }
 
 function pickConfigForLog(config: Record<string, unknown>) {

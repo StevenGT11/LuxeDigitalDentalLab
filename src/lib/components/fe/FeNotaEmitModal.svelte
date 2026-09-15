@@ -5,21 +5,17 @@
 		type FeReferenciaCodigo
 	} from '$lib/fe/fe-referencia';
 
+	export type FeNotaEmitDraft = {
+		tipoDocumento: '02' | '03';
+		codigoReferencia: string;
+		razon: string;
+	};
+
 	interface Props {
 		open: boolean;
 		onCancel?: () => void;
-		onConfirm: (data: {
-			tipoDocumento: '02' | '03';
-			codigoReferencia: string;
-			razon: string;
-			crearFacturaCorreccion: boolean;
-		}) => void;
-		onMedios?: (data: {
-			tipoDocumento: '02' | '03';
-			codigoReferencia: string;
-			razon: string;
-			crearFacturaCorreccion: boolean;
-		}) => void;
+		onConfirm: (data: FeNotaEmitDraft) => void;
+		onMedios?: (data: FeNotaEmitDraft) => void;
 	}
 
 	let { open = $bindable(false), onCancel, onConfirm, onMedios }: Props = $props();
@@ -27,32 +23,28 @@
 	let tipoDocumento = $state<'02' | '03'>('03');
 	let codigoReferencia = $state<FeReferenciaCodigo>('01');
 	let razon = $state(defaultRazonForCodigo('01', '03'));
-	let crearFacturaCorreccion = $state(true);
 
 	$effect(() => {
 		if (open) {
 			tipoDocumento = '03';
 			codigoReferencia = '01';
 			razon = defaultRazonForCodigo('01', '03');
-			crearFacturaCorreccion = true;
 		}
 	});
 
 	function onTipoChange() {
 		razon = defaultRazonForCodigo(codigoReferencia, tipoDocumento);
-		if (tipoDocumento === '02') crearFacturaCorreccion = false;
 	}
 
 	function onCodigoChange() {
 		razon = defaultRazonForCodigo(codigoReferencia, tipoDocumento);
 	}
 
-	function draftPayload() {
+	function draftPayload(): FeNotaEmitDraft {
 		return {
 			tipoDocumento,
 			codigoReferencia,
-			razon: razon.trim(),
-			crearFacturaCorreccion: tipoDocumento === '03' && crearFacturaCorreccion
+			razon: razon.trim()
 		};
 	}
 
@@ -82,7 +74,11 @@
 				{tipoDocumento === '03' ? 'Nota de crédito' : 'Nota de débito'}
 			</h2>
 			<p class="type-caption fe-modal__lead">
-				Referencia la FE aceptada de esta factura. Se envía a Hacienda con efectivo por defecto; use «Elegir medios…» si necesita otro medio de pago.
+				Referencia la FE aceptada de esta factura. Permanece en esta pantalla para ver el estado de la nota.
+				{#if tipoDocumento === '03'}
+					Cuando Hacienda la acepte, use <strong>Reemitir factura</strong> para crear la copia corregida.
+				{/if}
+				Use «Elegir medios…» si necesita otro medio de pago.
 			</p>
 
 			<div class="fe-modal__field">
@@ -135,13 +131,6 @@
 					placeholder="Descripción del ajuste"
 				/>
 			</label>
-
-			{#if tipoDocumento === '03'}
-				<label class="fe-modal__checkbox">
-					<input type="checkbox" bind:checked={crearFacturaCorreccion} />
-					<span>Crear nueva factura con los mismos ítems cuando Hacienda <strong>acepte</strong> esta NC (para emitir FE corregida)</span>
-				</label>
-			{/if}
 
 			<div class="fe-modal__actions">
 				<button
@@ -224,16 +213,6 @@
 		align-items: center;
 		gap: 0.5rem;
 		cursor: pointer;
-	}
-
-	.fe-modal__checkbox {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.5rem;
-		margin-bottom: var(--spacing-md);
-		cursor: pointer;
-		font-size: 0.875rem;
-		line-height: 1.4;
 	}
 
 	.fe-modal__actions {

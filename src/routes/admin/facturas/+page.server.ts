@@ -5,7 +5,13 @@ import { requireAdmin } from '$lib/auth/require-admin';
 import { canViewFinancial } from '$lib/auth/roles';
 import { consultarFacturaElectronica, emitirYConsultarFacturaElectronica } from '$lib/fe/emit.server';
 import { loadFeEmitPanelContext } from '$lib/fe/emit-panel-context.server';
+import { parseFeMonedaEmitForm } from '$lib/fe/fe-moneda';
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
+import {
+	duplicateInvoiceForCorrection,
+	findCorrectionInvoiceForSource
+} from '$lib/lab/invoice-detail.server';
+import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
 import { fetchInvoiceListPage, parseInvoiceListQuery } from '$lib/lab/invoices-list.server';
 import { updateInvoiceStatusInDb } from '$lib/lab/invoices-db';
 import type { InvoiceEstado } from '$lib/lab/types';
@@ -59,13 +65,18 @@ export const actions: Actions = {
 
 		try {
 			let mediosPago;
+			let monedaEmit;
 			try {
 				mediosPago = parseMediosPagoFormValue(form.get('medios_pago'));
+				monedaEmit = parseFeMonedaEmitForm(form);
 			} catch (parseErr) {
 				const message = parseErr instanceof Error ? parseErr.message : 'Medios de pago inválidos.';
 				return fail(400, { message, invoiceId });
 			}
-			const result = await emitirYConsultarFacturaElectronica(invoiceId, { mediosPago });
+			const result = await emitirYConsultarFacturaElectronica(invoiceId, {
+				mediosPago,
+				...monedaEmit
+			});
 			return {
 				success: true,
 				message: result.message,
@@ -94,6 +105,52 @@ export const actions: Actions = {
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'No se pudo consultar.';
 			return fail(400, { message, invoiceId });
+		}
+	},
+
+	crearFacturaCorreccion: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		const gate = await requireAdmin(
+			supabase,
+			user?.id,
+			'Solo administradores pueden crear facturas corregidas.'
+		);
+		if (!gate.ok) return fail(gate.status, { message: gate.message });
+
+		const form = await request.formData();
+		const invoiceId = String(form.get('invoice_id') ?? '').trim();
+		if (!invoiceId) return fail(400, { message: 'Factura no válida.' });
+
+		try {
+			const ncOk = await hasAcceptedNotaCreditoForInvoice(invoiceId);
+			if (!ncOk) {
+				return fail(400, {
+					message:
+						'Requiere una nota de crédito aceptada por Hacienda en esta factura antes de reemitir.',
+					invoiceId
+				});
+			}
+			const existing = await findCorrectionInvoiceForSource(invoiceId);
+			if (existing) {
+				return {
+					success: true,
+					message: `Ya existe la factura corregida ${existing.invoice_number}.`,
+					invoiceId,
+					redirectTo: `/admin/facturas/${existing.id}`
+				};
+			}
+			const copy = await duplicateInvoiceForCorrection(invoiceId);
+			return {
+				success: true,
+				message: `Se creó la factura ${copy.invoice_number} para emitir FE corregida.`,
+				invoiceId,
+				redirectTo: `/admin/facturas/${copy.id}`
+			};
+		} catch (err) {
+			return fail(400, {
+				message: err instanceof Error ? err.message : 'No se pudo crear la factura corregida.',
+				invoiceId
+			});
 		}
 	}
 };

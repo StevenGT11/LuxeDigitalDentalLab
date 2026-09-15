@@ -17,6 +17,8 @@ type DbFe = {
 	subtotal?: number;
 	impuesto?: number;
 	total?: number;
+	moneda?: string;
+	tipo_cambio?: number;
 	referencia_codigo?: string | null;
 	referencia_razon?: string | null;
 	xml_firmado?: string | null;
@@ -124,7 +126,7 @@ export async function assertNotaCreditoAceptadaParaFeCorregida(invoiceId: string
 	const ok = await hasAcceptedNotaCreditoForInvoice(sourceId);
 	if (!ok) {
 		throw new Error(
-			'La factura corregida requiere una nota de crédito aceptada por Hacienda en la factura original. Corrija y reenvíe la NC hasta que figure como aceptada.'
+			'La factura corregida requiere una nota de crédito aceptada por Hacienda en la factura anterior (la que esta copia reemplaza). Corrija y reenvíe la NC hasta que figure como aceptada.'
 		);
 	}
 }
@@ -153,6 +155,8 @@ export async function insertFeComprobanteDraft(input: {
 	subtotal: number;
 	impuesto: number;
 	total: number;
+	moneda?: string;
+	tipo_cambio?: number;
 }): Promise<string> {
 	const admin = createSupabaseAdminClient();
 	const id = crypto.randomUUID();
@@ -167,7 +171,8 @@ export async function insertFeComprobanteDraft(input: {
 		subtotal: input.subtotal,
 		impuesto: input.impuesto,
 		total: input.total,
-		moneda: 'CRC'
+		moneda: input.moneda ?? 'USD',
+		tipo_cambio: input.tipo_cambio ?? 1
 	};
 
 	let { error } = await admin.from('fe_comprobantes').insert({

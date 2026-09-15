@@ -39,12 +39,17 @@ export function parseMediosPagoFormValue(raw: FormDataEntryValue | null): FeMedi
 	}
 }
 
-export function assertMediosPagoMatchTotal(medios: FeMedioPagoItem[], total: number): void {
+export function assertMediosPagoMatchTotal(
+	medios: FeMedioPagoItem[],
+	total: number,
+	moneda: 'CRC' | 'USD' = 'USD'
+): void {
 	const sum = roundMoney(medios.reduce((s, m) => s + m.monto, 0));
 	const expected = roundMoney(total);
+	const symbol = moneda === 'CRC' ? '₡' : '$';
 	if (Math.abs(sum - expected) > 0.01) {
 		throw new Error(
-			`Los medios de pago (₡${sum.toFixed(2)}) deben sumar el total del comprobante (₡${expected.toFixed(2)}).`
+			`Los medios de pago (${symbol}${sum.toFixed(2)}) deben sumar el total del comprobante (${symbol}${expected.toFixed(2)}).`
 		);
 	}
 }

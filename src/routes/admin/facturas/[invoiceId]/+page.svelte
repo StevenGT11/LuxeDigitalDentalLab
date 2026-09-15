@@ -2,7 +2,9 @@
 	import { enhance, deserialize, applyAction } from '$app/forms';
 	import { goto, invalidate } from '$app/navigation';
 	import { tick } from 'svelte';
-	import FeMediosPagoModal from '$lib/components/fe/FeMediosPagoModal.svelte';
+	import FeMediosPagoModal, {
+		type FeMediosPagoConfirm
+	} from '$lib/components/fe/FeMediosPagoModal.svelte';
 	import FeNotaEmitModal from '$lib/components/fe/FeNotaEmitModal.svelte';
 	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
 	import {
@@ -23,9 +25,17 @@
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
 	import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 	import type { InvoiceLineDetail } from '$lib/lab/invoice-detail.server';
+	import FeProcessingBanner from '$lib/components/fe/FeProcessingBanner.svelte';
 	import FeRechazoDetail from '$lib/components/fe/FeRechazoDetail.svelte';
 	import { parseFeRechazoFromStored, parseFeRechazoObject } from '$lib/fe/format-rechazo';
 	import { defaultRazonForCodigo } from '$lib/fe/fe-referencia';
+	import type { FeComprobanteEstado } from '$lib/fe/types';
+	import {
+		canReemitFacturaTrasNc as computeReemitFacturaEligible,
+		isFeEstadoAceptado,
+		isNotaCreditoAceptada,
+		isNotaCreditoComprobante
+	} from '$lib/fe/reemit-factura';
 
 	let { data, form } = $props();
 
@@ -37,28 +47,100 @@
 	const notas = $derived(data.notas ?? []);
 	const client = $derived(data.client);
 
-	const xmlContent = $derived(
-		xmlTab === 'firmado' ? (fe?.xml_firmado ?? '') : (fe?.respuesta_xml ?? '')
-	);
-
 	const tipoIdLabel = $derived(
 		FE_TIPO_IDENTIFICACION_OPTIONS.find((o) => o.value === client.fe_tipo_identificacion)?.label ??
 			client.fe_tipo_identificacion ??
 			'—'
 	);
 
-	const feRechazo = $derived.by(() => {
-		if (!fe) return null;
-		if (fe.rechazo && Object.keys(fe.rechazo).length > 0) {
-			return parseFeRechazoObject(fe.rechazo);
+	let emittingFe = $state(false);
+	let emittingNota = $state(false);
+	let reemittingFactura = $state(false);
+	let consultingFe = $state(false);
+	let consultingNotaId = $state<string | null>(null);
+
+	const feBusy = $derived(
+		emittingFe || consultingFe || emittingNota || consultingNotaId !== null || reemittingFactura
+	);
+
+	let lastFe = $state<(typeof data.fe)>(null);
+	let pendingFeEstado = $state<FeComprobanteEstado | null>(null);
+
+	$effect(() => {
+		if (fe) lastFe = fe;
+	});
+
+	$effect(() => {
+		if (fe && (isFeEstadoAceptado(fe.estado) || fe.estado === 'rechazado' || fe.estado === 'error')) {
+			pendingFeEstado = null;
 		}
-		const err = fe.ultimo_error?.trim();
+	});
+
+	/** Estado FE unificado: datos recargados + snapshot mientras procesa + estado devuelto por la acción. */
+	const feDisplay = $derived.by(() => {
+		const base = fe ?? (feBusy && lastFe ? lastFe : null);
+		if (!base) return null;
+		if (pendingFeEstado) return { ...base, estado: pendingFeEstado };
+		return base;
+	});
+
+	const feAceptada = $derived(
+		isFeEstadoAceptado(feDisplay?.estado) || pendingFeEstado === 'aceptado'
+	);
+
+	const feProcessingBanner = $derived.by(() => {
+		if (emittingFe) {
+			return {
+				title:
+					fe && feComprobanteCanReemit(fe.estado)
+						? 'Reemitiendo factura electrónica'
+						: 'Generando factura electrónica',
+				subtitle: invoice.invoice_number,
+				detail: 'Firmando XML, enviando y consultando en Hacienda…'
+			};
+		}
+		if (emittingNota) {
+			return {
+				title: 'Emitiendo nota de crédito/débito',
+				subtitle: invoice.invoice_number,
+				detail: 'Firmando XML, enviando y consultando en Hacienda…'
+			};
+		}
+		if (reemittingFactura) {
+			return {
+				title: 'Reemitiendo factura',
+				subtitle: invoice.invoice_number,
+				detail: 'Creando copia corregida con los mismos ítems…'
+			};
+		}
+		if (consultingFe || consultingNotaId) {
+			return {
+				title: 'Consultando Hacienda',
+				subtitle: invoice.invoice_number,
+				detail: 'Obteniendo el estado del comprobante…'
+			};
+		}
+		return null;
+	});
+
+	const xmlContent = $derived(
+		xmlTab === 'firmado' ? (feDisplay?.xml_firmado ?? '') : (feDisplay?.respuesta_xml ?? '')
+	);
+
+	const feRechazo = $derived.by(() => {
+		if (!feDisplay) return null;
+		if (feDisplay.rechazo && Object.keys(feDisplay.rechazo).length > 0) {
+			return parseFeRechazoObject(feDisplay.rechazo);
+		}
+		const err = feDisplay.ultimo_error?.trim();
 		if (err?.startsWith('{')) return parseFeRechazoFromStored(null, err);
 		return null;
 	});
 
 	const feErrorPlain = $derived(
-		fe && !feRechazo && fe.ultimo_error?.trim() ? fe.ultimo_error.trim() : null
+		feDisplay && !feRechazo && feDisplay.ultimo_error?.trim()
+			? feDisplay.ultimo_error.trim()
+			: null
 	);
 
 	const canEmitFe = $derived(
@@ -70,11 +152,20 @@
 	const correctionFeBlocked = $derived(
 		Boolean(data.correctionContext && !data.correctionContext.sourceNcAceptada)
 	);
-	const notaNcAceptada = $derived(notas.some((n) => n.tipo_documento === '03' && n.estado === 'aceptado'));
+	const isCorrectionInvoice = $derived(Boolean(invoice.source_invoice_id && data.correctionContext));
+	const notaNcAceptada = $derived(notas.some(isNotaCreditoAceptada));
+	const canReemitFacturaTrasNc = $derived(
+		data.reemitFacturaEligible ??
+			computeReemitFacturaEligible({
+				feEstado: fe?.estado,
+				notas
+			})
+	);
+
 	const notaNcPendienteCorreccion = $derived(
-		fe?.estado === 'aceptado' &&
+		feAceptada &&
 			!notaNcAceptada &&
-			notas.some((n) => n.tipo_documento === '03' && n.estado !== 'aceptado')
+			notas.some((n) => isNotaCreditoComprobante(n) && n.estado !== 'aceptado')
 	);
 	const emitFeLabel = $derived(fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura');
 
@@ -82,34 +173,29 @@
 	let notaModalOpen = $state(false);
 	let emitFormEl = $state<HTMLFormElement | null>(null);
 	let mediosPagoJson = $state('');
+	let emitMoneda = $state('USD');
+	let emitTipoCambio = $state('1');
 	let mediosModalMode = $state<'fe' | 'nota'>('fe');
 	let notaDraft = $state<{
 		tipoDocumento: '02' | '03';
 		codigoReferencia: string;
 		razon: string;
 		feComprobanteId?: string;
-		crearFacturaCorreccion?: boolean;
 	} | null>(null);
 	let notaFormTipo = $state('');
 	let notaFormCodigo = $state('');
 	let notaFormRazon = $state('');
 	let notaFormFeId = $state('');
-	let notaFormCrearFactura = $state(false);
 	let reemitNotaId = $state<string | undefined>(undefined);
 	let savingLineas = $state(false);
 	let reconcilingMontos = $state(false);
-	let emittingFe = $state(false);
-	let emittingNota = $state(false);
-	let consultingFe = $state(false);
-	let consultingNotaId = $state<string | null>(null);
 	let feFeedback = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
 
-	const feBusy = $derived(emittingFe || consultingFe || emittingNota || consultingNotaId !== null);
 	const canEmitNota = $derived(
 		data.hasActiveEmisor &&
 			data.facturadorOk &&
-			fe?.estado === 'aceptado' &&
-			Boolean(fe.clave)
+			feAceptada &&
+			Boolean(feDisplay?.clave)
 	);
 	const lineAmountsNeedReconcile = $derived(data.lineAmountsNeedReconcile);
 
@@ -220,13 +306,11 @@
 		codigoReferencia: string;
 		razon: string;
 		feComprobanteId?: string;
-		crearFacturaCorreccion?: boolean;
 	}) {
 		notaFormTipo = draft.tipoDocumento;
 		notaFormCodigo = draft.codigoReferencia;
 		notaFormRazon = draft.razon;
 		notaFormFeId = draft.feComprobanteId ?? '';
-		notaFormCrearFactura = draft.crearFacturaCorreccion ?? false;
 	}
 
 	function openNotaModal(reemitId?: string) {
@@ -244,8 +328,7 @@
 					nota.referencia_codigo ?? '01',
 					nota.tipo_documento === '02' ? '02' : '03'
 				),
-			feComprobanteId: nota.id,
-			crearFacturaCorreccion: false
+			feComprobanteId: nota.id
 		});
 		void emitNotaAction();
 	}
@@ -264,7 +347,6 @@
 		formData.set('tipo_documento', notaFormTipo);
 		formData.set('codigo_referencia', notaFormCodigo);
 		formData.set('razon', notaFormRazon);
-		formData.set('crear_factura_correccion', notaFormCrearFactura ? '1' : '0');
 		if (notaFormFeId) formData.set('fe_comprobante_id', notaFormFeId);
 		if (medios?.length) formData.set('medios_pago', JSON.stringify(medios));
 
@@ -275,16 +357,12 @@
 
 			if (result.type === 'success') {
 				const data = result.data as Record<string, unknown> | undefined;
+				applyActionFeEstado(data);
 				feFeedback = {
 					kind: 'success',
 					message: actionResultMessage(data, 'Nota enviada a Hacienda.')
 				};
 				notaDraft = null;
-				const redirectTo = typeof data?.redirectTo === 'string' ? data.redirectTo : null;
-				if (redirectTo) {
-					await goto(redirectTo);
-					return;
-				}
 				await invalidate('app:invoice-detail');
 			} else if (result.type === 'failure') {
 				feFeedback = {
@@ -304,7 +382,6 @@
 		tipoDocumento: '02' | '03';
 		codigoReferencia: string;
 		razon: string;
-		crearFacturaCorreccion: boolean;
 	}) {
 		notaDraft = { ...draft, feComprobanteId: reemitNotaId };
 		setNotaFormFields({ ...notaDraft, feComprobanteId: reemitNotaId });
@@ -322,7 +399,6 @@
 		tipoDocumento: '02' | '03';
 		codigoReferencia: string;
 		razon: string;
-		crearFacturaCorreccion: boolean;
 	}) {
 		notaDraft = { ...draft, feComprobanteId: reemitNotaId };
 		setNotaFormFields({ ...notaDraft, feComprobanteId: reemitNotaId });
@@ -330,14 +406,16 @@
 		openNotaMediosModal();
 	}
 
-	async function onMediosConfirm(medios: FeMedioPagoItem[]) {
+	async function onMediosConfirm(result: FeMediosPagoConfirm) {
 		feFeedback = null;
 		emitModalOpen = false;
 		if (mediosModalMode === 'nota') {
-			await emitNotaAction(medios);
+			await emitNotaAction(result.medios);
 			return;
 		}
-		mediosPagoJson = JSON.stringify(medios);
+		mediosPagoJson = JSON.stringify(result.medios);
+		emitMoneda = result.moneda;
+		emitTipoCambio = String(result.tipoCambio);
 		await tick();
 		emittingFe = true;
 		emitFormEl?.requestSubmit();
@@ -347,6 +425,13 @@
 		return typeof data?.message === 'string' && data.message.trim() ? data.message : fallback;
 	}
 
+	function applyActionFeEstado(data: Record<string, unknown> | undefined) {
+		const raw = data?.feEstado;
+		if (typeof raw === 'string' && raw.trim()) {
+			pendingFeEstado = raw as FeComprobanteEstado;
+		}
+	}
+
 	async function afterFeFormAction(
 		result: import('@sveltejs/kit').ActionResult,
 		update: (opts?: { reset?: boolean }) => Promise<void>
@@ -354,6 +439,7 @@
 		await update({ reset: false });
 		if (result.type === 'success') {
 			const data = result.data as Record<string, unknown> | undefined;
+			applyActionFeEstado(data);
 			feFeedback = {
 				kind: 'success',
 				message: actionResultMessage(data, 'Operación completada.')
@@ -386,42 +472,19 @@
 	}
 </script>
 
-{#if emittingFe}
-	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
-		<div class="fe-emit-overlay__panel">
-			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
-			<p class="fe-emit-overlay__title">
-				{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitiendo factura electrónica' : 'Generando factura electrónica'}
-			</p>
-			<p class="type-caption fe-emit-overlay__subtitle">{invoice.invoice_number}</p>
-			<p class="type-caption">Firmando XML, enviando y consultando en Hacienda…</p>
-		</div>
-	</div>
-{:else if emittingNota}
-	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
-		<div class="fe-emit-overlay__panel">
-			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
-			<p class="fe-emit-overlay__title">Emitiendo nota de crédito/débito</p>
-			<p class="type-caption fe-emit-overlay__subtitle">{invoice.invoice_number}</p>
-			<p class="type-caption">Firmando XML, enviando y consultando en Hacienda…</p>
-		</div>
-	</div>
-{:else if consultingFe || consultingNotaId}
-	<div class="fe-emit-overlay" role="alertdialog" aria-modal="true" aria-busy="true" aria-live="polite">
-		<div class="fe-emit-overlay__panel">
-			<div class="fe-emit-overlay__spinner" aria-hidden="true"></div>
-			<p class="fe-emit-overlay__title">Consultando Hacienda</p>
-			<p class="type-caption fe-emit-overlay__subtitle">{invoice.invoice_number}</p>
-			<p class="type-caption">Obteniendo el estado del comprobante…</p>
-		</div>
-	</div>
-{/if}
-
 <div class="dash-page invoice-detail">
+	{#if feProcessingBanner}
+		<FeProcessingBanner
+			title={feProcessingBanner.title}
+			subtitle={feProcessingBanner.subtitle}
+			detail={feProcessingBanner.detail}
+		/>
+	{/if}
+
+	<div class="invoice-detail__main" class:fe-processing-blocked={feBusy}>
 	<p class="type-caption" style="margin-bottom: var(--spacing-md);">
 		<a href="/admin/facturas" class="text-link">← Volver a facturas</a>
 	</p>
-
 	<header class="invoice-detail__head dash-panel dash-panel--section">
 		<div>
 			<p class="type-caption invoice-detail__eyebrow">Factura interna</p>
@@ -436,23 +499,53 @@
 		</div>
 		<div class="invoice-detail__head-actions">
 			<span class={getInvoiceEstadoClass(invoice.estado)}>{getInvoiceEstadoLabel(invoice.estado)}</span>
-			{#if fe}
-				<span class={getFeComprobanteEstadoClass(fe.estado)}>
-					{getFeComprobanteEstadoLabel(fe.estado)}
+			{#if feDisplay}
+				<span class={getFeComprobanteEstadoClass(feDisplay.estado)}>
+					{getFeComprobanteEstadoLabel(feDisplay.estado)}
 				</span>
 			{/if}
 		</div>
 	</header>
 
-		{#if correctionFeBlocked && data.correctionContext}
-			<p class="invoice-detail__alert invoice-detail__alert--pre" role="alert">
-				Esta factura es una corrección de
-				<a href="/admin/facturas/{data.correctionContext.sourceInvoiceId}" class="text-link">
-					{data.correctionContext.sourceInvoiceNumber}
-				</a>.
-				Debe existir una <strong>nota de crédito aceptada</strong> en la factura original antes de emitir la nueva FE.
-				Corrija y reenvíe la NC hasta que Hacienda la acepte.
-			</p>
+		{#if isCorrectionInvoice && data.correctionContext}
+			{#if correctionFeBlocked}
+				<p class="invoice-detail__alert invoice-detail__alert--pre" role="alert">
+					Esta factura es una corrección de
+					<a href="/admin/facturas/{data.correctionContext.sourceInvoiceId}" class="text-link">
+						{data.correctionContext.sourceInvoiceNumber}
+					</a>.
+					Debe existir una <strong>nota de crédito aceptada</strong> en la factura original antes de emitir la
+					nueva FE. Corrija y reenvíe la NC hasta que Hacienda la acepte.
+				</p>
+			{:else if feAceptada}
+				<p class="invoice-detail__alert invoice-detail__alert--ok" role="status">
+					<strong>Factura corregida.</strong>
+					Copia de
+					<a href="/admin/facturas/{data.correctionContext.sourceInvoiceId}" class="text-link">
+						{data.correctionContext.sourceInvoiceNumber}
+					</a>.
+					{#if canReemitFacturaTrasNc}
+						Tras la NC aceptada en esta factura, use <strong>Reemitir factura</strong> para crear otra copia
+						corregida.
+					{:else if data.correctionInvoice}
+						Ya existe una copia posterior:
+						<a href="/admin/facturas/{data.correctionInvoice.id}" class="text-link">
+							{data.correctionInvoice.invoice_number}
+						</a>.
+					{:else}
+						Si necesita corregir de nuevo, emita una NC aquí y luego use <strong>Reemitir factura</strong>.
+					{/if}
+				</p>
+			{:else}
+				<p class="invoice-detail__alert invoice-detail__alert--ok" role="status">
+					<strong>Factura corregida.</strong>
+					Copia de
+					<a href="/admin/facturas/{data.correctionContext.sourceInvoiceId}" class="text-link">
+						{data.correctionContext.sourceInvoiceNumber}
+					</a>
+					— emita la nueva FE en esta factura cuando los datos estén listos.
+				</p>
+			{/if}
 		{/if}
 
 		{#if feFeedback || form?.message}
@@ -466,7 +559,7 @@
 		</div>
 	{/if}
 
-	{#if !data.facturadorOk}
+	{#if !data.facturadorOk && !feBusy}
 		<p class="invoice-detail__alert" role="alert">
 			Facturador no disponible ({data.facturadorUrl}). {data.facturadorError}
 		</p>
@@ -646,7 +739,7 @@
 					</button>
 				</form>
 			</div>
-		{:else if fe?.estado === 'aceptado'}
+		{:else if feAceptada}
 			<p class="type-caption invoice-detail__lines-locked">
 				La FE está aceptada; los importes no se pueden editar aquí.
 			</p>
@@ -659,20 +752,24 @@
 			Ambiente de envío: {data.emitAmbiente === 'production' ? 'Producción' : 'Pruebas (staging)'}
 		</p>
 
-		{#if !fe}
-			<p class="type-caption">Aún no hay comprobante electrónico registrado para esta factura.</p>
+		{#if !feDisplay}
+			{#if feBusy}
+				<p class="type-caption">Procesando comprobante con Hacienda…</p>
+			{:else}
+				<p class="type-caption">Aún no hay comprobante electrónico registrado para esta factura.</p>
+			{/if}
 		{:else}
 			<dl class="invoice-detail__dl invoice-detail__dl--fe">
-				<div><dt>Estado</dt><dd>{getFeComprobanteEstadoLabel(fe.estado)}</dd></div>
-				<div><dt>Consecutivo</dt><dd>{fe.consecutivo ?? fe.consecutivo_num}</dd></div>
-				<div><dt>Clave</dt><dd class="invoice-detail__mono invoice-detail__clave">{fe.clave ?? '—'}</dd></div>
-				<div><dt>HTTP Hacienda</dt><dd>{fe.hacienda_status ?? '—'}</dd></div>
-				<div><dt>Moneda</dt><dd>{fe.moneda}</dd></div>
-				<div><dt>Enviado</dt><dd>{fe.enviado_at ? formatDate(fe.enviado_at) : '—'}</dd></div>
-				<div><dt>Resuelto</dt><dd>{fe.resuelto_at ? formatDate(fe.resuelto_at) : '—'}</dd></div>
-				<div><dt>Subtotal FE</dt><dd>{formatCurrency(fe.subtotal)}</dd></div>
-				<div><dt>Impuesto FE</dt><dd>{formatCurrency(fe.impuesto)}</dd></div>
-				<div><dt>Total FE</dt><dd>{formatCurrency(fe.total)}</dd></div>
+				<div><dt>Estado</dt><dd>{getFeComprobanteEstadoLabel(feDisplay.estado)}</dd></div>
+				<div><dt>Consecutivo</dt><dd>{feDisplay.consecutivo ?? feDisplay.consecutivo_num}</dd></div>
+				<div><dt>Clave</dt><dd class="invoice-detail__mono invoice-detail__clave">{feDisplay.clave ?? '—'}</dd></div>
+				<div><dt>HTTP Hacienda</dt><dd>{feDisplay.hacienda_status ?? '—'}</dd></div>
+				<div><dt>Moneda</dt><dd>{feDisplay.moneda}</dd></div>
+				<div><dt>Enviado</dt><dd>{feDisplay.enviado_at ? formatDate(feDisplay.enviado_at) : '—'}</dd></div>
+				<div><dt>Resuelto</dt><dd>{feDisplay.resuelto_at ? formatDate(feDisplay.resuelto_at) : '—'}</dd></div>
+				<div><dt>Subtotal FE</dt><dd>{formatCurrency(feDisplay.subtotal)}</dd></div>
+				<div><dt>Impuesto FE</dt><dd>{formatCurrency(feDisplay.impuesto)}</dd></div>
+				<div><dt>Total FE</dt><dd>{formatCurrency(feDisplay.total)}</dd></div>
 			</dl>
 
 			{#if feRechazo}
@@ -722,6 +819,8 @@
 				>
 					<input type="hidden" name="invoice_id" value={invoice.id} />
 					<input type="hidden" name="medios_pago" value={mediosPagoJson} />
+					<input type="hidden" name="moneda" value={emitMoneda} />
+					<input type="hidden" name="tipo_cambio" value={emitTipoCambio} />
 				</form>
 				<button type="button" class="btn-primary" onclick={openEmitModal} disabled={feBusy}>
 					{emittingFe ? 'Enviando…' : emitFeLabel}
@@ -752,16 +851,86 @@
 		</div>
 	</section>
 
-	{#if fe?.estado === 'aceptado'}
+	{#if feAceptada}
 		<section class="dash-panel dash-panel--section">
 			<div class="invoice-detail__lines-head">
 				<h2 class="dash-panel__section-title">Notas de crédito / débito</h2>
-				{#if canEmitNota}
-					<button type="button" class="btn-primary-pill" onclick={() => openNotaModal()} disabled={feBusy}>
-						Emitir y enviar a Hacienda
-					</button>
-				{/if}
+				<div class="invoice-detail__notas-head-actions">
+					{#if canReemitFacturaTrasNc}
+						{#if data.correctionInvoice}
+							<a
+								href="/admin/facturas/{data.correctionInvoice.id}"
+								class="btn-primary invoice-detail__correction-link"
+							>
+								Ir a factura corregida
+							</a>
+						{:else}
+							<form
+								method="POST"
+								action="?/crearFacturaCorreccion"
+								use:enhance={() => {
+									feFeedback = null;
+									reemittingFactura = true;
+									return async ({ result, update }) => {
+										try {
+											await update({ reset: false });
+											if (result.type === 'success') {
+												const payload = result.data as Record<string, unknown> | undefined;
+												feFeedback = {
+													kind: 'success',
+													message: actionResultMessage(payload, 'Factura corregida lista.')
+												};
+												const redirectTo =
+													typeof payload?.redirectTo === 'string' ? payload.redirectTo : null;
+												if (redirectTo) {
+													await goto(redirectTo);
+													return;
+												}
+												await invalidate('app:invoice-detail');
+											} else if (result.type === 'failure') {
+												feFeedback = {
+													kind: 'error',
+													message: actionResultMessage(
+														result.data as Record<string, unknown>,
+														'No se pudo crear la factura corregida.'
+													)
+												};
+											}
+										} finally {
+											reemittingFactura = false;
+										}
+									};
+								}}
+							>
+								<input type="hidden" name="invoice_id" value={invoice.id} />
+								<button type="submit" class="btn-primary" disabled={feBusy}>
+									Reemitir factura
+								</button>
+							</form>
+						{/if}
+					{/if}
+					{#if canEmitNota}
+						<button type="button" class="btn-primary-pill" onclick={() => openNotaModal()} disabled={feBusy}>
+							Emitir y enviar a Hacienda
+						</button>
+					{/if}
+				</div>
 			</div>
+
+			{#if canReemitFacturaTrasNc}
+				<div class="invoice-detail__reemit-nc">
+					<p class="type-caption">
+						La nota de crédito fue aceptada por Hacienda. Cree una nueva factura interna con los mismos ítems
+						y emita la FE corregida en esa copia.
+						{#if data.correctionInvoice}
+							Ya existe
+							<a href="/admin/facturas/{data.correctionInvoice.id}" class="text-link">
+								{data.correctionInvoice.invoice_number}
+							</a>.
+						{/if}
+					</p>
+				</div>
+			{/if}
 
 			{#if notaNcPendienteCorreccion}
 				<p class="invoice-detail__alert invoice-detail__alert--pre" role="alert">
@@ -897,6 +1066,7 @@
 			<textarea class="invoice-detail__xml" readonly value={xmlContent || 'Sin contenido.'}></textarea>
 		</section>
 	{/if}
+	</div>
 
 	<FeNotaEmitModal
 		bind:open={notaModalOpen}
@@ -908,6 +1078,7 @@
 		bind:open={emitModalOpen}
 		total={mediosModalTotal}
 		subtitle={mediosModalSubtitle}
+		showCurrency={mediosModalMode === 'fe'}
 		onCancel={() => {}}
 		onConfirm={onMediosConfirm}
 	/>
@@ -1049,56 +1220,23 @@
 		border: 0;
 	}
 
-	.fe-emit-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 200;
+	.invoice-detail__notas-head-actions {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		justify-content: center;
-		padding: 1rem;
-		background: rgb(15 23 42 / 45%);
-		backdrop-filter: blur(2px);
+		gap: 0.5rem;
 	}
 
-	.fe-emit-overlay__panel {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.65rem;
-		padding: 1.75rem 2rem;
-		min-width: min(20rem, calc(100vw - 2rem));
-		border-radius: 10px;
-		background: var(--color-card, #fff);
-		border: 1px solid var(--color-border, #e2e8f0);
-		box-shadow: 0 20px 48px rgb(15 23 42 / 25%);
-		text-align: center;
+	.invoice-detail__reemit-nc {
+		margin: 0 0 var(--spacing-md);
+		padding: var(--spacing-md);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
+		background: color-mix(in srgb, var(--color-primary) 4%, transparent);
 	}
 
-	.fe-emit-overlay__title {
+	.invoice-detail__reemit-nc p {
 		margin: 0;
-		font-size: 1rem;
-		font-weight: 600;
-	}
-
-	.fe-emit-overlay__subtitle {
-		margin: 0;
-		font-weight: 500;
-	}
-
-	.fe-emit-overlay__spinner {
-		width: 2.25rem;
-		height: 2.25rem;
-		border: 3px solid color-mix(in srgb, var(--color-border, #cbd5e1) 60%, transparent);
-		border-top-color: var(--color-primary, #0f172a);
-		border-radius: 50%;
-		animation: fe-emit-spin 0.75s linear infinite;
-	}
-
-	@keyframes fe-emit-spin {
-		to {
-			transform: rotate(360deg);
-		}
 	}
 
 	.invoice-detail__reemit-hint {

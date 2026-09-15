@@ -15,6 +15,12 @@ export type InvoiceListRow = {
 	fecha_emision: string;
 	estado: InvoiceEstado;
 	fe: FeComprobanteSummary | null;
+	/** NC aceptada + factura corregida (solo cuando FE original está aceptada). */
+	reemit?: {
+		ncAceptada: boolean;
+		correctionInvoiceId: string | null;
+		correctionInvoiceNumber: string | null;
+	};
 };
 
 export const INVOICE_LIST_PAGE_SIZES = [10, 15, 25, 50] as const;

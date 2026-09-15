@@ -1,6 +1,17 @@
 <script lang="ts">
+	import {
+		FE_MONEDA_OPTIONS,
+		feComprobanteAmountFromLedger,
+		type FeMoneda
+	} from '$lib/fe/fe-moneda';
 	import { FE_MEDIO_PAGO_OPTIONS, roundMoney, type FeMedioPagoItem } from '$lib/fe/medios-pago';
-	import { formatColones } from '$lib/lab/helpers';
+	import { formatColones, formatCurrency } from '$lib/lab/helpers';
+
+	export type FeMediosPagoConfirm = {
+		medios: FeMedioPagoItem[];
+		moneda: FeMoneda;
+		tipoCambio: number;
+	};
 
 	type RowState = {
 		tipo: string;
@@ -11,19 +22,50 @@
 
 	interface Props {
 		open: boolean;
+		/** Total interno de la factura (USD en el libro). */
 		total: number;
 		subtitle?: string;
+		showCurrency?: boolean;
+		defaultMoneda?: FeMoneda;
 		onCancel: () => void;
-		onConfirm: (medios: FeMedioPagoItem[]) => void;
+		onConfirm: (result: FeMediosPagoConfirm) => void;
 	}
 
-	let { open = $bindable(false), total, subtitle = '', onCancel, onConfirm }: Props = $props();
+	let {
+		open = $bindable(false),
+		total,
+		subtitle = '',
+		showCurrency = true,
+		defaultMoneda = 'USD',
+		onCancel,
+		onConfirm
+	}: Props = $props();
 
 	let dialogEl = $state<HTMLDialogElement | null>(null);
 	let rows = $state<RowState[]>([]);
 	let formError = $state('');
+	let moneda = $state<FeMoneda>('USD');
+	let tipoCambioInput = $state('');
 
-	const totalRounded = $derived(roundMoney(total));
+	const tipoCambio = $derived.by(() => {
+		const n = Number(String(tipoCambioInput).replace(',', '.'));
+		return Number.isFinite(n) && n > 0 ? roundMoney(n) : 0;
+	});
+
+	const comprobanteTotal = $derived(
+		!showCurrency
+			? roundMoney(total)
+			: tipoCambio > 0
+				? feComprobanteAmountFromLedger(total, moneda, tipoCambio)
+				: 0
+	);
+
+	const totalRounded = $derived(roundMoney(comprobanteTotal));
+
+	function formatAmount(amount: number): string {
+		if (!showCurrency) return formatCurrency(amount);
+		return moneda === 'CRC' ? formatColones(amount) : formatCurrency(amount);
+	}
 
 	const assigned = $derived(
 		roundMoney(
@@ -38,21 +80,32 @@
 	const remaining = $derived(roundMoney(totalRounded - assigned));
 
 	const canApply = $derived(
-		totalRounded > 0 && Math.abs(remaining) < 0.01 && rows.some((r) => r.active && Number(r.monto) > 0)
+		totalRounded > 0 &&
+			(showCurrency ? tipoCambio > 0 : true) &&
+			Math.abs(remaining) < 0.01 &&
+			rows.some((r) => r.active && Number(r.monto) > 0)
 	);
 
-	function defaultRows(): RowState[] {
+	function defaultRows(forTotal: number): RowState[] {
+		const t = roundMoney(forTotal);
 		return FE_MEDIO_PAGO_OPTIONS.map((opt, i) => ({
 			tipo: opt.tipo,
 			label: opt.label,
 			active: i === 1,
-			monto: i === 1 ? String(totalRounded) : ''
+			monto: i === 1 ? String(t) : ''
 		}));
 	}
 
-	function resetRows() {
-		rows = defaultRows();
+	function resetForm() {
+		moneda = defaultMoneda;
+		tipoCambioInput = '';
+		rows = defaultRows(showCurrency ? total : roundMoney(total));
 		formError = '';
+	}
+
+	function refreshRowsForTotal() {
+		if (totalRounded <= 0 || tipoCambio <= 0) return;
+		rows = defaultRows(totalRounded);
 	}
 
 	function toggleRow(index: number, active: boolean) {
@@ -78,6 +131,14 @@
 
 	function handleConfirm() {
 		formError = '';
+		if (showCurrency && tipoCambio <= 0) {
+			formError =
+				moneda === 'USD'
+					? 'Indique el tipo de cambio (colones por 1 USD) requerido por Hacienda.'
+					: 'Indique el tipo de cambio para convertir USD a colones.';
+			return;
+		}
+
 		const medios: FeMedioPagoItem[] = [];
 		for (const r of rows) {
 			if (!r.active) continue;
@@ -93,10 +154,14 @@
 			return;
 		}
 		if (Math.abs(roundMoney(medios.reduce((s, m) => s + m.monto, 0)) - totalRounded) > 0.01) {
-			formError = `Quedan ${formatColones(Math.abs(remaining))} por asignar para igualar el total.`;
+			formError = `Quedan ${formatAmount(Math.abs(remaining))} por asignar para igualar el total.`;
 			return;
 		}
-		onConfirm(medios);
+		onConfirm({
+			medios,
+			moneda: showCurrency ? moneda : defaultMoneda,
+			tipoCambio: showCurrency ? tipoCambio : 1
+		});
 		open = false;
 	}
 
@@ -107,19 +172,15 @@
 
 	$effect(() => {
 		if (open) {
-			resetRows();
+			resetForm();
 			dialogEl?.showModal();
 		} else {
 			dialogEl?.close();
 		}
 	});
-
-	function onDialogClick(event: MouseEvent) {
-		if (event.target === dialogEl) close();
-	}
 </script>
 
-<dialog bind:this={dialogEl} class="fe-medios-dialog" onclick={onDialogClick}>
+<dialog bind:this={dialogEl} class="fe-medios-dialog" onclick={(e) => e.target === dialogEl && close()}>
 	<div class="fe-medios-dialog__panel">
 		<header class="fe-medios-dialog__header">
 			<div>
@@ -131,21 +192,55 @@
 			<button type="button" class="fe-medios-dialog__close" aria-label="Cerrar" onclick={close}>×</button>
 		</header>
 
+		{#if showCurrency}
+			<div class="fe-medios-dialog__currency">
+				<label class="field fe-medios-dialog__currency-field">
+					<span class="field-label">Moneda del comprobante</span>
+					<select
+						class="field-select"
+						value={moneda}
+						onchange={(e) => {
+							moneda = e.currentTarget.value as FeMoneda;
+							refreshRowsForTotal();
+						}}
+					>
+						{#each FE_MONEDA_OPTIONS as opt (opt.code)}
+							<option value={opt.code}>{opt.label}</option>
+						{/each}
+					</select>
+				</label>
+				<label class="field fe-medios-dialog__currency-field">
+					<span class="field-label">Tipo de cambio (₡ por USD)</span>
+					<input
+						type="text"
+						inputmode="decimal"
+						class="field-input"
+						placeholder="Ej. 520.50"
+						value={tipoCambioInput}
+						oninput={(e) => {
+							tipoCambioInput = e.currentTarget.value;
+							if (tipoCambio > 0) refreshRowsForTotal();
+						}}
+					/>
+				</label>
+			</div>
+		{/if}
+
 		<div class="fe-medios-dialog__totals">
 			<div class="fe-medios-dialog__total-box">
 				<span class="fe-medios-dialog__total-label">Total comprobante</span>
-				<span class="fe-medios-dialog__total-value">{formatColones(totalRounded)}</span>
+				<span class="fe-medios-dialog__total-value">{formatAmount(totalRounded)}</span>
 			</div>
 			<div class="fe-medios-dialog__total-box">
 				<span class="fe-medios-dialog__total-label">Asignado</span>
-				<span class="fe-medios-dialog__total-value">{formatColones(assigned)}</span>
+				<span class="fe-medios-dialog__total-value">{formatAmount(assigned)}</span>
 			</div>
 			<div
 				class="fe-medios-dialog__total-box"
 				class:fe-medios-dialog__total-box--highlight={Math.abs(remaining) >= 0.01}
 			>
 				<span class="fe-medios-dialog__total-label">Restante</span>
-				<span class="fe-medios-dialog__total-value">{formatColones(remaining)}</span>
+				<span class="fe-medios-dialog__total-value">{formatAmount(remaining)}</span>
 			</div>
 		</div>
 
@@ -200,7 +295,7 @@
 			<p class="fe-medios-dialog__error" role="alert">{formError}</p>
 		{:else if Math.abs(remaining) >= 0.01}
 			<p class="fe-medios-dialog__hint">
-				Quedan {formatColones(remaining)} por asignar para igualar el total.
+				Quedan {formatAmount(remaining)} por asignar para igualar el total.
 			</p>
 		{/if}
 
@@ -230,7 +325,7 @@
 	.fe-medios-dialog__panel {
 		display: flex;
 		flex-direction: column;
-		max-height: min(90vh, 36rem);
+		max-height: min(90vh, 40rem);
 		background: var(--color-card, #fff);
 		border: 1px solid var(--color-border, #e2e8f0);
 		border-radius: 8px;
@@ -266,6 +361,13 @@
 		line-height: 1;
 		cursor: pointer;
 		color: var(--color-muted-foreground, #64748b);
+	}
+
+	.fe-medios-dialog__currency {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		padding: 1rem 1.25rem 0;
 	}
 
 	.fe-medios-dialog__totals {
@@ -438,6 +540,10 @@
 	}
 
 	@media (max-width: 640px) {
+		.fe-medios-dialog__currency {
+			grid-template-columns: 1fr;
+		}
+
 		.fe-medios-dialog__head,
 		.fe-medios-dialog__row {
 			grid-template-columns: 1fr;
