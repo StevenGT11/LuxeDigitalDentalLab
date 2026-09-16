@@ -290,3 +290,22 @@ export async function fetchInvoiceListPage(query: InvoiceListQuery): Promise<Inv
 		estado: query.estado
 	};
 }
+
+/** Facturas de un cliente con comprobante FE embebido (ficha de cliente). */
+export async function fetchInvoicesByClientId(clientId: string): Promise<InvoiceListRow[]> {
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin
+		.from('invoices')
+		.select(LIST_SELECT)
+		.eq('client_id', clientId)
+		.order('fecha_emision', { ascending: false });
+	if (error) throw error;
+
+	const invoices = ((data ?? []) as DbInvoiceListRow[]).map(mapInvoiceRow);
+	const reemitById = await fetchInvoiceReemitContexts(invoices.map((i) => i.id));
+	for (const inv of invoices) {
+		const ctx = reemitById[inv.id];
+		if (ctx) inv.reemit = ctx;
+	}
+	return invoices;
+}

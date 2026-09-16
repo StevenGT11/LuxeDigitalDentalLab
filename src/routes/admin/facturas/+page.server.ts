@@ -13,8 +13,7 @@ import {
 } from '$lib/lab/invoice-detail.server';
 import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
 import { fetchInvoiceListPage, parseInvoiceListQuery } from '$lib/lab/invoices-list.server';
-import { updateInvoiceStatusInDb } from '$lib/lab/invoices-db';
-import type { InvoiceEstado } from '$lib/lab/types';
+import { updateInvoiceStatusServer } from '$lib/lab/invoice-status.server';
 
 /** Una carga: facturas paginadas + flags FE (sin hop extra a /api). */
 export const load: PageServerLoad = async ({ parent, url, depends }) => {
@@ -47,7 +46,7 @@ export const actions: Actions = {
 		if (!invoiceId || !estado) return fail(400, { message: 'Datos inválidos.' });
 
 		try {
-			await updateInvoiceStatusInDb(invoiceId, estado as InvoiceEstado);
+			await updateInvoiceStatusServer(invoiceId, estado);
 			return { success: true, message: 'Estado de cobro actualizado.', invoiceId };
 		} catch (err) {
 			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo actualizar.', invoiceId });

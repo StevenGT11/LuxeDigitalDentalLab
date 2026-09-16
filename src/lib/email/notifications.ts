@@ -115,3 +115,30 @@ export async function notifyClient(params: {
 	const html = layoutHtml(params.subject, escapeHtml(params.message));
 	await sendEmail({ to: params.to, subject: params.subject, text, html });
 }
+
+/** Paquete de factura electrónica aceptada: XML firmado, XML de Hacienda y PDF. */
+export async function notifyFacturaElectronicaAceptada(params: {
+	to: string;
+	invoiceNumber: string;
+	clientName: string;
+	clave?: string | null;
+	attachments: {
+		filename: string;
+		content: Buffer | string;
+		contentType?: string;
+	}[];
+}): Promise<void> {
+	const subject = `Factura electrónica ${params.invoiceNumber} — ${APP_NAME}`;
+	const claveLine = params.clave ? ` Clave: ${params.clave}.` : '';
+	const files = params.attachments.map((a) => a.filename).join(', ');
+	const text = `Adjuntamos la factura electrónica ${params.invoiceNumber} de ${params.clientName}.${claveLine}
+
+Archivos: ${files}
+
+— ${APP_NAME}`;
+	const html = layoutHtml(
+		`Factura ${escapeHtml(params.invoiceNumber)}`,
+		`Adjuntamos la factura electrónica de <strong>${escapeHtml(params.clientName)}</strong>: XML generado, XML de aceptación de Hacienda y representación gráfica (PDF).${params.clave ? ` Clave: <strong>${escapeHtml(params.clave)}</strong>.` : ''}`
+	);
+	await sendEmail({ to: params.to, subject, text, html, attachments: params.attachments });
+}

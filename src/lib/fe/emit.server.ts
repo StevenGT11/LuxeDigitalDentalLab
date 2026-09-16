@@ -47,6 +47,7 @@ import {
 	type FeMedioPagoItem,
 	roundMoney
 } from './medios-pago';
+import { maybeSendFeAceptadaEmail } from './fe-email.server';
 import type { FeComprobanteEstado } from './types';
 
 type InvoiceRow = {
@@ -440,8 +441,15 @@ export async function consultarComprobanteElectronicoById(
 				: null
 	});
 
+	const emailNote = await maybeSendFeAceptadaEmail({
+		invoiceId: fe.invoice_id,
+		tipoDocumento: fe.tipo_documento,
+		previousEstado: fe.estado,
+		estado
+	});
+
 	return {
-		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }),
+		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }) + emailNote,
 		estado
 	};
 }
@@ -478,8 +486,15 @@ export async function consultarFacturaElectronica(invoiceId: string): Promise<{ 
 				: null
 	});
 
+	const emailNote = await maybeSendFeAceptadaEmail({
+		invoiceId,
+		tipoDocumento: fe.tipo_documento,
+		previousEstado: fe.estado,
+		estado
+	});
+
 	return {
-		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }),
+		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }) + emailNote,
 		estado
 	};
 }
@@ -542,10 +557,9 @@ export async function emitirYConsultarFacturaElectronica(
 	await sleep(1500);
 	const consult = await consultarFacturaElectronicaConReintentos(invoiceId);
 	const consultaPending = consult.estado === 'procesando';
-	const message = formatFeHaciendaResultMessage(consult.estado, {
-		kind: 'fe',
-		consultaPending
-	});
+	const message = consultaPending
+		? formatFeHaciendaResultMessage(consult.estado, { kind: 'fe', consultaPending: true })
+		: consult.message;
 
 	return {
 		message,

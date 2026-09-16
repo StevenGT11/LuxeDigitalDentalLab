@@ -22,6 +22,7 @@ type DbFe = {
 	referencia_codigo?: string | null;
 	referencia_razon?: string | null;
 	xml_firmado?: string | null;
+	respuesta_xml?: string | null;
 };
 
 const SUMMARY_COLS =

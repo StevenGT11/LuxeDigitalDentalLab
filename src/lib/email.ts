@@ -81,18 +81,25 @@ function getTransporter(): Transporter {
 	return transporter;
 }
 
+export type EmailAttachment = {
+	filename: string;
+	content: Buffer | string;
+	contentType?: string;
+};
+
 export type SendEmailParams = {
 	to: string;
 	subject: string;
 	html?: string;
 	text?: string;
+	attachments?: EmailAttachment[];
 };
 
 export function isValidEmailAddress(email: string): boolean {
 	return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-export async function sendEmail({ to, subject, html, text }: SendEmailParams): Promise<void> {
+export async function sendEmail({ to, subject, html, text, attachments }: SendEmailParams): Promise<void> {
 	const cfg = getSmtpConfig();
 	const transport = getTransporter();
 
@@ -109,7 +116,8 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams): P
 			to: to.trim(),
 			subject: subject.trim(),
 			...(bodyHtml ? { html: bodyHtml } : {}),
-			...(bodyText ? { text: bodyText } : {})
+			...(bodyText ? { text: bodyText } : {}),
+			...(attachments?.length ? { attachments } : {})
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

@@ -892,6 +892,30 @@
 	background: var(--dash-table-hover);
 }
 
+.dash-content .data-table tbody tr.invoice-row--danger {
+	background: color-mix(in srgb, #dc2626 10%, var(--dash-card-solid));
+}
+
+.dash-content .data-table tbody tr.invoice-row--danger:hover {
+	background: color-mix(in srgb, #dc2626 16%, var(--dash-card-solid));
+}
+
+.dash-content .data-table tbody tr.invoice-row--warning {
+	background: color-mix(in srgb, #ca8a04 12%, var(--dash-card-solid));
+}
+
+.dash-content .data-table tbody tr.invoice-row--warning:hover {
+	background: color-mix(in srgb, #ca8a04 18%, var(--dash-card-solid));
+}
+
+.dash-content .data-table tbody tr.invoice-row--success {
+	background: color-mix(in srgb, #16a34a 10%, var(--dash-card-solid));
+}
+
+.dash-content .data-table tbody tr.invoice-row--success:hover {
+	background: color-mix(in srgb, #16a34a 16%, var(--dash-card-solid));
+}
+
 .dash-content .data-table tfoot td {
 	background: var(--dash-table-head);
 	font-weight: 600;
@@ -1008,6 +1032,42 @@
 	border: 1px solid var(--dash-border-strong);
 	background: var(--dash-table-head);
 	color: var(--dash-text-secondary);
+}
+
+.dash-content .status-chip.status-chip--invoice-pendiente {
+	background: color-mix(in srgb, #dc2626 22%, transparent);
+	color: #fca5a5;
+	border-color: color-mix(in srgb, #dc2626 50%, var(--dash-border-strong));
+}
+
+.dash-content .status-chip.status-chip--invoice-facturado {
+	background: color-mix(in srgb, #ca8a04 24%, transparent);
+	color: #facc15;
+	border-color: color-mix(in srgb, #ca8a04 55%, var(--dash-border-strong));
+}
+
+.dash-content .status-chip.status-chip--invoice-pagado {
+	background: color-mix(in srgb, #16a34a 22%, transparent);
+	color: #86efac;
+	border-color: color-mix(in srgb, #16a34a 50%, var(--dash-border-strong));
+}
+
+[data-theme='light'] .dash-content .status-chip.status-chip--invoice-pendiente {
+	background: color-mix(in srgb, #dc2626 12%, transparent);
+	color: #b91c1c;
+	border-color: color-mix(in srgb, #dc2626 35%, var(--dash-border-strong));
+}
+
+[data-theme='light'] .dash-content .status-chip.status-chip--invoice-facturado {
+	background: color-mix(in srgb, #ca8a04 14%, transparent);
+	color: #a16207;
+	border-color: color-mix(in srgb, #ca8a04 40%, var(--dash-border-strong));
+}
+
+[data-theme='light'] .dash-content .status-chip.status-chip--invoice-pagado {
+	background: color-mix(in srgb, #16a34a 12%, transparent);
+	color: #15803d;
+	border-color: color-mix(in srgb, #16a34a 35%, var(--dash-border-strong));
 }
 
 .dash-content .status-chip--proceso {

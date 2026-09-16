@@ -185,8 +185,17 @@ export async function updateInvoiceStatusInDb(
 	estado: InvoiceEstado
 ): Promise<Invoice | null> {
 	const supabase = createSupabaseBrowserClient();
-	const { error } = await supabase.from('invoices').update({ estado }).eq('id', id);
+	const dbEstado = estado === 'pagado' ? 'pagada' : estado;
+	const { data: updated, error } = await supabase
+		.from('invoices')
+		.update({ estado: dbEstado })
+		.eq('id', id)
+		.select('id')
+		.maybeSingle();
 	if (error) throw error;
+	if (!updated?.id) {
+		throw new Error('No se pudo actualizar el cobro. Recargue e inténtelo de nuevo.');
+	}
 
 	const { data, error: fetchError } = await supabase
 		.from('invoices')

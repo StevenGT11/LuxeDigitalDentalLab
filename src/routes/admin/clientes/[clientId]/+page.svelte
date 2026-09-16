@@ -1,15 +1,20 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { goto } from '$app/navigation';
+	import { goto, invalidate, afterNavigate } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { afterNavigate } from '$app/navigation';
 	import { browser } from '$app/environment';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { Trash2 } from '@lucide/svelte';
 	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
 	import AdminClientDoctorsEditor from '$lib/components/admin/AdminClientDoctorsEditor.svelte';
 	import AdminClientFiscalEditor from '$lib/components/admin/AdminClientFiscalEditor.svelte';
+	import AdminClientCredentialsEditor from '$lib/components/admin/AdminClientCredentialsEditor.svelte';
 	import CasePreviewModal from '$lib/components/admin/CasePreviewModal.svelte';
+	import FeMediosPagoModal, {
+		type FeMediosPagoConfirm
+	} from '$lib/components/fe/FeMediosPagoModal.svelte';
+	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
+	import FeProcessingBanner from '$lib/components/fe/FeProcessingBanner.svelte';
 	import DoctorProductionSummary from '$lib/components/lab/DoctorProductionSummary.svelte';
 	import { getDoctorProductionStats } from '$lib/lab/analytics';
 	import { loadClientForAdmin } from '$lib/lab/client-session';
@@ -17,7 +22,6 @@
 		getClientById,
 		getClientStats,
 		getCasesByClient,
-		getInvoicesByClient,
 		initializeLabStorage,
 		revalidateLabDataFromDb
 	} from '$lib/lab/store';
@@ -26,16 +30,24 @@
 		getEstadoLabel,
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
+		getInvoiceRowClass,
 		getMaterialLabel,
 		getTipoTrabajoLabel
 	} from '$lib/lab/constants';
+	import {
+		feComprobanteBlocksEmit,
+		feComprobanteCanReemit,
+		feComprobanteCanConsultar,
+		getFeComprobanteEstadoClass,
+		getFeComprobanteEstadoLabel
+	} from '$lib/fe/constants';
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
-	import type { Invoice, LabCase, LabClient } from '$lib/lab/types';
+	import type { InvoiceListRow } from '$lib/lab/invoices-list';
+	import type { LabCase, LabClient } from '$lib/lab/types';
 
 	let clientId = $derived($page.params.clientId);
 	let client = $state<LabClient | null>(null);
 	let casos = $state<LabCase[]>([]);
-	let facturas = $state<Invoice[]>([]);
 	let stats = $state(getClientStats(''));
 	let loading = $state(true);
 	let deleteOpen = $state(false);
@@ -48,6 +60,18 @@
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 	let canManage = $derived(canManageClients($page.data.staffRole ?? $page.data.profile?.role));
 	let doctorProduction = $derived(getDoctorProductionStats(casos));
+	let clientInvoices = $derived(($page.data.clientInvoices as InvoiceListRow[] | undefined) ?? []);
+	let hasActiveEmisor = $derived(Boolean($page.data.hasActiveEmisor));
+	let facturadorOk = $derived(Boolean($page.data.facturadorOk));
+	let fiscalForm = $derived($page.form?.kind === 'fiscal' ? $page.form : undefined);
+	let credentialsForm = $derived($page.form?.kind === 'credentials' ? $page.form : undefined);
+	let feActionMessage = $derived(
+		$page.form && 'invoiceId' in $page.form && $page.form.invoiceId ? ($page.form.message ?? '') : ''
+	);
+	let feActionSuccess = $derived(Boolean($page.form?.success));
+	let feActionInvoiceId = $derived(
+		$page.form && 'invoiceId' in $page.form ? String($page.form.invoiceId ?? '') : ''
+	);
 
 	let filteredCasos = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
@@ -99,7 +123,6 @@
 	function load() {
 		if (!client) return;
 		casos = getCasesByClient(clientId);
-		facturas = getInvoicesByClient(clientId);
 		stats = getClientStats(clientId);
 	}
 
@@ -115,6 +138,34 @@
 
 	function closeCasePreview() {
 		previewCase = null;
+	}
+
+	let pdfPreviewOpen = $state(false);
+	let pdfPreview = $state<{ id: string; number: string } | null>(null);
+	let emitModalOpen = $state(false);
+	let emitTarget = $state<{ id: string; label: string; total: number } | null>(null);
+	let emitFormEl = $state<HTMLFormElement | null>(null);
+	let mediosPagoJson = $state('');
+	let emitMoneda = $state('USD');
+	let emitTipoCambio = $state('1');
+	let emittingFe = $state(false);
+	let emittingLabel = $state('');
+
+	function openEmitModal(fac: InvoiceListRow) {
+		emitTarget = { id: fac.id, label: fac.invoice_number, total: fac.total };
+		mediosPagoJson = '';
+		emitModalOpen = true;
+	}
+
+	async function onMediosConfirm(result: FeMediosPagoConfirm) {
+		mediosPagoJson = JSON.stringify(result.medios);
+		emitMoneda = result.moneda;
+		emitTipoCambio = String(result.tipoCambio);
+		emittingLabel = emitTarget?.label ?? '';
+		emittingFe = true;
+		emitModalOpen = false;
+		await tick();
+		emitFormEl?.requestSubmit();
 	}
 </script>
 
@@ -194,8 +245,18 @@
 			</div>
 		</section>
 
+		{#if canManage}
+			<AdminClientCredentialsEditor
+				email={client.email}
+				form={credentialsForm}
+				onSaved={(nextEmail) => {
+					if (client) client = { ...client, email: nextEmail };
+				}}
+			/>
+		{/if}
+
 		{#if showFinancial && $page.data.fiscal}
-			<AdminClientFiscalEditor fiscal={$page.data.fiscal} form={$page.form} />
+			<AdminClientFiscalEditor fiscal={$page.data.fiscal} form={fiscalForm} />
 		{/if}
 
 		<section style="margin-top: var(--spacing-xxl);">
@@ -279,7 +340,34 @@
 		{#if showFinancial}
 			<section style="margin-top: var(--spacing-xxl);">
 				<h3 class="type-tagline" style="margin: 0 0 var(--spacing-lg);">Facturas</h3>
-				{#if facturas.length === 0}
+				{#if emittingFe}
+					<FeProcessingBanner
+						title="Generando factura electrónica"
+						subtitle={emittingLabel}
+						detail="Firmando XML, enviando y consultando en Hacienda…"
+					/>
+				{/if}
+				{#if feActionMessage}
+					<div
+						class="store-utility-card"
+						style="margin-bottom: var(--spacing-md); border-color: {feActionSuccess
+							? 'var(--color-success)'
+							: 'var(--color-danger)'};"
+						role="alert"
+					>
+						<p>{feActionMessage}</p>
+					</div>
+				{/if}
+				{#if !facturadorOk && $page.data.facturadorUrl}
+					<p class="type-caption" style="margin-bottom: var(--spacing-md); color: var(--color-danger, #c0392b);">
+						Facturador no disponible. No se puede generar FE desde aquí.
+					</p>
+				{:else if !hasActiveEmisor}
+					<p class="type-caption" style="margin-bottom: var(--spacing-md); color: var(--color-warning, #b8860b);">
+						Emisor incompleto: complete datos fiscales del laboratorio para generar FE.
+					</p>
+				{/if}
+				{#if clientInvoices.length === 0}
 					<p class="type-caption">Sin facturas</p>
 				{:else}
 					<div class="data-table-wrap">
@@ -290,21 +378,85 @@
 									<th>Caso</th>
 									<th>Total</th>
 									<th>Estado</th>
+									<th>FE Hacienda</th>
 									<th>Emisión</th>
+									<th>Acciones</th>
 								</tr>
 							</thead>
 							<tbody>
-								{#each facturas as fac}
-									<tr>
-										<td class="type-body-strong">{fac.invoice_number}</td>
-										<td>{fac.case_number}</td>
+								{#each clientInvoices as fac (fac.id)}
+									{@const fe = fac.fe}
+									<tr
+										class={getInvoiceRowClass(fac.estado, fe?.estado)}
+										class:fe-row-highlight={feActionInvoiceId === fac.id && feActionMessage}
+									>
+										<td class="type-body-strong">
+											<a href="/admin/facturas/{fac.id}" class="text-link">{fac.invoice_number}</a>
+										</td>
+										<td>
+											<a href="/admin/casos/{fac.case_id}" class="text-link">{fac.case_number}</a>
+										</td>
 										<td>{formatCurrency(fac.total)}</td>
 										<td>
-											<span class={getInvoiceEstadoClass(fac.estado)}>
+											<span class={getInvoiceEstadoClass(fac.estado, fe?.estado)}>
 												{getInvoiceEstadoLabel(fac.estado)}
 											</span>
 										</td>
+										<td>
+											{#if fe}
+												<span class={getFeComprobanteEstadoClass(fe.estado)}>
+													{getFeComprobanteEstadoLabel(fe.estado)}
+												</span>
+											{:else}
+												<span class="type-caption">Sin enviar</span>
+											{/if}
+										</td>
 										<td>{formatDate(fac.fecha_emision)}</td>
+										<td class="client-fe-actions">
+											{#if hasActiveEmisor && facturadorOk && !feComprobanteBlocksEmit(fe?.estado)}
+												<button
+													type="button"
+													class="btn-primary client-fe-actions__btn"
+													disabled={emittingFe}
+													onclick={() => openEmitModal(fac)}
+												>
+													{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura'}
+												</button>
+											{/if}
+											{#if fe && feComprobanteCanConsultar(fe.estado) && fe.clave}
+												<form
+													method="POST"
+													action="?/consultar"
+													use:enhance={() =>
+														async ({ update }) => {
+															await update({ reset: false });
+															await invalidate('app:client-invoices');
+														}}
+												>
+													<input type="hidden" name="invoice_id" value={fac.id} />
+													<button
+														type="submit"
+														class="btn-secondary-pill client-fe-actions__btn"
+														disabled={emittingFe}
+													>
+														Consultar
+													</button>
+												</form>
+											{/if}
+											<button
+												type="button"
+												class="btn-secondary-pill client-fe-actions__btn"
+												onclick={() => {
+													pdfPreview = { id: fac.id, number: fac.invoice_number };
+													pdfPreviewOpen = true;
+												}}
+											>
+												PDF
+											</button>
+											<a href="/admin/facturas/{fac.id}" class="btn-secondary-pill client-fe-actions__btn">
+												Ver
+											</a>
+										</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -392,6 +544,48 @@
 
 <CasePreviewModal caso={previewCase} detailed onClose={closeCasePreview} />
 
+<form
+	bind:this={emitFormEl}
+	method="POST"
+	action="?/emitir"
+	class="fe-emit-form-hidden"
+	aria-hidden="true"
+	use:enhance={() => {
+		return async ({ update }) => {
+			emittingFe = true;
+			try {
+				await update({ reset: false });
+				await invalidate('app:client-invoices');
+			} finally {
+				emittingFe = false;
+				emittingLabel = '';
+				emitTarget = null;
+			}
+		};
+	}}
+>
+	<input type="hidden" name="invoice_id" value={emitTarget?.id ?? ''} />
+	<input type="hidden" name="medios_pago" value={mediosPagoJson} />
+	<input type="hidden" name="moneda" value={emitMoneda} />
+	<input type="hidden" name="tipo_cambio" value={emitTipoCambio} />
+</form>
+
+<InvoicePdfPreview
+	bind:open={pdfPreviewOpen}
+	invoiceId={pdfPreview?.id ?? ''}
+	invoiceNumber={pdfPreview?.number ?? ''}
+/>
+
+<FeMediosPagoModal
+	bind:open={emitModalOpen}
+	total={emitTarget?.total ?? 0}
+	subtitle={emitTarget ? `Factura ${emitTarget.label}` : ''}
+	onCancel={() => {
+		emitTarget = null;
+	}}
+	onConfirm={onMediosConfirm}
+/>
+
 <style>
 	.client-detail-header {
 		display: flex;
@@ -427,5 +621,35 @@
 
 	.client-cases-section__empty {
 		margin-top: 0;
+	}
+
+	.client-fe-actions {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 6px;
+		min-width: 132px;
+	}
+
+	.client-fe-actions__btn {
+		font-size: 13px;
+		padding: 6px 12px;
+		white-space: nowrap;
+	}
+
+	.fe-row-highlight {
+		background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+	}
+
+	.fe-emit-form-hidden {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 </style>

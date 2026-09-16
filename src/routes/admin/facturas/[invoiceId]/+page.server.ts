@@ -13,7 +13,7 @@ import {
 	reconcileInvoiceAmounts,
 	updateInvoiceLinePrices
 } from '$lib/lab/invoice-detail.server';
-import { updateInvoiceStatusInDb } from '$lib/lab/invoices-db';
+import { updateInvoiceStatusServer } from '$lib/lab/invoice-status.server';
 
 /** Solo auth/redirect; datos vía GET /api/admin/facturas/:id (+page.ts). */
 export const load: PageServerLoad = async ({ parent }) => {
@@ -38,7 +38,7 @@ export const actions: Actions = {
 		if (!invoiceId || !estado) return fail(400, { message: 'Datos inválidos.' });
 
 		try {
-			await updateInvoiceStatusInDb(invoiceId, estado as import('$lib/lab/types').InvoiceEstado);
+			await updateInvoiceStatusServer(invoiceId, estado);
 			return { success: true, message: 'Estado de cobro actualizado.' };
 		} catch (err) {
 			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo actualizar.' });

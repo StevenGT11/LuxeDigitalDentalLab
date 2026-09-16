@@ -809,6 +809,18 @@
 	border-color: var(--color-hairline);
 }
 
+.invoice-row--danger {
+	background: color-mix(in srgb, #dc2626 9%, transparent);
+}
+
+.invoice-row--warning {
+	background: color-mix(in srgb, #ca8a04 11%, transparent);
+}
+
+.invoice-row--success {
+	background: color-mix(in srgb, #16a34a 9%, transparent);
+}
+
 /* ─── Alerts ─── */
 .alert {
 	display: flex;

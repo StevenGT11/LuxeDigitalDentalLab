@@ -5,6 +5,7 @@
 	import FeMediosPagoModal, {
 		type FeMediosPagoConfirm
 	} from '$lib/components/fe/FeMediosPagoModal.svelte';
+	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
 	import FeNotaEmitModal from '$lib/components/fe/FeNotaEmitModal.svelte';
 	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
 	import {
@@ -169,6 +170,7 @@
 	);
 	const emitFeLabel = $derived(fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura');
 
+	let pdfPreviewOpen = $state(false);
 	let emitModalOpen = $state(false);
 	let notaModalOpen = $state(false);
 	let emitFormEl = $state<HTMLFormElement | null>(null);
@@ -498,7 +500,10 @@
 			</p>
 		</div>
 		<div class="invoice-detail__head-actions">
-			<span class={getInvoiceEstadoClass(invoice.estado)}>{getInvoiceEstadoLabel(invoice.estado)}</span>
+			<button type="button" class="btn-secondary-pill" onclick={() => (pdfPreviewOpen = true)}>
+				PDF
+			</button>
+			<span class={getInvoiceEstadoClass(invoice.estado, feDisplay?.estado)}>{getInvoiceEstadoLabel(invoice.estado)}</span>
 			{#if feDisplay}
 				<span class={getFeComprobanteEstadoClass(feDisplay.estado)}>
 					{getFeComprobanteEstadoLabel(feDisplay.estado)}
@@ -1072,6 +1077,12 @@
 		bind:open={notaModalOpen}
 		onConfirm={onNotaModalConfirm}
 		onMedios={onNotaModalMedios}
+	/>
+
+	<InvoicePdfPreview
+		bind:open={pdfPreviewOpen}
+		invoiceId={invoice.id}
+		invoiceNumber={invoice.invoice_number}
 	/>
 
 	<FeMediosPagoModal

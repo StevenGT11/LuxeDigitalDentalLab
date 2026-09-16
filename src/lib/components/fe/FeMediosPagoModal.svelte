@@ -6,6 +6,7 @@
 	} from '$lib/fe/fe-moneda';
 	import { FE_MEDIO_PAGO_OPTIONS, roundMoney, type FeMedioPagoItem } from '$lib/fe/medios-pago';
 	import { formatColones, formatCurrency } from '$lib/lab/helpers';
+	import { untrack } from 'svelte';
 
 	export type FeMediosPagoConfirm = {
 		medios: FeMedioPagoItem[];
@@ -46,6 +47,9 @@
 	let formError = $state('');
 	let moneda = $state<FeMoneda>('USD');
 	let tipoCambioInput = $state('');
+	let tipoCambioStatus = $state<'idle' | 'loading' | 'ok' | 'error'>('idle');
+	let tipoCambioHint = $state('');
+	let tipoCambioLoadId = 0;
 
 	const tipoCambio = $derived.by(() => {
 		const n = Number(String(tipoCambioInput).replace(',', '.'));
@@ -96,11 +100,43 @@
 		}));
 	}
 
+	function formatTcFecha(iso: string): string {
+		const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+		if (!m) return iso;
+		return `${m[3]}/${m[2]}/${m[1]}`;
+	}
+
 	function resetForm() {
 		moneda = defaultMoneda;
 		tipoCambioInput = '';
+		tipoCambioStatus = showCurrency ? 'loading' : 'idle';
+		tipoCambioHint = showCurrency ? 'Consultando Hacienda…' : '';
 		rows = defaultRows(showCurrency ? total : roundMoney(total));
 		formError = '';
+	}
+
+	async function loadTipoCambio() {
+		if (!showCurrency) return;
+		const loadId = ++tipoCambioLoadId;
+		try {
+			const res = await fetch('/api/admin/tipo-cambio');
+			const data = (await res.json()) as { venta?: number; fecha?: string; error?: string };
+			if (loadId !== tipoCambioLoadId) return;
+			const venta = Number(data.venta);
+			if (!res.ok || !Number.isFinite(venta) || venta <= 0) {
+				throw new Error(data.error ?? 'Tipo de cambio inválido');
+			}
+			tipoCambioInput = String(venta);
+			tipoCambioStatus = 'ok';
+			tipoCambioHint = data.fecha
+				? `Venta BCCR ${formatTcFecha(data.fecha)} · Hacienda`
+				: 'Venta BCCR · Hacienda';
+			refreshRowsForTotal();
+		} catch {
+			if (loadId !== tipoCambioLoadId) return;
+			tipoCambioStatus = 'error';
+			tipoCambioHint = 'No se pudo cargar. Digítelo manualmente.';
+		}
 	}
 
 	function refreshRowsForTotal() {
@@ -172,9 +208,15 @@
 
 	$effect(() => {
 		if (open) {
-			resetForm();
+			untrack(() => {
+				resetForm();
+				void loadTipoCambio();
+			});
 			dialogEl?.showModal();
 		} else {
+			untrack(() => {
+				tipoCambioLoadId += 1;
+			});
 			dialogEl?.close();
 		}
 	});
@@ -215,13 +257,21 @@
 						type="text"
 						inputmode="decimal"
 						class="field-input"
-						placeholder="Ej. 520.50"
+						placeholder={tipoCambioStatus === 'loading' ? 'Cargando…' : 'Ej. 449.49'}
 						value={tipoCambioInput}
 						oninput={(e) => {
 							tipoCambioInput = e.currentTarget.value;
 							if (tipoCambio > 0) refreshRowsForTotal();
 						}}
 					/>
+					{#if tipoCambioHint}
+						<span
+							class="fe-medios-dialog__tc-hint"
+							class:fe-medios-dialog__tc-hint--error={tipoCambioStatus === 'error'}
+						>
+							{tipoCambioHint}
+						</span>
+					{/if}
 				</label>
 			</div>
 		{/if}
@@ -316,21 +366,32 @@
 		max-width: min(42rem, calc(100vw - 2rem));
 		width: 100%;
 		background: transparent;
+		color: var(--dash-text);
+		color-scheme: inherit;
+	}
+
+	:global([data-theme='dark']) .fe-medios-dialog {
+		color-scheme: dark;
+	}
+
+	:global([data-theme='light']) .fe-medios-dialog {
+		color-scheme: light;
 	}
 
 	.fe-medios-dialog::backdrop {
-		background: rgb(15 23 42 / 45%);
+		background: color-mix(in srgb, var(--dash-sidebar-bg) 55%, transparent);
 	}
 
 	.fe-medios-dialog__panel {
 		display: flex;
 		flex-direction: column;
 		max-height: min(90vh, 40rem);
-		background: var(--color-card, #fff);
-		border: 1px solid var(--color-border, #e2e8f0);
-		border-radius: 8px;
+		background: var(--dash-card);
+		color: var(--dash-text);
+		border: 1px solid var(--dash-border);
+		border-radius: var(--dash-radius-lg);
 		overflow: hidden;
-		box-shadow: 0 16px 48px rgb(15 23 42 / 18%);
+		box-shadow: var(--dash-shadow-hover);
 	}
 
 	.fe-medios-dialog__header {
@@ -339,19 +400,20 @@
 		align-items: flex-start;
 		gap: 1rem;
 		padding: 1rem 1.25rem;
-		border-bottom: 1px solid var(--color-border, #e2e8f0);
+		border-bottom: 1px solid var(--dash-border);
 	}
 
 	.fe-medios-dialog__title {
 		margin: 0;
 		font-size: 1.05rem;
 		font-weight: 600;
+		color: var(--dash-text);
 	}
 
 	.fe-medios-dialog__subtitle {
 		margin: 0.25rem 0 0;
 		font-size: 0.8125rem;
-		color: var(--color-muted-foreground, #64748b);
+		color: var(--dash-muted);
 	}
 
 	.fe-medios-dialog__close {
@@ -360,7 +422,42 @@
 		font-size: 1.5rem;
 		line-height: 1;
 		cursor: pointer;
-		color: var(--color-muted-foreground, #64748b);
+		color: var(--dash-muted);
+	}
+
+	.fe-medios-dialog :global(.field-label) {
+		color: var(--dash-muted);
+	}
+
+	.fe-medios-dialog :global(.field-input),
+	.fe-medios-dialog :global(.field-select) {
+		background: var(--dash-input-bg);
+		color: var(--dash-text);
+		border-color: var(--dash-border);
+	}
+
+	.fe-medios-dialog :global(.field-input:focus),
+	.fe-medios-dialog :global(.field-select:focus) {
+		border-color: var(--dash-text);
+		box-shadow: 0 0 0 2px var(--dash-accent-soft);
+		outline: none;
+	}
+
+	.fe-medios-dialog :global(.field-input:disabled) {
+		opacity: 0.55;
+		color: var(--dash-muted);
+	}
+
+	.fe-medios-dialog :global(.btn-primary) {
+		background: var(--dash-btn-primary-bg);
+		color: var(--dash-btn-primary-text);
+		border-color: transparent;
+	}
+
+	.fe-medios-dialog :global(.btn-secondary-pill) {
+		border-color: var(--dash-border-strong);
+		color: var(--dash-text);
+		background: transparent;
 	}
 
 	.fe-medios-dialog__currency {
@@ -368,6 +465,17 @@
 		grid-template-columns: 1fr 1fr;
 		gap: 0.75rem;
 		padding: 1rem 1.25rem 0;
+	}
+
+	.fe-medios-dialog__tc-hint {
+		display: block;
+		margin-top: 0.35rem;
+		font-size: 0.6875rem;
+		color: var(--dash-muted);
+	}
+
+	.fe-medios-dialog__tc-hint--error {
+		color: #c0392b;
 	}
 
 	.fe-medios-dialog__totals {
@@ -379,14 +487,14 @@
 
 	.fe-medios-dialog__total-box {
 		padding: 0.65rem 0.75rem;
-		border: 1px solid var(--color-border, #e2e8f0);
-		border-radius: 6px;
-		background: var(--color-muted, #f8fafc);
+		border: 1px solid var(--dash-border);
+		border-radius: var(--dash-radius);
+		background: var(--dash-table-head);
 	}
 
 	.fe-medios-dialog__total-box--highlight {
-		border-color: color-mix(in srgb, var(--color-warning, #b8860b) 55%, transparent);
-		background: color-mix(in srgb, var(--color-warning, #b8860b) 8%, transparent);
+		border-color: color-mix(in srgb, var(--luxe-gold-accent) 55%, transparent);
+		background: var(--dash-accent-soft);
 	}
 
 	.fe-medios-dialog__total-label {
@@ -395,7 +503,7 @@
 		font-weight: 700;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		color: var(--color-muted-foreground, #64748b);
+		color: var(--dash-muted);
 	}
 
 	.fe-medios-dialog__total-value {
@@ -408,13 +516,14 @@
 
 	.fe-medios-dialog__table-wrap {
 		margin: 1rem 1.25rem 0;
-		border: 1px solid var(--color-border, #e2e8f0);
-		border-radius: 6px;
+		border: 1px solid var(--dash-border);
+		border-radius: var(--dash-radius);
 		overflow: hidden;
 		flex: 1;
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
+		background: var(--dash-card);
 	}
 
 	.fe-medios-dialog__head {
@@ -426,9 +535,9 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
-		color: var(--color-muted-foreground, #64748b);
-		background: var(--color-muted, #f1f5f9);
-		border-bottom: 1px solid var(--color-border, #e2e8f0);
+		color: var(--dash-muted);
+		background: var(--dash-table-head);
+		border-bottom: 1px solid var(--dash-border);
 	}
 
 	.fe-medios-dialog__list {
@@ -444,7 +553,7 @@
 		gap: 0.5rem;
 		align-items: center;
 		padding: 0.5rem 0.75rem;
-		border-bottom: 1px solid var(--color-border, #e2e8f0);
+		border-bottom: 1px solid var(--dash-table-row-border);
 	}
 
 	.fe-medios-dialog__toggle {
@@ -464,7 +573,7 @@
 		width: 2.25rem;
 		height: 1.25rem;
 		border-radius: 999px;
-		background: var(--color-border, #cbd5e1);
+		background: var(--dash-border-strong);
 		transition: background 0.15s;
 	}
 
@@ -475,15 +584,16 @@
 		height: 1rem;
 		margin: 0.125rem;
 		border-radius: 50%;
-		background: #fff;
+		background: var(--dash-card);
 		transition: transform 0.15s;
 	}
 
 	.fe-medios-dialog__toggle input:checked + .fe-medios-dialog__switch {
-		background: var(--color-primary, #0f172a);
+		background: var(--dash-btn-primary-bg);
 	}
 
 	.fe-medios-dialog__toggle input:checked + .fe-medios-dialog__switch::after {
+		background: var(--dash-btn-primary-text);
 		transform: translateX(1rem);
 	}
 
@@ -495,7 +605,7 @@
 
 	.fe-medios-dialog__medio-code {
 		font-size: 0.75rem;
-		color: var(--color-muted-foreground, #64748b);
+		color: var(--dash-muted);
 	}
 
 	.fe-medios-dialog__monto-cell {
@@ -523,11 +633,11 @@
 	}
 
 	.fe-medios-dialog__hint {
-		color: var(--color-warning, #b8860b);
+		color: var(--luxe-gold);
 	}
 
 	.fe-medios-dialog__error {
-		color: var(--color-danger, #c0392b);
+		color: #c0392b;
 	}
 
 	.fe-medios-dialog__footer {
@@ -535,7 +645,7 @@
 		justify-content: flex-end;
 		gap: 0.5rem;
 		padding: 1rem 1.25rem;
-		border-top: 1px solid var(--color-border, #e2e8f0);
+		border-top: 1px solid var(--dash-border);
 		margin-top: auto;
 	}
 

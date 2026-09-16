@@ -294,7 +294,8 @@ export function getEstadoBadgeClass(estado: LabCaseEstado): string {
 export {
 	INVOICE_ESTADOS,
 	getInvoiceEstadoClass,
-	getInvoiceEstadoLabel
+	getInvoiceEstadoLabel,
+	getInvoiceRowClass
 } from './invoice-estado';
 
 export const ESTADOS_EN_PROCESO: LabCaseEstado[] = [

@@ -6,11 +6,13 @@
 	import FeMediosPagoModal, {
 		type FeMediosPagoConfirm
 	} from '$lib/components/fe/FeMediosPagoModal.svelte';
+	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
 	import FeProcessingBanner from '$lib/components/fe/FeProcessingBanner.svelte';
 	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
 	import {
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
+		getInvoiceRowClass,
 		INVOICE_ESTADOS
 	} from '$lib/lab/invoice-estado';
 	import {
@@ -109,6 +111,8 @@
 		return fe.ultimo_error.slice(0, 80) + (fe.ultimo_error.length > 80 ? '…' : '');
 	}
 
+	let pdfPreviewOpen = $state(false);
+	let pdfPreview = $state<{ id: string; number: string } | null>(null);
 	let emitModalOpen = $state(false);
 	let emitTarget = $state<{ id: string; label: string; total: number } | null>(null);
 	let emitFormEl = $state<HTMLFormElement | null>(null);
@@ -248,7 +252,10 @@
 				<tbody>
 					{#each data.invoices as fac (fac.id)}
 						{@const fe = fac.fe}
-						<tr class:fe-row-highlight={actionInvoiceId === fac.id && actionMessage}>
+						<tr
+							class={getInvoiceRowClass(fac.estado, fe?.estado)}
+							class:fe-row-highlight={actionInvoiceId === fac.id && actionMessage}
+						>
 							<td class="type-body-strong">
 								<a href="/admin/facturas/{fac.id}" class="text-link">{fac.invoice_number}</a>
 							</td>
@@ -262,7 +269,7 @@
 							</td>
 							<td class="type-body-strong">{formatCurrency(fac.total)}</td>
 							<td>
-								<span class={getInvoiceEstadoClass(fac.estado)}>
+								<span class={getInvoiceEstadoClass(fac.estado, fe?.estado)}>
 									{getInvoiceEstadoLabel(fac.estado)}
 								</span>
 							</td>
@@ -376,6 +383,16 @@
 								{/if}
 							</td>
 							<td>
+								<button
+									type="button"
+									class="btn-secondary-pill fe-actions__btn"
+									onclick={() => {
+										pdfPreview = { id: fac.id, number: fac.invoice_number };
+										pdfPreviewOpen = true;
+									}}
+								>
+									PDF
+								</button>
 								<a href="/admin/facturas/{fac.id}" class="btn-secondary-pill fe-actions__btn">Ver</a>
 							</td>
 						</tr>
@@ -455,6 +472,12 @@
 		<input type="hidden" name="moneda" value={emitMoneda} />
 		<input type="hidden" name="tipo_cambio" value={emitTipoCambio} />
 	</form>
+
+	<InvoicePdfPreview
+		bind:open={pdfPreviewOpen}
+		invoiceId={pdfPreview?.id ?? ''}
+		invoiceNumber={pdfPreview?.number ?? ''}
+	/>
 
 	<FeMediosPagoModal
 		bind:open={emitModalOpen}
