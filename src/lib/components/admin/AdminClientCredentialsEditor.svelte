@@ -12,13 +12,17 @@
 	} = $props();
 
 	let saving = $state(false);
+	let accessEmail = $derived(email);
+	let password = $state('');
+	let passwordConfirm = $state('');
 </script>
 
 <section class="dash-panel dash-panel--section" style="margin-top: var(--spacing-xxl);">
 	<h3 class="dash-panel__section-title">Acceso al portal</h3>
 	<p class="type-caption" style="margin-bottom: var(--spacing-md);">
 		Correo y contraseña con los que la clínica entra al portal. Deje la contraseña vacía si solo
-		cambia el correo.
+		cambia el correo. Para probarla: cierre sesión (o use una ventana privada) e inicie con
+		<strong>este correo</strong>, no con el del administrador.
 	</p>
 
 	{#if form?.message}
@@ -36,7 +40,11 @@
 	<form
 		method="POST"
 		action="?/updateCredentials"
-		use:enhance={({ formElement }) => {
+		autocomplete="off"
+		use:enhance={({ formData }) => {
+			formData.set('email', accessEmail);
+			formData.set('password', password);
+			formData.set('passwordConfirm', passwordConfirm);
 			saving = true;
 			return async ({ result, update }) => {
 				saving = false;
@@ -47,9 +55,8 @@
 							? String(result.data.email ?? '')
 							: '';
 					if (saved) onSaved?.(saved);
-					for (const input of formElement.querySelectorAll('input[type="password"]')) {
-						(input as HTMLInputElement).value = '';
-					}
+					password = '';
+					passwordConfirm = '';
 				}
 			};
 		}}
@@ -61,9 +68,11 @@
 					class="field-input"
 					type="email"
 					name="email"
-					value={email}
+					bind:value={accessEmail}
 					required
-					autocomplete="username"
+					autocomplete="off"
+					readonly
+					onfocus={(e) => e.currentTarget.removeAttribute('readonly')}
 				/>
 			</label>
 			<label class="field">
@@ -72,8 +81,11 @@
 					class="field-input"
 					type="password"
 					name="password"
+					bind:value={password}
 					autocomplete="new-password"
 					placeholder="Opcional"
+					data-1p-ignore
+					data-lpignore="true"
 				/>
 			</label>
 			<label class="field">
@@ -82,8 +94,11 @@
 					class="field-input"
 					type="password"
 					name="passwordConfirm"
+					bind:value={passwordConfirm}
 					autocomplete="new-password"
 					placeholder="Opcional"
+					data-1p-ignore
+					data-lpignore="true"
 				/>
 			</label>
 		</div>

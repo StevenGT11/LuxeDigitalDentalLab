@@ -1,4 +1,5 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
+import { PUBLIC_SUPABASE_ANON_KEY, PUBLIC_SUPABASE_URL } from '$env/static/public';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -35,6 +36,58 @@ export function validatePortalCredentialsUpdate(
 	return null;
 }
 
+async function findAuthUserByEmail(admin: SupabaseClient, email: string): Promise<User | null> {
+	const target = email.trim().toLowerCase();
+	let page = 1;
+	const perPage = 200;
+	while (page <= 20) {
+		const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+		if (error) throw new Error(error.message);
+		const found = data.users.find((u) => u.email?.toLowerCase() === target);
+		if (found) return found;
+		if (data.users.length < perPage) break;
+		page += 1;
+	}
+	return null;
+}
+
+/** El login usa el correo del formulario; hay que actualizar ese usuario de Auth. */
+async function resolveAuthUser(
+	admin: SupabaseClient,
+	profileId: string,
+	loginEmail: string
+): Promise<User> {
+	const byEmail = await findAuthUserByEmail(admin, loginEmail);
+	if (byEmail) return byEmail;
+
+	const { data: byId, error: byIdError } = await admin.auth.admin.getUserById(profileId);
+	if (byIdError && !byIdError.message.toLowerCase().includes('not found')) {
+		throw new Error(byIdError.message);
+	}
+	if (byId.user) return byId.user;
+
+	throw new Error('No hay usuario de Auth para este correo. Vuelva a crear el acceso al portal.');
+}
+
+async function verifyPortalPassword(email: string, password: string): Promise<void> {
+	const probe = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
+		auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
+	});
+
+	let lastMessage = '';
+	for (let attempt = 0; attempt < 4; attempt++) {
+		if (attempt > 0) await new Promise((r) => setTimeout(r, 500));
+		const { error } = await probe.auth.signInWithPassword({ email, password });
+		await probe.auth.signOut({ scope: 'local' }).catch(() => undefined);
+		if (!error) return;
+		lastMessage = error.message;
+	}
+
+	throw new Error(
+		`La contraseña no quedó activa en Auth (${lastMessage}). El correo de prueba fue ${email}.`
+	);
+}
+
 /** Actualiza email y/o contraseña de Auth y los refleja en clients + profiles. */
 export async function updatePortalClientCredentials(
 	admin: SupabaseClient,
@@ -57,12 +110,16 @@ export async function updatePortalClientCredentials(
 	if (validation) throw new Error(validation);
 
 	const email = input.email.trim().toLowerCase();
+	const password = input.password;
 	const changedEmail = email !== client.email.trim().toLowerCase();
-	const changedPassword = Boolean(input.password);
+	const changedPassword = Boolean(password);
 
-	const { error: authError } = await admin.auth.admin.updateUserById(client.profile_id, {
-		...(changedEmail ? { email, email_confirm: true } : {}),
-		...(changedPassword ? { password: input.password } : {})
+	const authUser = await resolveAuthUser(admin, client.profile_id, email);
+
+	const { data: updated, error: authError } = await admin.auth.admin.updateUserById(authUser.id, {
+		email,
+		email_confirm: true,
+		...(changedPassword ? { password } : {})
 	});
 
 	if (authError) {
@@ -72,8 +129,19 @@ export async function updatePortalClientCredentials(
 		}
 		throw new Error(authError.message);
 	}
+	if (!updated.user) {
+		throw new Error('Auth no confirmó el cambio de acceso.');
+	}
 
-	if (changedEmail) {
+	if (authUser.id !== client.profile_id) {
+		const { error: linkError } = await admin
+			.from('clients')
+			.update({ profile_id: authUser.id })
+			.eq('id', clientId);
+		if (linkError) throw new Error(linkError.message);
+	}
+
+	if (changedEmail || email !== client.email.trim().toLowerCase()) {
 		const { error: clientUpdateError } = await admin
 			.from('clients')
 			.update({ email })
@@ -83,8 +151,12 @@ export async function updatePortalClientCredentials(
 		const { error: profileError } = await admin
 			.from('profiles')
 			.update({ email })
-			.eq('id', client.profile_id);
+			.eq('id', authUser.id);
 		if (profileError) throw new Error(profileError.message);
+	}
+
+	if (changedPassword) {
+		await verifyPortalPassword(email, password);
 	}
 
 	return { email, changedEmail, changedPassword };

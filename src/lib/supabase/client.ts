@@ -11,3 +11,7 @@ export function createSupabaseBrowserClient(): SupabaseClient {
 	}
 	return browserClient;
 }
+
+export function resetSupabaseBrowserClient(): void {
+	browserClient = undefined;
+}

@@ -1,4 +1,4 @@
-import { createSupabaseBrowserClient } from '$lib/supabase/client';
+import { createSupabaseBrowserClient, resetSupabaseBrowserClient } from '$lib/supabase/client';
 import type { AuthRole, UserProfile } from './types';
 
 export function getHomePathForRole(role: AuthRole): string {
@@ -9,6 +9,7 @@ export async function signInWithEmail(
 	email: string,
 	password: string
 ): Promise<{ role: AuthRole } | { error: string }> {
+	await signOut();
 	const supabase = createSupabaseBrowserClient();
 	const normalizedEmail = email.trim().toLowerCase();
 
@@ -23,12 +24,12 @@ export async function signInWithEmail(
 
 	const profile = await fetchCurrentProfile(supabase);
 	if (!profile) {
-		await supabase.auth.signOut();
+		await signOut();
 		return { error: 'No se encontró el perfil del usuario. Contacta al administrador.' };
 	}
 
 	if (!profile.activo) {
-		await supabase.auth.signOut();
+		await signOut();
 		return { error: 'Tu cuenta está desactivada. Contacta al administrador.' };
 	}
 
@@ -37,7 +38,8 @@ export async function signInWithEmail(
 
 export async function signOut(): Promise<void> {
 	const supabase = createSupabaseBrowserClient();
-	await supabase.auth.signOut();
+	await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+	resetSupabaseBrowserClient();
 }
 
 async function fetchCurrentProfile(
