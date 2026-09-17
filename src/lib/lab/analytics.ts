@@ -1,4 +1,5 @@
 import { getEstadoLabel, getMaterialLabel, getTipoTrabajoLabel } from './constants';
+import { daysUntil } from './helpers';
 import { resolveRestauracionTipoTrabajo } from './restoration-pricing';
 import { getTreatmentByValue, TREATMENT_CATEGORY_LABELS } from './treatments';
 import type {
@@ -281,11 +282,53 @@ export function getDeliveriesThisWeek(casos: LabCase[]): number {
 	}).length;
 }
 
+function sortByEntrega(casos: LabCase[]): LabCase[] {
+	return [...casos].sort(
+		(a, b) => new Date(a.fecha_entrega).getTime() - new Date(b.fecha_entrega).getTime()
+	);
+}
+
+function openCases(casos: LabCase[]): LabCase[] {
+	return casos.filter((c) => c.estado !== 'finalizado');
+}
+
 /** Entregas pendientes ordenadas por fecha (incluye atrasados). */
 export function getUpcomingDeliveries(casos: LabCase[], limit = 6): LabCase[] {
-	return casos
-		.filter((c) => c.estado !== 'finalizado')
-		.sort((a, b) => new Date(a.fecha_entrega).getTime() - new Date(b.fecha_entrega).getTime())
+	return sortByEntrega(openCases(casos)).slice(0, limit);
+}
+
+/** Compromisos de los próximos 7 días, sin contar hoy ni atrasados. */
+export function getDeliveriesNextDays(casos: LabCase[], limit = 8): LabCase[] {
+	return sortByEntrega(
+		openCases(casos).filter((c) => {
+			const days = daysUntil(c.fecha_entrega);
+			return days >= 1 && days <= 7;
+		})
+	).slice(0, limit);
+}
+
+export function getOverdueDeliveries(casos: LabCase[], limit?: number): LabCase[] {
+	const rows = sortByEntrega(openCases(casos).filter((c) => daysUntil(c.fecha_entrega) < 0));
+	return limit == null ? rows : rows.slice(0, limit);
+}
+
+export function getDeliveriesToday(casos: LabCase[], limit?: number): LabCase[] {
+	const rows = sortByEntrega(openCases(casos).filter((c) => daysUntil(c.fecha_entrega) === 0));
+	return limit == null ? rows : rows.slice(0, limit);
+}
+
+export function getPendingStartCases(casos: LabCase[], limit?: number): LabCase[] {
+	const rows = sortByEntrega(casos.filter((c) => c.estado === 'pendiente'));
+	return limit == null ? rows : rows.slice(0, limit);
+}
+
+export function getOpenInvoicesDueSoon(invoices: Invoice[], limit = 6): Invoice[] {
+	return invoices
+		.filter((i) => i.estado === 'pendiente' || i.estado === 'facturado')
+		.sort(
+			(a, b) =>
+				new Date(a.fecha_vencimiento).getTime() - new Date(b.fecha_vencimiento).getTime()
+		)
 		.slice(0, limit);
 }
 
