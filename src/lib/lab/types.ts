@@ -15,6 +15,18 @@ export type LabCaseEstado =
 
 export type InvoiceEstado = 'pendiente' | 'facturado' | 'pagado' | 'cancelada';
 
+export type InvoiceLineDetail = {
+	id: string;
+	sort_order: number;
+	descripcion: string;
+	cantidad: number;
+	precio_unitario: number;
+	subtotal: number;
+	fe_cabys: string | null;
+	fe_unidad_medida: string;
+	impuesto_tarifa: number;
+};
+
 export type CaseFileCategory = 'escaneo' | 'diseno';
 
 /** Archivo adjunto a un caso (escaneo intraoral, STL, diseño CAD, etc.) */

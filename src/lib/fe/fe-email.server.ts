@@ -4,6 +4,7 @@ import { invoicePdfFilename } from '$lib/lab/invoice-pdf';
 import { buildInvoicePdfBuffer } from '$lib/lab/invoice-pdf.server';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import { fetchFeComprobanteForInvoice } from './comprobantes.server';
+import { invalidFeCorreos, mergeFeCorreos, parseFeCorreos, primaryFeCorreo } from './fe-correos';
 
 function safeFilePart(value: string): string {
 	return value.replace(/[^\w.-]+/g, '_');
@@ -13,13 +14,32 @@ function xmlBuffer(xml: string): Buffer {
 	return Buffer.from(xml.trim(), 'utf8');
 }
 
+function resolveRecipients(
+	stored: string | null | undefined,
+	fallbackEmail: string | null | undefined
+): string[] {
+	const storedEmails = parseFeCorreos(stored).filter((e) => isValidEmailAddress(e));
+	if (storedEmails.length) return storedEmails;
+	const fallback = primaryFeCorreo(null, fallbackEmail);
+	if (fallback) return [fallback];
+	throw new Error(
+		'El cliente no tiene un correo de facturación válido. Indíquelo en Datos fiscales (receptor FE) o escríbalo al enviar.'
+	);
+}
+
 /**
- * Envía al correo FE del cliente el XML firmado, el XML de aceptación de Hacienda y el PDF.
- * Solo debe llamarse cuando el estado pasa a aceptado por primera vez.
+ * Envía el XML firmado, el XML de aceptación de Hacienda y el PDF.
+ * `extraCorreos`: copia (CC) además del correo del cliente.
  */
-export async function sendFeAceptadaPackageToClient(invoiceId: string): Promise<string> {
+export async function sendFeAceptadaPackageToClient(
+	invoiceId: string,
+	extraCorreos?: string | null
+): Promise<string> {
 	const fe = await fetchFeComprobanteForInvoice(invoiceId);
 	if (!fe) throw new Error('No hay comprobante electrónico para esta factura.');
+	if (fe.estado !== 'aceptado') {
+		throw new Error('La factura electrónica aún no está aceptada por Hacienda.');
+	}
 
 	const xmlFirmado = fe.xml_firmado?.trim() ?? '';
 	if (!xmlFirmado) {
@@ -36,17 +56,22 @@ export async function sendFeAceptadaPackageToClient(invoiceId: string): Promise<
 
 	const { data: client, error: clientError } = await admin
 		.from('clients')
-		.select('nombre, fe_correo_facturacion')
+		.select('nombre, email, fe_correo_facturacion')
 		.eq('id', invoice.client_id)
 		.single();
 	if (clientError || !client) throw new Error('Cliente no encontrado.');
 
-	const to = client.fe_correo_facturacion?.trim().toLowerCase() ?? '';
-	if (!isValidEmailAddress(to)) {
-		throw new Error(
-			'El cliente no tiene un correo de facturación válido. Indíquelo en Datos fiscales (receptor FE) antes de enviar el paquete de Hacienda.'
-		);
+	const to = resolveRecipients(client.fe_correo_facturacion, client.email);
+	const extraRaw = extraCorreos?.trim() ?? '';
+	if (extraRaw) {
+		const invalid = invalidFeCorreos(extraRaw);
+		if (invalid.length) {
+			throw new Error(`Correo inválido: ${invalid.join(', ')}`);
+		}
 	}
+	const cc = mergeFeCorreos(extraRaw).filter(
+		(email) => !to.some((r) => r.toLowerCase() === email.toLowerCase())
+	);
 
 	const invoiceNumber = String(invoice.invoice_number);
 	const { buffer: pdf, filename: pdfName } = await buildInvoicePdfBuffer(invoiceId);
@@ -82,13 +107,14 @@ export async function sendFeAceptadaPackageToClient(invoiceId: string): Promise<
 
 	await notifyFacturaElectronicaAceptada({
 		to,
+		cc,
 		invoiceNumber,
 		clientName: client.nombre,
 		clave: fe.clave,
 		attachments
 	});
 
-	return to;
+	return cc.length ? `${to.join(', ')} (copia: ${cc.join(', ')})` : to.join(', ');
 }
 
 export async function maybeSendFeAceptadaEmail(input: {
@@ -96,12 +122,13 @@ export async function maybeSendFeAceptadaEmail(input: {
 	tipoDocumento?: string | null;
 	previousEstado: string;
 	estado: string;
+	extraCorreos?: string | null;
 }): Promise<string> {
 	if (input.estado !== 'aceptado' || input.previousEstado === 'aceptado') return '';
 	if ((input.tipoDocumento ?? '01') !== '01' || !input.invoiceId) return '';
 
 	try {
-		const to = await sendFeAceptadaPackageToClient(input.invoiceId);
+		const to = await sendFeAceptadaPackageToClient(input.invoiceId, input.extraCorreos);
 		return ` Se envió el XML generado, el XML de Hacienda y el PDF a ${to}.`;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'No se pudo enviar el correo.';

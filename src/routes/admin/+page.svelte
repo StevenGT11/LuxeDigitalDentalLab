@@ -9,14 +9,10 @@
 	import {
 		buildAdminDashboard,
 		getActiveCases,
-		getDeliveriesNextDays,
-		getDeliveriesToday,
-		getOpenInvoicesDueSoon,
-		getOverdueDeliveries,
-		getPendingStartCases
+		getDeliveriesThisWeek,
+		getUpcomingDeliveries
 	} from '$lib/lab/analytics';
 	import { ESTADOS_EN_PROCESO, getEstadoBadgeClass, getEstadoLabel } from '$lib/lab/constants';
-	import { getInvoiceEstadoClass, getInvoiceEstadoLabel } from '$lib/lab/invoice-estado';
 	import {
 		deliveryUrgencyClass,
 		formatCurrency,
@@ -30,7 +26,7 @@
 		initializeLabStorage,
 		revalidateLabDataFromDb
 	} from '$lib/lab/store';
-	import type { Invoice, LabCase } from '$lib/lab/types';
+	import type { LabCase } from '$lib/lab/types';
 
 	let stats = $state({
 		totalCasos: 0,
@@ -41,11 +37,8 @@
 		facturasPendientes: 0
 	});
 	let activeCases = $state<LabCase[]>([]);
-	let overdueDeliveries = $state<LabCase[]>([]);
-	let todayDeliveries = $state<LabCase[]>([]);
-	let pendingStart = $state<LabCase[]>([]);
+	let deliveriesWeek = $state(0);
 	let upcomingDeliveries = $state<LabCase[]>([]);
-	let openInvoices = $state<Invoice[]>([]);
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 
@@ -64,51 +57,13 @@
 
 		stats = buildAdminDashboard(casos, clients, invoices, ESTADOS_EN_PROCESO);
 		activeCases = getActiveCases(casos, 10);
-		overdueDeliveries = getOverdueDeliveries(casos);
-		todayDeliveries = getDeliveriesToday(casos);
-		pendingStart = getPendingStartCases(casos, 8);
-		upcomingDeliveries = getDeliveriesNextDays(casos, 8);
-		openInvoices = getOpenInvoicesDueSoon(invoices, 6);
+		deliveriesWeek = getDeliveriesThisWeek(casos);
+		upcomingDeliveries = getUpcomingDeliveries(casos, 6);
 	}
 </script>
 
-{#snippet casePreviewList(casos: LabCase[], empty: string)}
-	{#if casos.length === 0}
-		<p class="type-caption">{empty}</p>
-	{:else}
-		<ul class="dash-delivery-preview">
-			{#each casos as caso (caso.id)}
-				<li>
-					<button
-						type="button"
-						class="dash-delivery-preview__item"
-						onclick={() => goto(`/admin/casos/${caso.id}`)}
-					>
-						<div class="dash-delivery-preview__main">
-							<span class="dash-delivery-preview__case">{caso.case_number}</span>
-							<span class="dash-delivery-preview__patient">{caso.paciente_name}</span>
-							<span class="type-fine-print">{caso.client_name}</span>
-						</div>
-						<div class="dash-delivery-preview__aside">
-							<span class={deliveryUrgencyClass(caso.fecha_entrega, caso.estado)}>
-								{formatDeliveryCountdown(caso.fecha_entrega, caso.estado)}
-							</span>
-							<span class="type-caption">{formatDateTime(caso.fecha_entrega)}</span>
-							<span class={getEstadoBadgeClass(caso.estado)}>
-								{getEstadoLabel(caso.estado)}
-							</span>
-						</div>
-					</button>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-{/snippet}
-
 <div class="dash-page dash-page--home">
-	<p class="dash-lead">
-		Lo que hay que atender hoy: atrasos, entregas del día y casos que aún no arrancan.
-	</p>
+	<p class="dash-lead">Casos en curso y entregas próximas.</p>
 
 	<section class="dash-stat-grid dash-stat-grid--kpi">
 		<div class="dash-stat dash-stat--accent">
@@ -122,90 +77,30 @@
 			<p class="dash-stat__hint">sin diseño asignado</p>
 		</div>
 		<div class="dash-stat">
-			<p class="dash-stat__label">Entrega hoy</p>
-			<p class="dash-stat__value">{todayDeliveries.length}</p>
-			<p class="dash-stat__hint">compromisos de este día</p>
-		</div>
-		<div class="dash-stat">
-			<p class="dash-stat__label">Atrasadas</p>
-			<p class="dash-stat__value">{overdueDeliveries.length}</p>
-			<p class="dash-stat__hint">ya pasó la fecha de entrega</p>
+			<p class="dash-stat__label">Entregas (7 días)</p>
+			<p class="dash-stat__value">{deliveriesWeek}</p>
+			<p class="dash-stat__hint">compromisos próximos</p>
 		</div>
 		{#if showFinancial}
 			<div class="dash-stat">
-				<p class="dash-stat__label">Por cobrar</p>
+				<p class="dash-stat__label">Ingresos (casos)</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatCurrency(stats.ingresosTotales)}
+				</p>
+				<p class="dash-stat__hint">{stats.totalCasos} casos · {stats.totalClientes} clientes</p>
+			</div>
+			<div class="dash-stat">
+				<p class="dash-stat__label">Facturas por cobrar</p>
 				<p class="dash-stat__value">{stats.facturasPendientes}</p>
 				<p class="dash-stat__hint">
 					<a href="/admin/facturas" class="text-link">Ver facturas →</a>
 				</p>
 			</div>
-		{/if}
-	</section>
-
-	<section class="dash-insights" aria-labelledby="dash-today-title">
-		<header class="dash-insights__head">
-			<div>
-				<h2 id="dash-today-title" class="dash-insights__title">Hoy en el taller</h2>
-				<p class="dash-insights__lead">Atrasos, entregas de hoy y casos que faltan por iniciar</p>
-			</div>
-			<a href="/admin/calendario" class="btn-secondary-pill">Ver calendario</a>
-		</header>
-
-		<div class="dash-chart-grid dash-chart-grid--home">
-			<div class="dash-panel">
-				<h3 class="dash-panel__title">Atrasadas</h3>
-				<p class="dash-panel__subtitle">Ya pasó la fecha de entrega</p>
-				{@render casePreviewList(overdueDeliveries, 'No hay entregas atrasadas.')}
-			</div>
-			<div class="dash-panel">
-				<h3 class="dash-panel__title">Entrega hoy</h3>
-				<p class="dash-panel__subtitle">Hay que salir hoy</p>
-				{@render casePreviewList(todayDeliveries, 'No hay entregas para hoy.')}
-			</div>
-			<div class="dash-panel">
-				<h3 class="dash-panel__title">Por iniciar</h3>
-				<p class="dash-panel__subtitle">Siguen en pendiente</p>
-				{@render casePreviewList(pendingStart, 'No hay casos pendientes de iniciar.')}
-			</div>
-		</div>
-
-		{#if showFinancial}
-			<div class="dash-panel">
-				<div class="dash-panel__header-row">
-					<div>
-						<h3 class="dash-panel__title">Cobros abiertos</h3>
-						<p class="dash-panel__subtitle">Pendiente o facturado, por vencimiento</p>
-					</div>
-					<a href="/admin/facturas" class="btn-secondary-pill">Ver facturas</a>
-				</div>
-				{#if openInvoices.length === 0}
-					<p class="type-caption">No hay facturas por cobrar.</p>
-				{:else}
-					<ul class="dash-delivery-preview">
-						{#each openInvoices as inv (inv.id)}
-							<li>
-								<button
-									type="button"
-									class="dash-delivery-preview__item"
-									onclick={() => goto(`/admin/facturas/${inv.id}`)}
-								>
-									<div class="dash-delivery-preview__main">
-										<span class="dash-delivery-preview__case">{inv.invoice_number}</span>
-										<span class="dash-delivery-preview__patient">{inv.paciente_name}</span>
-										<span class="type-fine-print">{inv.client_name}</span>
-									</div>
-									<div class="dash-delivery-preview__aside">
-										<span class={getInvoiceEstadoClass(inv.estado)}>
-											{getInvoiceEstadoLabel(inv.estado)}
-										</span>
-										<span class="type-caption">{formatDateTime(inv.fecha_vencimiento)}</span>
-										<span class="type-body-strong">{formatCurrency(inv.total)}</span>
-									</div>
-								</button>
-							</li>
-						{/each}
-					</ul>
-				{/if}
+		{:else}
+			<div class="dash-stat">
+				<p class="dash-stat__label">Casos totales</p>
+				<p class="dash-stat__value">{stats.totalCasos}</p>
+				<p class="dash-stat__hint">{stats.totalClientes} clientes activos</p>
 			</div>
 		{/if}
 	</section>
@@ -225,7 +120,7 @@
 			<p class="type-caption">No hay casos en producción. Los finalizados están en el listado completo.</p>
 		{:else}
 			<div class="case-card-grid">
-				{#each activeCases as caso (caso.id)}
+				{#each activeCases as caso}
 					<article class="case-card">
 						<header class="case-card__header">
 							<div>
@@ -289,11 +184,40 @@
 	<section class="dash-panel dash-panel--deliveries">
 		<div class="dash-panel__header-row">
 			<div>
-				<h3 class="dash-panel__title">Esta semana</h3>
-				<p class="dash-panel__subtitle">Entregas de mañana a 7 días</p>
+				<h3 class="dash-panel__title">Próximas entregas</h3>
+				<p class="dash-panel__subtitle">Compromisos más urgentes</p>
 			</div>
 			<a href="/admin/calendario" class="btn-secondary-pill">Ver calendario</a>
 		</div>
-		{@render casePreviewList(upcomingDeliveries, 'No hay más entregas en los próximos 7 días.')}
+		{#if upcomingDeliveries.length === 0}
+			<p class="type-caption">No hay entregas pendientes.</p>
+		{:else}
+			<ul class="dash-delivery-preview">
+				{#each upcomingDeliveries as caso}
+					<li>
+						<button
+							type="button"
+							class="dash-delivery-preview__item"
+							onclick={() => goto(`/admin/casos/${caso.id}`)}
+						>
+							<div class="dash-delivery-preview__main">
+								<span class="dash-delivery-preview__case">{caso.case_number}</span>
+								<span class="dash-delivery-preview__patient">{caso.paciente_name}</span>
+								<span class="type-fine-print">{caso.client_name}</span>
+							</div>
+							<div class="dash-delivery-preview__aside">
+								<span class={deliveryUrgencyClass(caso.fecha_entrega, caso.estado)}>
+									{formatDeliveryCountdown(caso.fecha_entrega, caso.estado)}
+								</span>
+								<span class="type-caption">{formatDateTime(caso.fecha_entrega)}</span>
+								<span class={getEstadoBadgeClass(caso.estado)}>
+									{getEstadoLabel(caso.estado)}
+								</span>
+							</div>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 	</section>
 </div>

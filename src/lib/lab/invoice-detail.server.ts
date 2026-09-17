@@ -8,23 +8,13 @@ import {
 	normalizeInvoiceLineAmounts,
 	roundMoney
 } from '$lib/lab/invoice-line-amounts';
-import type { InvoiceEstado } from './types';
+import type { InvoiceEstado, InvoiceLineDetail } from './types';
+
+export type { InvoiceLineDetail };
 
 function lineSubtotal(cantidad: number, precioUnitario: number): number {
 	return roundMoney(Math.max(0, cantidad) * Math.max(0, precioUnitario));
 }
-
-export type InvoiceLineDetail = {
-	id: string;
-	sort_order: number;
-	descripcion: string;
-	cantidad: number;
-	precio_unitario: number;
-	subtotal: number;
-	fe_cabys: string | null;
-	fe_unidad_medida: string;
-	impuesto_tarifa: number;
-};
 
 export type InvoiceDetail = {
 	id: string;

@@ -89,17 +89,16 @@ export type EmailAttachment = {
 
 export type SendEmailParams = {
 	to: string;
+	cc?: string;
 	subject: string;
 	html?: string;
 	text?: string;
 	attachments?: EmailAttachment[];
 };
 
-export function isValidEmailAddress(email: string): boolean {
-	return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-}
+export { isValidEmailAddress } from '$lib/email-address';
 
-export async function sendEmail({ to, subject, html, text, attachments }: SendEmailParams): Promise<void> {
+export async function sendEmail({ to, cc, subject, html, text, attachments }: SendEmailParams): Promise<void> {
 	const cfg = getSmtpConfig();
 	const transport = getTransporter();
 
@@ -114,6 +113,7 @@ export async function sendEmail({ to, subject, html, text, attachments }: SendEm
 		await transport.sendMail({
 			from: cfg.from,
 			to: to.trim(),
+			...(cc?.trim() ? { cc: cc.trim() } : {}),
 			subject: subject.trim(),
 			...(bodyHtml ? { html: bodyHtml } : {}),
 			...(bodyText ? { text: bodyText } : {}),

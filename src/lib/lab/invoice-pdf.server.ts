@@ -3,14 +3,15 @@ import { FE_TIPO_IDENTIFICACION_OPTIONS, getFeComprobanteEstadoLabel } from '$li
 import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import { getFeEmisorConfigPublicByAmbiente } from '$lib/fe/emisor.server';
 import type { FeEmisorConfigPublic } from '$lib/fe/types';
+import { formatFeCorreosLabel } from '$lib/fe/fe-correos';
 import { invoicePdfFilename } from '$lib/lab/invoice-pdf';
 import {
 	loadInvoiceDetailPage,
 	type ClientFiscalSnapshot,
 	type FeComprobanteDetail,
-	type InvoiceDetail,
-	type InvoiceLineDetail
+	type InvoiceDetail
 } from '$lib/lab/invoice-detail.server';
+import type { InvoiceLineDetail } from '$lib/lab/types';
 import { getInvoiceEstadoLabel } from '$lib/lab/invoice-estado';
 
 const GOLD = '#92772F';
@@ -181,8 +182,8 @@ function drawParties(doc: PdfDoc, invoice: InvoiceDetail, client: ClientFiscalSn
 		);
 		leftY = doc.y;
 	}
-	const mail = client.fe_correo_facturacion || client.email;
-	if (mail) {
+	const mail = formatFeCorreosLabel(client.fe_correo_facturacion, client.email);
+	if (mail !== '—') {
 		doc.text(mail, MARGIN_X, leftY, { width: colW, height: 12, ellipsis: true });
 		leftY = doc.y;
 	}

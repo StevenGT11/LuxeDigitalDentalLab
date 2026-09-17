@@ -31,7 +31,7 @@ import {
 	syncInvoiceLinesImpuestoFromCabys
 } from './sync-invoice-lines-fe.server';
 import { facturadorConsultar, facturadorEnviar, facturadorValidarEnviar } from './facturador.server';
-import { logFeEmitFiscalDebug } from './fe-emit-debug.server';
+import { primaryFeCorreo } from './fe-correos';
 import { normalizeLineAmountsForFe } from './fe-line-amounts';
 import { duplicateInvoiceForCorrection } from '$lib/lab/invoice-detail.server';
 import { parseFeXmlLineas, parseFeXmlTotals } from './parse-fe-xml-lineas';
@@ -48,6 +48,7 @@ import {
 	roundMoney
 } from './medios-pago';
 import { maybeSendFeAceptadaEmail } from './fe-email.server';
+import { logFeEmitFiscalDebug } from './fe-emit-debug.server';
 import type { FeComprobanteEstado } from './types';
 
 type InvoiceRow = {
@@ -190,7 +191,7 @@ function buildPayload(
 		nombre_completo: client.nombre.trim(),
 		tipo_cedula: client.fe_tipo_identificacion.trim()
 	};
-	const correo = client.fe_correo_facturacion?.trim() || client.email?.trim();
+	const correo = primaryFeCorreo(client.fe_correo_facturacion, client.email);
 	if (correo) cliente.correo_electronico = correo;
 	const emisorCodigo = String(emisorConfig.codigo_actividad ?? '').trim();
 	const clientCodigo = client.fe_codigo_actividad?.trim();
@@ -271,7 +272,10 @@ function invoiceForNotaFromReferenciaFe(
 	};
 }
 
-export type EmitFeOptions = FeMonedaEmitOptions & { mediosPago?: FeMedioPagoItem[] };
+export type EmitFeOptions = FeMonedaEmitOptions & {
+	mediosPago?: FeMedioPagoItem[];
+	extraCorreos?: string | null;
+};
 
 export async function emitirFacturaElectronica(
 	invoiceId: string,
@@ -454,7 +458,10 @@ export async function consultarComprobanteElectronicoById(
 	};
 }
 
-export async function consultarFacturaElectronica(invoiceId: string): Promise<{ message: string; estado: string }> {
+export async function consultarFacturaElectronica(
+	invoiceId: string,
+	extraCorreos?: string | null
+): Promise<{ message: string; estado: string }> {
 	const emisor = await getFeEmisorConfigForEmit();
 	if (!emisor) throw new Error('No hay configuración de emisor para el ambiente actual.');
 
@@ -490,7 +497,8 @@ export async function consultarFacturaElectronica(invoiceId: string): Promise<{ 
 		invoiceId,
 		tipoDocumento: fe.tipo_documento,
 		previousEstado: fe.estado,
-		estado
+		estado,
+		extraCorreos
 	});
 
 	return {
@@ -521,7 +529,7 @@ export function formatFeHaciendaResultMessage(
 /** Reintenta mientras Hacienda responde «procesando». */
 export async function consultarFacturaElectronicaConReintentos(
 	invoiceId: string,
-	options?: { maxAttempts?: number; delayMs?: number }
+	options?: { maxAttempts?: number; delayMs?: number; extraCorreos?: string | null }
 ): Promise<{ message: string; estado: string }> {
 	const maxAttempts = options?.maxAttempts ?? 6;
 	const delayMs = options?.delayMs ?? 2000;
@@ -530,7 +538,7 @@ export async function consultarFacturaElectronicaConReintentos(
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {
 		if (attempt > 0) await sleep(delayMs);
 		try {
-			last = await consultarFacturaElectronica(invoiceId);
+			last = await consultarFacturaElectronica(invoiceId, options?.extraCorreos);
 			if (last.estado !== 'procesando') return last;
 		} catch (err) {
 			if (attempt === maxAttempts - 1) throw err;
@@ -555,7 +563,9 @@ export async function emitirYConsultarFacturaElectronica(
 }> {
 	const emit = await emitirFacturaElectronica(invoiceId, options);
 	await sleep(1500);
-	const consult = await consultarFacturaElectronicaConReintentos(invoiceId);
+	const consult = await consultarFacturaElectronicaConReintentos(invoiceId, {
+		extraCorreos: options?.extraCorreos
+	});
 	const consultaPending = consult.estado === 'procesando';
 	const message = consultaPending
 		? formatFeHaciendaResultMessage(consult.estado, { kind: 'fe', consultaPending: true })

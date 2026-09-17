@@ -118,7 +118,8 @@ export async function notifyClient(params: {
 
 /** Paquete de factura electrónica aceptada: XML firmado, XML de Hacienda y PDF. */
 export async function notifyFacturaElectronicaAceptada(params: {
-	to: string;
+	to: string | string[];
+	cc?: string | string[];
 	invoiceNumber: string;
 	clientName: string;
 	clave?: string | null;
@@ -140,5 +141,22 @@ Archivos: ${files}
 		`Factura ${escapeHtml(params.invoiceNumber)}`,
 		`Adjuntamos la factura electrónica de <strong>${escapeHtml(params.clientName)}</strong>: XML generado, XML de aceptación de Hacienda y representación gráfica (PDF).${params.clave ? ` Clave: <strong>${escapeHtml(params.clave)}</strong>.` : ''}`
 	);
-	await sendEmail({ to: params.to, subject, text, html, attachments: params.attachments });
+	const recipients = (Array.isArray(params.to) ? params.to : [params.to])
+		.map((e) => e.trim())
+		.filter(Boolean);
+	if (recipients.length === 0) {
+		throw new Error('Indique al menos un correo para enviar la factura electrónica.');
+	}
+	const cc = (Array.isArray(params.cc) ? params.cc : params.cc ? [params.cc] : [])
+		.map((e) => e.trim())
+		.filter(Boolean)
+		.filter((e) => !recipients.some((r) => r.toLowerCase() === e.toLowerCase()));
+	await sendEmail({
+		to: recipients.join(', '),
+		...(cc.length ? { cc: cc.join(', ') } : {}),
+		subject,
+		text,
+		html,
+		attachments: params.attachments
+	});
 }

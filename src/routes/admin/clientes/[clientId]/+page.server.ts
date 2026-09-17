@@ -8,7 +8,7 @@ import {
 	clientFeAddressRowToForm,
 	parseClientFeAddressFromForm
 } from '$lib/fe/client-fiscal-address';
-import { consultarFacturaElectronica, emitirYConsultarFacturaElectronica } from '$lib/fe/emit.server';
+import { invalidFeCorreos, normalizeFeCorreos } from '$lib/fe/fe-correos';
 import { loadFeEmitPanelContext } from '$lib/fe/emit-panel-context.server';
 import { parseFeMonedaEmitForm } from '$lib/fe/fe-moneda';
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
@@ -70,7 +70,15 @@ export const actions: Actions = {
 		const fe_tipo_identificacion = String(form.get('fe_tipo_identificacion') ?? '').trim();
 		const fe_numero_identificacion = String(form.get('fe_numero_identificacion') ?? '').trim();
 		const fe_codigo_actividad = String(form.get('fe_codigo_actividad') ?? '').trim();
-		const fe_correo_facturacion = String(form.get('fe_correo_facturacion') ?? '').trim();
+		const fe_correo_raw = String(form.get('fe_correo_facturacion') ?? '').trim();
+		const invalidCorreos = invalidFeCorreos(fe_correo_raw);
+		if (invalidCorreos.length) {
+			return fail(400, {
+				message: `Correo inválido: ${invalidCorreos.join(', ')}`,
+				kind: 'fiscal' as const
+			});
+		}
+		const fe_correo_facturacion = normalizeFeCorreos(fe_correo_raw);
 
 		if (!fe_tipo_identificacion || !fe_numero_identificacion) {
 			return fail(400, { message: 'Tipo y número de identificación son requeridos.', kind: 'fiscal' as const });
@@ -93,7 +101,7 @@ export const actions: Actions = {
 				fe_tipo_identificacion,
 				fe_numero_identificacion,
 				fe_codigo_actividad: fe_codigo_actividad || null,
-				fe_correo_facturacion: fe_correo_facturacion || null,
+				fe_correo_facturacion,
 				fe_provincia: feAddress.fe_provincia,
 				fe_canton: feAddress.fe_canton || null,
 				fe_distrito: feAddress.fe_distrito || null,

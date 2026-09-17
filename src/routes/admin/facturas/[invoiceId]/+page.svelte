@@ -7,6 +7,8 @@
 	} from '$lib/components/fe/FeMediosPagoModal.svelte';
 	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
 	import FeNotaEmitModal from '$lib/components/fe/FeNotaEmitModal.svelte';
+	import FeCorreosField from '$lib/components/fe/FeCorreosField.svelte';
+	import { formatFeCorreosLabel } from '$lib/fe/fe-correos';
 	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
 	import {
 		feComprobanteBlocksEmit,
@@ -59,9 +61,16 @@
 	let reemittingFactura = $state(false);
 	let consultingFe = $state(false);
 	let consultingNotaId = $state<string | null>(null);
+	let sendingFeEmail = $state(false);
+	let extraCorreos = $state('');
 
 	const feBusy = $derived(
-		emittingFe || consultingFe || emittingNota || consultingNotaId !== null || reemittingFactura
+		emittingFe ||
+			consultingFe ||
+			emittingNota ||
+			consultingNotaId !== null ||
+			reemittingFactura ||
+			sendingFeEmail
 	);
 
 	let lastFe = $state<(typeof data.fe)>(null);
@@ -609,7 +618,7 @@
 				<div><dt>Tipo ID</dt><dd>{tipoIdLabel}</dd></div>
 				<div><dt>Identificación</dt><dd>{client.fe_numero_identificacion ?? '—'}</dd></div>
 				<div><dt>Actividad económica</dt><dd>{client.fe_codigo_actividad ?? '—'}</dd></div>
-				<div><dt>Correo FE</dt><dd>{client.fe_correo_facturacion ?? client.email ?? '—'}</dd></div>
+				<div><dt>Correo FE</dt><dd>{formatFeCorreosLabel(client.fe_correo_facturacion, client.email)}</dd></div>
 			</dl>
 		</section>
 	</div>
@@ -826,6 +835,7 @@
 					<input type="hidden" name="medios_pago" value={mediosPagoJson} />
 					<input type="hidden" name="moneda" value={emitMoneda} />
 					<input type="hidden" name="tipo_cambio" value={emitTipoCambio} />
+					<input type="hidden" name="extra_correos" value={extraCorreos} />
 				</form>
 				<button type="button" class="btn-primary" onclick={openEmitModal} disabled={feBusy}>
 					{emittingFe ? 'Enviando…' : emitFeLabel}
@@ -848,11 +858,48 @@
 					}}
 				>
 					<input type="hidden" name="invoice_id" value={invoice.id} />
+					<input type="hidden" name="extra_correos" value={extraCorreos} />
 					<button type="submit" class="btn-secondary-pill" disabled={feBusy}>
 						{consultingFe ? 'Consultando…' : 'Consultar Hacienda'}
 					</button>
 				</form>
 			{/if}
+		</div>
+
+		<div class="invoice-detail__fe-copy">
+			<FeCorreosField
+				bind:value={extraCorreos}
+				name="extra_correos_ui"
+				label="Copia a otros correos"
+				placeholder="otro@clinica.com, contabilidad@clinica.com"
+			/>
+			{#if feAceptada}
+				<form
+					method="POST"
+					action="?/enviarPaquete"
+					use:enhance={() => {
+						sendingFeEmail = true;
+						feFeedback = null;
+						return async ({ update, result }) => {
+							try {
+								await afterFeFormAction(result, update);
+							} finally {
+								sendingFeEmail = false;
+							}
+						};
+					}}
+				>
+					<input type="hidden" name="invoice_id" value={invoice.id} />
+					<input type="hidden" name="extra_correos" value={extraCorreos} />
+					<button type="submit" class="btn-secondary-pill" disabled={feBusy || !extraCorreos.trim()}>
+						{sendingFeEmail ? 'Enviando…' : 'Enviar copia ahora'}
+					</button>
+				</form>
+			{/if}
+			<p class="type-caption">
+				El cliente sigue como destinatario. Estos correos van en copia (CC). Si la FE ya está aceptada,
+				use «Enviar copia ahora» sin volver a Hacienda.
+			</p>
 		</div>
 	</section>
 
@@ -1195,6 +1242,14 @@
 		flex-wrap: wrap;
 		gap: var(--spacing-sm);
 		margin-top: var(--spacing-md);
+	}
+
+	.invoice-detail__fe-copy {
+		display: flex;
+		flex-direction: column;
+		gap: var(--spacing-sm);
+		margin-top: var(--spacing-md);
+		max-width: 32rem;
 	}
 
 	.invoice-detail__nota-actions {

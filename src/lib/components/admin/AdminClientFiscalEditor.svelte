@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import ActividadEconomica from '$lib/components/actividadEconomica/components/actividadEconomica.svelte';
 	import ClientFeAddressFields from '$lib/components/admin/ClientFeAddressFields.svelte';
+	import FeCorreosField from '$lib/components/fe/FeCorreosField.svelte';
 	import type { ClientFeAddress } from '$lib/fe/client-fiscal-address';
 	import { FE_TIPO_IDENTIFICACION_OPTIONS } from '$lib/fe/constants';
 
@@ -82,16 +83,12 @@
 					helperText="Opcional hoy; Hacienda puede exigirlo en el futuro. Use el código exacto del RUT."
 				/>
 			</div>
-			<label class="field">
-				<span class="field-label">Correo facturación</span>
-				<input
-					class="field-input"
-					type="email"
-					name="fe_correo_facturacion"
+			<div class="field--full">
+				<FeCorreosField
 					bind:value={draft.fe_correo_facturacion}
-					placeholder="Si difiere del correo del portal"
+					placeholder="Si difiere del correo del portal. Puede agregar varios."
 				/>
-			</label>
+			</div>
 			<div class="field field--full">
 				<span class="field-label">Dirección fiscal</span>
 				<ClientFeAddressFields bind:address={draft} />

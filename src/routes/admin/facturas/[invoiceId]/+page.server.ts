@@ -4,6 +4,8 @@ import { requireFinancialProfile } from '$lib/auth/guards.server';
 import { requireAdmin } from '$lib/auth/require-admin';
 import { canViewFinancial } from '$lib/auth/roles';
 import { consultarFacturaElectronica, emitirYConsultarFacturaElectronica, emitirYConsultarNotaCreditoDebito, consultarComprobanteElectronicoById } from '$lib/fe/emit.server';
+import { sendFeAceptadaPackageToClient } from '$lib/fe/fe-email.server';
+import { invalidFeCorreos } from '$lib/fe/fe-correos';
 import { parseFeMonedaEmitForm } from '$lib/fe/fe-moneda';
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
 import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
@@ -144,9 +146,15 @@ export const actions: Actions = {
 				const message = parseErr instanceof Error ? parseErr.message : 'Medios de pago inválidos.';
 				return fail(400, { message });
 			}
+			const extraCorreos = String(form.get('extra_correos') ?? '').trim();
+			const invalid = invalidFeCorreos(extraCorreos);
+			if (invalid.length) {
+				return fail(400, { message: `Correo inválido: ${invalid.join(', ')}` });
+			}
 			const result = await emitirYConsultarFacturaElectronica(invoiceId, {
 				mediosPago,
-				...monedaEmit
+				...monedaEmit,
+				extraCorreos
 			});
 			return {
 				success: true,
@@ -170,7 +178,8 @@ export const actions: Actions = {
 		if (!invoiceId) return fail(400, { message: 'Factura no válida.' });
 
 		try {
-			const result = await consultarFacturaElectronica(invoiceId);
+			const extraCorreos = String(form.get('extra_correos') ?? '').trim();
+			const result = await consultarFacturaElectronica(invoiceId, extraCorreos);
 			return {
 				success: true,
 				message: result.message,
@@ -178,6 +187,35 @@ export const actions: Actions = {
 			};
 		} catch (err) {
 			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo consultar.' });
+		}
+	},
+
+	enviarPaquete: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		const gate = await requireAdmin(
+			supabase,
+			user?.id,
+			'Solo administradores pueden reenviar la factura electrónica.'
+		);
+		if (!gate.ok) return fail(gate.status, { message: gate.message });
+
+		const form = await request.formData();
+		const invoiceId = String(form.get('invoice_id') ?? '').trim();
+		const extraCorreos = String(form.get('extra_correos') ?? '').trim();
+		if (!invoiceId) return fail(400, { message: 'Factura no válida.' });
+		if (!extraCorreos) {
+			return fail(400, { message: 'Indique al menos un correo para la copia.' });
+		}
+		const invalid = invalidFeCorreos(extraCorreos);
+		if (invalid.length) {
+			return fail(400, { message: `Correo inválido: ${invalid.join(', ')}` });
+		}
+
+		try {
+			const destinos = await sendFeAceptadaPackageToClient(invoiceId, extraCorreos);
+			return { success: true, message: `Se envió el paquete FE a ${destinos}.` };
+		} catch (err) {
+			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo enviar.' });
 		}
 	},
 
