@@ -44,9 +44,12 @@ import {
 } from './fe-moneda';
 import {
 	assertMediosPagoMatchTotal,
+	reconcileMediosPagoToTotal,
 	type FeMedioPagoItem,
 	roundMoney
 } from './medios-pago';
+import { invoiceLineAmounts } from '$lib/lab/invoice-line-amounts';
+import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 import { maybeSendFeAceptadaEmail } from './fe-email.server';
 import { logFeEmitFiscalDebug } from './fe-emit-debug.server';
 import type { FeComprobanteEstado } from './types';
@@ -208,11 +211,17 @@ function buildPayload(
 	});
 	if (ubicacion) Object.assign(cliente, ubicacion);
 
-	const total = roundMoney(Number(invoiceScaled.total));
-	const medios =
+	const total = computeInvoiceTaxTotals(
+		lineasPayload.map((l) => {
+			const amounts = invoiceLineAmounts(l.cantidad, l.precio_unitario);
+			return { subtotal: amounts.subtotal, impuesto_tarifa: l.impuesto_tarifa };
+		})
+	).total;
+	const mediosRaw =
 		options?.mediosPago && options.mediosPago.length > 0
 			? options.mediosPago
 			: [{ tipo: '01', monto: total } satisfies FeMedioPagoItem];
+	const medios = reconcileMediosPagoToTotal(mediosRaw, total);
 	assertMediosPagoMatchTotal(medios, total, moneda);
 
 	const tipoDocumento = options?.tipoDocumento ?? '01';

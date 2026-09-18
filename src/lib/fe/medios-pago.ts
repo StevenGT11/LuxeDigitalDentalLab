@@ -39,6 +39,31 @@ export function parseMediosPagoFormValue(raw: FormDataEntryValue | null): FeMedi
 	}
 }
 
+/** Ajusta un único medio de pago al total exacto del comprobante (redondeo CRC/USD). */
+export function reconcileMediosPagoToTotal(
+	medios: FeMedioPagoItem[],
+	total: number
+): FeMedioPagoItem[] {
+	const expected = roundMoney(total);
+	if (medios.length === 0) return medios;
+	if (medios.length === 1) {
+		return [{ ...medios[0]!, monto: expected }];
+	}
+	const sum = roundMoney(medios.reduce((s, m) => s + m.monto, 0));
+	if (Math.abs(sum - expected) <= 0.01) return medios;
+	const idx = medios.reduce(
+		(best, m, i, arr) => (m.monto > arr[best]!.monto ? i : best),
+		0
+	);
+	const adjusted = [...medios];
+	const delta = roundMoney(expected - sum);
+	adjusted[idx] = {
+		...adjusted[idx]!,
+		monto: roundMoney(Math.max(0.01, adjusted[idx]!.monto + delta))
+	};
+	return adjusted;
+}
+
 export function assertMediosPagoMatchTotal(
 	medios: FeMedioPagoItem[],
 	total: number,

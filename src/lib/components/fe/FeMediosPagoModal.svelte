@@ -173,7 +173,9 @@
 			formError =
 				moneda === 'USD'
 					? 'Indique el tipo de cambio (colones por 1 USD) requerido por Hacienda.'
-					: 'Indique el tipo de cambio para convertir USD a colones.';
+					: tipoCambioStatus === 'loading'
+						? 'Espere a que se cargue el tipo de cambio para colones.'
+						: 'No se pudo obtener el tipo de cambio para convertir a colones.';
 			return;
 		}
 
@@ -237,7 +239,10 @@
 		</header>
 
 		{#if showCurrency}
-			<div class="fe-medios-dialog__currency">
+			<div
+				class="fe-medios-dialog__currency"
+				class:fe-medios-dialog__currency--usd={moneda === 'USD'}
+			>
 				<label class="field fe-medios-dialog__currency-field">
 					<span class="field-label">Moneda del comprobante</span>
 					<select
@@ -245,6 +250,9 @@
 						value={moneda}
 						onchange={(e) => {
 							moneda = e.currentTarget.value as FeMoneda;
+							if (moneda === 'CRC' && tipoCambio <= 0 && tipoCambioStatus !== 'loading') {
+								void loadTipoCambio();
+							}
 							refreshRowsForTotal();
 						}}
 					>
@@ -252,21 +260,7 @@
 							<option value={opt.code}>{opt.label}</option>
 						{/each}
 					</select>
-				</label>
-				<label class="field fe-medios-dialog__currency-field">
-					<span class="field-label">Tipo de cambio (₡ por USD)</span>
-					<input
-						type="text"
-						inputmode="decimal"
-						class="field-input"
-						placeholder={tipoCambioStatus === 'loading' ? 'Cargando…' : 'Ej. 449.49'}
-						value={tipoCambioInput}
-						oninput={(e) => {
-							tipoCambioInput = e.currentTarget.value;
-							if (tipoCambio > 0) refreshRowsForTotal();
-						}}
-					/>
-					{#if tipoCambioHint}
+					{#if moneda === 'CRC' && tipoCambioHint}
 						<span
 							class="fe-medios-dialog__tc-hint"
 							class:fe-medios-dialog__tc-hint--error={tipoCambioStatus === 'error'}
@@ -275,6 +269,30 @@
 						</span>
 					{/if}
 				</label>
+				{#if moneda === 'USD'}
+					<label class="field fe-medios-dialog__currency-field">
+						<span class="field-label">Tipo de cambio (₡ por USD)</span>
+						<input
+							type="text"
+							inputmode="decimal"
+							class="field-input"
+							placeholder={tipoCambioStatus === 'loading' ? 'Cargando…' : 'Ej. 449.49'}
+							value={tipoCambioInput}
+							oninput={(e) => {
+								tipoCambioInput = e.currentTarget.value;
+								if (tipoCambio > 0) refreshRowsForTotal();
+							}}
+						/>
+						{#if tipoCambioHint}
+							<span
+								class="fe-medios-dialog__tc-hint"
+								class:fe-medios-dialog__tc-hint--error={tipoCambioStatus === 'error'}
+							>
+								{tipoCambioHint}
+							</span>
+						{/if}
+					</label>
+				{/if}
 			</div>
 		{/if}
 
@@ -464,9 +482,13 @@
 
 	.fe-medios-dialog__currency {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: 1fr;
 		gap: 0.75rem;
 		padding: 1rem 1.25rem 0;
+	}
+
+	.fe-medios-dialog__currency--usd {
+		grid-template-columns: 1fr 1fr;
 	}
 
 	.fe-medios-dialog__tc-hint {

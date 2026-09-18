@@ -1,4 +1,6 @@
 import { roundMoney } from '$lib/fe/medios-pago';
+import { invoiceLineAmounts } from '$lib/lab/invoice-line-amounts';
+import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 
 /** Monedas admitidas en comprobantes electrónicos Hacienda v4.4. */
 export type FeMoneda = 'CRC' | 'USD';
@@ -84,6 +86,39 @@ type ScalableInvoice = {
 	invoice_lines: ScalableInvoiceLine[];
 };
 
+export type FeLedgerLineForTotal = {
+	cantidad: number;
+	precio_unitario: number;
+	impuesto_tarifa: number;
+};
+
+/** Totales FE a partir de líneas en moneda del libro (USD), igual que al emitir. */
+export function computeFeComprobanteTotalsFromLedgerLines(
+	lines: FeLedgerLineForTotal[],
+	moneda: FeMoneda,
+	tipoCambio: number
+): { subtotal: number; impuesto: number; total: number } {
+	if (lines.length === 0) return { subtotal: 0, impuesto: 0, total: 0 };
+	const taxLines = lines.map((l) => {
+		const precioComprobante =
+			moneda === 'CRC'
+				? feComprobanteAmountFromLedger(l.precio_unitario, moneda, tipoCambio)
+				: roundMoney(l.precio_unitario);
+		const amounts = invoiceLineAmounts(l.cantidad, precioComprobante);
+		return { subtotal: amounts.subtotal, impuesto_tarifa: l.impuesto_tarifa };
+	});
+	return computeInvoiceTaxTotals(taxLines);
+}
+
+/** Total FE a partir de líneas en moneda del libro (USD), igual que al emitir. */
+export function computeFeComprobanteTotalFromLedgerLines(
+	lines: FeLedgerLineForTotal[],
+	moneda: FeMoneda,
+	tipoCambio: number
+): number {
+	return computeFeComprobanteTotalsFromLedgerLines(lines, moneda, tipoCambio).total;
+}
+
 /** Escala montos del libro (USD) a la moneda del comprobante electrónico. */
 export function scaleInvoiceForFeMoneda<T extends ScalableInvoice>(
 	invoice: T,
@@ -91,16 +126,30 @@ export function scaleInvoiceForFeMoneda<T extends ScalableInvoice>(
 	tipoCambio: number
 ): T {
 	if (moneda === 'USD') return invoice;
-	const factor = tipoCambio;
+	const invoice_lines = invoice.invoice_lines.map((l) => {
+		const precioComprobante = feComprobanteAmountFromLedger(
+			Number(l.precio_unitario),
+			moneda,
+			tipoCambio
+		);
+		const amounts = invoiceLineAmounts(l.cantidad, precioComprobante);
+		return {
+			...l,
+			precio_unitario: amounts.precio_unitario,
+			subtotal: amounts.subtotal
+		};
+	});
+	const totals = computeInvoiceTaxTotals(
+		invoice_lines.map((l) => ({
+			subtotal: l.subtotal,
+			impuesto_tarifa: l.impuesto_tarifa
+		}))
+	);
 	return {
 		...invoice,
-		subtotal: feComprobanteAmountFromLedger(Number(invoice.subtotal), moneda, factor),
-		impuesto: feComprobanteAmountFromLedger(Number(invoice.impuesto), moneda, factor),
-		total: feComprobanteAmountFromLedger(Number(invoice.total), moneda, factor),
-		invoice_lines: invoice.invoice_lines.map((l) => ({
-			...l,
-			precio_unitario: feComprobanteAmountFromLedger(Number(l.precio_unitario), moneda, factor),
-			subtotal: feComprobanteAmountFromLedger(Number(l.subtotal), moneda, factor)
-		}))
+		subtotal: totals.subtotal,
+		impuesto: totals.impuesto,
+		total: totals.total,
+		invoice_lines
 	};
 }

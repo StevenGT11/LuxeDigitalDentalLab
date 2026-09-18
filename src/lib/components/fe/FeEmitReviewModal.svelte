@@ -7,10 +7,16 @@
 	} from '$lib/fe/constants';
 	import {
 		FE_MONEDA_OPTIONS,
+		computeFeComprobanteTotalsFromLedgerLines,
 		feComprobanteAmountFromLedger,
 		type FeMoneda
 	} from '$lib/fe/fe-moneda';
-	import { FE_MEDIO_PAGO_OPTIONS, roundMoney, type FeMedioPagoItem } from '$lib/fe/medios-pago';
+	import {
+		FE_MEDIO_PAGO_OPTIONS,
+		reconcileMediosPagoToTotal,
+		roundMoney,
+		type FeMedioPagoItem
+	} from '$lib/fe/medios-pago';
 	import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 	import { invoiceLineAmounts } from '$lib/lab/invoice-line-amounts';
 	import { formatColones, formatCurrency } from '$lib/lab/helpers';
@@ -165,7 +171,26 @@
 		return Number.isFinite(n) && n > 0 ? roundMoney(n) : 0;
 	});
 
-	const totalRounded = $derived(roundMoney(ledgerTotals.total));
+	function ledgerLinesFromDrafts() {
+		return computedDrafts.map((d) => ({
+			cantidad: d.cantidadN,
+			precio_unitario: precioToLedgerUsd(d.precioN),
+			impuesto_tarifa: d.impuesto_tarifa
+		}));
+	}
+
+	const comprobanteTotals = $derived.by(() => {
+		if (tipoCambio <= 0 || computedDrafts.length === 0) {
+			return ledgerTotals;
+		}
+		return computeFeComprobanteTotalsFromLedgerLines(
+			ledgerLinesFromDrafts(),
+			moneda,
+			tipoCambio
+		);
+	});
+
+	const totalRounded = $derived(roundMoney(comprobanteTotals.total));
 
 	function formatAmount(amount: number): string {
 		return moneda === 'CRC' ? formatColones(amount) : formatCurrency(amount);
@@ -187,16 +212,24 @@
 		pricesMoneda = to;
 	}
 
-	function setMoneda(next: FeMoneda) {
+	function onMonedaChange(next: FeMoneda) {
 		if (next === moneda) return;
 		convertDraftPrices(pricesMoneda, next, tipoCambio);
 		moneda = next;
+		if (next === 'CRC' && tipoCambio <= 0 && tipoCambioStatus !== 'loading') {
+			void loadTipoCambio();
+		}
 		refreshPagos();
 	}
 
-	function precioToLedgerUsd(precio: number): number {
-		if (pricesMoneda !== 'CRC' || tipoCambio <= 0) return roundMoney(precio);
-		return roundMoney(precio / tipoCambio);
+	function onTipoCambioInput(raw: string) {
+		tipoCambioInput = raw;
+		const n = Number(String(raw).replace(',', '.'));
+		const tc = Number.isFinite(n) && n > 0 ? roundMoney(n) : 0;
+		if (moneda === 'CRC' && pricesMoneda === 'USD' && tc > 0) {
+			convertDraftPrices('USD', 'CRC', tc);
+		}
+		if (tc > 0) refreshPagos();
 	}
 
 	const assigned = $derived(
@@ -210,6 +243,52 @@
 	);
 	const remaining = $derived(roundMoney(totalRounded - assigned));
 
+	function defaultPagoRows(forTotal: number): PagoRow[] {
+		const t = roundMoney(forTotal);
+		return FE_MEDIO_PAGO_OPTIONS.map((opt, i) => ({
+			tipo: opt.tipo,
+			label: opt.label,
+			active: i === 1,
+			monto: i === 1 ? String(t) : ''
+		}));
+	}
+
+	function syncPagosToTotal(forTotal: number) {
+		if (forTotal <= 0) return;
+		if (moneda === 'CRC' && tipoCambio <= 0) return;
+
+		const active = pagoRows.filter((r) => r.active);
+		if (active.length === 1) {
+			pagoRows = pagoRows.map((r) =>
+				r.active ? { ...r, monto: String(roundMoney(forTotal)) } : r
+			);
+			return;
+		}
+
+		const assignedSum = roundMoney(
+			pagoRows.reduce((sum, r) => {
+				if (!r.active) return sum;
+				const n = Number(String(r.monto).replace(',', '.'));
+				return sum + (Number.isFinite(n) ? n : 0);
+			}, 0)
+		);
+		if (active.length === 0 || assignedSum === 0) {
+			pagoRows = defaultPagoRows(forTotal);
+			return;
+		}
+
+		pagoRows = defaultPagoRows(forTotal);
+	}
+
+	function refreshPagos(forTotal = totalRounded) {
+		syncPagosToTotal(forTotal);
+	}
+
+	function precioToLedgerUsd(precio: number): number {
+		if (pricesMoneda !== 'CRC' || tipoCambio <= 0) return roundMoney(precio);
+		return roundMoney(precio / tipoCambio);
+	}
+
 	function cloneLines(source: FeEmitReviewLine[]): DraftLine[] {
 		return source.map((line) => ({
 			key: line.id || crypto.randomUUID(),
@@ -221,27 +300,6 @@
 			impuesto_tarifa: line.impuesto_tarifa,
 			precio_unitario: String(line.precio_unitario)
 		}));
-	}
-
-	function defaultPagoRows(forTotal: number): PagoRow[] {
-		const t = roundMoney(forTotal);
-		return FE_MEDIO_PAGO_OPTIONS.map((opt, i) => ({
-			tipo: opt.tipo,
-			label: opt.label,
-			active: i === 1,
-			monto: i === 1 ? String(t) : ''
-		}));
-	}
-
-	function formatTcFecha(iso: string): string {
-		const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
-		if (!m) return iso;
-		return `${m[3]}/${m[2]}/${m[1]}`;
-	}
-
-	function refreshPagos(forTotal = totalRounded) {
-		if (forTotal <= 0 || tipoCambio <= 0) return;
-		pagoRows = defaultPagoRows(forTotal);
 	}
 
 	async function loadTipoCambio() {
@@ -258,9 +316,7 @@
 			}
 			tipoCambioInput = String(venta);
 			tipoCambioStatus = 'ok';
-			tipoCambioHint = data.fecha
-				? `Venta BCCR ${formatTcFecha(data.fecha)} · Hacienda`
-				: 'Venta BCCR · Hacienda';
+			tipoCambioHint = '';
 			if (moneda === 'CRC' && pricesMoneda === 'USD') {
 				convertDraftPrices('USD', 'CRC', roundMoney(venta));
 			}
@@ -274,10 +330,11 @@
 
 	$effect(() => {
 		if (open) {
+			const seedLines = lines;
 			untrack(() => {
 				notas = initialNotas;
 				extraCorreos = initialExtraCorreos;
-				drafts = cloneLines(lines);
+				drafts = cloneLines(seedLines);
 				formError = '';
 				moneda = 'USD';
 				pricesMoneda = 'USD';
@@ -292,6 +349,16 @@
 			});
 			dialogEl?.close();
 		}
+	});
+
+	$effect(() => {
+		if (!open) return;
+		const total = totalRounded;
+		const tc = tipoCambio;
+		const currency = moneda;
+		if (total <= 0) return;
+		if (currency === 'CRC' && tc <= 0) return;
+		untrack(() => syncPagosToTotal(total));
 	});
 
 	function addLine() {
@@ -365,7 +432,13 @@
 			formError =
 				moneda === 'USD'
 					? 'Indique el tipo de cambio (colones por 1 USD).'
-					: 'Indique el tipo de cambio para convertir USD a colones.';
+					: tipoCambioStatus === 'loading'
+						? 'Espere a que se cargue el tipo de cambio para colones.'
+						: 'No se pudo obtener el tipo de cambio para convertir a colones.';
+			return;
+		}
+		if (totalRounded <= 0) {
+			formError = 'El total del comprobante debe ser mayor que cero.';
 			return;
 		}
 		const medios: FeMedioPagoItem[] = [];
@@ -382,7 +455,9 @@
 			formError = 'Active al menos un medio de pago.';
 			return;
 		}
-		if (Math.abs(remaining) >= 0.01) {
+		const mediosFinal = reconcileMediosPagoToTotal(medios, totalRounded);
+		const assignedFinal = roundMoney(mediosFinal.reduce((s, m) => s + m.monto, 0));
+		if (Math.abs(assignedFinal - totalRounded) >= 0.01) {
 			formError = `Los medios de pago deben sumar ${formatAmount(totalRounded)}.`;
 			return;
 		}
@@ -399,7 +474,7 @@
 				fe_unidad_medida: d.unidad,
 				impuesto_tarifa: d.impuesto_tarifa
 			})),
-			medios,
+			medios: mediosFinal,
 			moneda,
 			tipoCambio
 		});
@@ -439,42 +514,51 @@
 
 			<section class="fe-review-dialog__section">
 				<h3 class="fe-review-dialog__section-title">Moneda del comprobante</h3>
-				<div class="fe-review-dialog__currency">
-					<label class="field">
+				<div
+					class="fe-review-dialog__currency"
+					class:fe-review-dialog__currency--usd={moneda === 'USD'}
+				>
+					<label class="field fe-review-dialog__currency-field">
 						<span class="field-label">Moneda</span>
 						<select
 							class="field-select"
-							bind:value={() => moneda, (v) => setMoneda(v as FeMoneda)}
+							value={moneda}
+							onchange={(e) => onMonedaChange(e.currentTarget.value as FeMoneda)}
 						>
 							{#each FE_MONEDA_OPTIONS as opt (opt.code)}
 								<option value={opt.code}>{opt.label}</option>
 							{/each}
 						</select>
+						{#if moneda === 'CRC' && tipoCambioHint && tipoCambioStatus !== 'ok'}
+							<span
+								class="fe-review-dialog__tc-hint type-caption"
+								class:fe-review-dialog__tc-hint--error={tipoCambioStatus === 'error'}
+							>
+								{tipoCambioHint}
+							</span>
+						{/if}
 					</label>
-					<label class="field">
-						<span class="field-label fe-review-dialog__tc-label">
-							<span>Tipo de cambio (₡ por USD)</span>
-							{#if tipoCambioHint}
+					{#if moneda === 'USD'}
+						<label class="field fe-review-dialog__currency-field">
+							<span class="field-label">Tipo de cambio (₡ por USD)</span>
+							<input
+								type="text"
+								inputmode="decimal"
+								class="field-input"
+								placeholder={tipoCambioStatus === 'loading' ? 'Cargando…' : 'Ej. 449.49'}
+								value={tipoCambioInput}
+								oninput={(e) => onTipoCambioInput(e.currentTarget.value)}
+							/>
+							{#if tipoCambioHint && tipoCambioStatus !== 'ok'}
 								<span
-									class="type-caption"
+									class="fe-review-dialog__tc-hint type-caption"
 									class:fe-review-dialog__tc-hint--error={tipoCambioStatus === 'error'}
 								>
 									{tipoCambioHint}
 								</span>
 							{/if}
-						</span>
-						<input
-							type="text"
-							inputmode="decimal"
-							class="field-input"
-							placeholder={tipoCambioStatus === 'loading' ? 'Cargando…' : 'Ej. 449.49'}
-							value={tipoCambioInput}
-							oninput={(e) => {
-								tipoCambioInput = e.currentTarget.value;
-								if (tipoCambio > 0) refreshPagos();
-							}}
-						/>
-					</label>
+						</label>
+					{/if}
 				</div>
 			</section>
 
@@ -579,10 +663,10 @@
 								<td colspan="6" class="fe-review-dialog__totals-label">
 									Subtotal / IVA / Total ({moneda})
 								</td>
-								<td class="fe-review-dialog__num">{formatAmount(ledgerTotals.subtotal)}</td>
+								<td class="fe-review-dialog__num">{formatAmount(comprobanteTotals.subtotal)}</td>
 								<td class="fe-review-dialog__num fe-review-dialog__total">
-									{formatAmount(ledgerTotals.total)}
-									<span class="type-caption">IVA {formatAmount(ledgerTotals.impuesto)}</span>
+									{formatAmount(comprobanteTotals.total)}
+									<span class="type-caption">IVA {formatAmount(comprobanteTotals.impuesto)}</span>
 								</td>
 								<td></td>
 							</tr>
@@ -593,20 +677,6 @@
 
 			<section class="fe-review-dialog__section">
 				<h3 class="fe-review-dialog__section-title">Medios de pago</h3>
-				<div class="fe-review-dialog__totals-boxes">
-					<div>
-						<span class="type-caption">Total comprobante</span>
-						<strong>{formatAmount(totalRounded)}</strong>
-					</div>
-					<div>
-						<span class="type-caption">Asignado</span>
-						<strong>{formatAmount(assigned)}</strong>
-					</div>
-					<div>
-						<span class="type-caption">Restante</span>
-						<strong>{formatAmount(remaining)}</strong>
-					</div>
-				</div>
 				<ul class="fe-review-dialog__pagos">
 					{#each pagoRows as row, i (row.tipo)}
 						<li class="fe-review-dialog__pago">
@@ -860,34 +930,29 @@
 		font-weight: 700;
 	}
 
-	.fe-review-dialog__currency,
-	.fe-review-dialog__totals-boxes,
-	.fe-review-dialog__pago {
+	.fe-review-dialog__currency {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 0.75rem;
-		align-items: end;
+		align-items: start;
 	}
 
-	.fe-review-dialog__tc-label {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 0.35rem 0.75rem;
-		flex-wrap: wrap;
+	.fe-review-dialog__currency--usd {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 
-	.fe-review-dialog__tc-label .type-caption {
+	.fe-review-dialog__currency-field {
+		min-width: 0;
+	}
+
+	.fe-review-dialog__tc-hint {
+		display: block;
+		margin-top: 0.35rem;
 		font-weight: 500;
 	}
 
 	.fe-review-dialog__tc-hint--error {
 		color: var(--color-danger, #b91c1c);
-	}
-
-	.fe-review-dialog__totals-boxes {
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		margin: 0.75rem 0;
 	}
 
 	.fe-review-dialog__pagos {
@@ -900,7 +965,9 @@
 	}
 
 	.fe-review-dialog__pago {
+		display: grid;
 		grid-template-columns: minmax(8rem, 1fr) 7rem auto;
+		gap: 0.75rem;
 		align-items: center;
 	}
 
@@ -917,8 +984,7 @@
 
 	@media (max-width: 640px) {
 		.fe-review-dialog__dl,
-		.fe-review-dialog__currency,
-		.fe-review-dialog__totals-boxes {
+		.fe-review-dialog__currency {
 			grid-template-columns: 1fr;
 		}
 	}

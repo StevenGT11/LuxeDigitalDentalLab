@@ -6,7 +6,8 @@
 		type FeMediosPagoConfirm
 	} from '$lib/components/fe/FeMediosPagoModal.svelte';
 	import FeEmitReviewModal, {
-		type FeEmitReviewConfirm
+		type FeEmitReviewConfirm,
+		type FeEmitReviewLine
 	} from '$lib/components/fe/FeEmitReviewModal.svelte';
 	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
 	import FeNotaEmitModal from '$lib/components/fe/FeNotaEmitModal.svelte';
@@ -185,6 +186,7 @@
 
 	let pdfPreviewOpen = $state(false);
 	let emitReviewOpen = $state(false);
+	let emitReviewLines = $state<FeEmitReviewLine[]>([]);
 	let emitModalOpen = $state(false);
 	let notaModalOpen = $state(false);
 	let emitFormEl = $state<HTMLFormElement | null>(null);
@@ -318,6 +320,15 @@
 
 	function openEmitReview() {
 		feFeedback = null;
+		emitReviewLines = computedLineRows.map((line: InvoiceLineDetail) => ({
+			id: line.id,
+			descripcion: line.descripcion,
+			cantidad: line.cantidad,
+			unidad: line.fe_unidad_medida,
+			cabys: line.fe_cabys ?? '',
+			impuesto_tarifa: line.impuesto_tarifa,
+			precio_unitario: line.precio_unitario
+		}));
 		emitReviewOpen = true;
 	}
 
@@ -931,10 +942,6 @@
 					</button>
 				</form>
 			{/if}
-			<p class="type-caption">
-				El cliente sigue como destinatario. Estos correos van en copia (CC). Si la FE ya está aceptada,
-				use «Enviar copia ahora» sin volver a Hacienda.
-			</p>
 		</div>
 	</section>
 
@@ -1166,15 +1173,7 @@
 			correo: receptorCorreo,
 			direccion: receptorAddress
 		}}
-		lines={computedLineRows.map((line) => ({
-			id: line.id,
-			descripcion: line.descripcion,
-			cantidad: line.cantidad,
-			unidad: line.fe_unidad_medida,
-			cabys: line.fe_cabys ?? '',
-			impuesto_tarifa: line.impuesto_tarifa,
-			precio_unitario: line.precio_unitario
-		}))}
+		lines={emitReviewLines}
 		initialNotas={invoice.notas ?? ''}
 		initialExtraCorreos={extraCorreos}
 		onCancel={() => {}}
