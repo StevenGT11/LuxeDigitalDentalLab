@@ -344,7 +344,7 @@
 		</div>
 
 		{#if showFinancial}
-			<section style="margin-top: var(--spacing-xxl);">
+			<section id="facturas" style="margin-top: var(--spacing-xxl);">
 				<h3 class="type-tagline" style="margin: 0 0 var(--spacing-sm);">Facturas</h3>
 				<p class="type-caption" style="margin: 0 0 var(--spacing-lg);">
 					Estado FE según ambiente
@@ -402,7 +402,7 @@
 										class:fe-row-highlight={feActionInvoiceId === fac.id && feActionMessage}
 									>
 										<td class="type-body-strong">
-											<a href="/admin/facturas/{fac.id}" class="text-link">{fac.invoice_number}</a>
+											<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">{fac.invoice_number}</a>
 										</td>
 										<td>
 											<a href="/admin/casos/{fac.case_id}" class="text-link">{fac.case_number}</a>
@@ -464,7 +464,7 @@
 											>
 												PDF
 											</button>
-											<a href="/admin/facturas/{fac.id}" class="btn-secondary-pill client-fe-actions__btn">
+											<a href="/admin/facturas/{fac.id}?from=cliente" class="btn-secondary-pill client-fe-actions__btn">
 												Ver
 											</a>
 										</td>

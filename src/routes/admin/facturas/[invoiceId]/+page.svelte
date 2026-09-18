@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance, deserialize, applyAction } from '$app/forms';
 	import { goto, invalidate } from '$app/navigation';
+	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import FeMediosPagoModal, {
 		type FeMediosPagoConfirm
@@ -54,6 +55,13 @@
 	const fe = $derived(data.fe);
 	const notas = $derived(data.notas ?? []);
 	const client = $derived(data.client);
+	const fromCliente = $derived(page.url.searchParams.get('from') === 'cliente');
+	const backHref = $derived(
+		fromCliente ? `/admin/clientes/${invoice.client_id}#facturas` : '/admin/facturas'
+	);
+	const backLabel = $derived(
+		fromCliente ? '← Volver a facturas del cliente' : '← Volver a facturas'
+	);
 
 	const tipoIdLabel = $derived(
 		FE_TIPO_IDENTIFICACION_OPTIONS.find((o) => o.value === client.fe_tipo_identificacion)?.label ??
@@ -533,7 +541,7 @@
 
 	<div class="invoice-detail__main" class:fe-processing-blocked={feBusy}>
 	<p class="type-caption" style="margin-bottom: var(--spacing-md);">
-		<a href="/admin/facturas" class="text-link">← Volver a facturas</a>
+		<a href={backHref} class="text-link">{backLabel}</a>
 	</p>
 	<header class="invoice-detail__head dash-panel dash-panel--section">
 		<div>
