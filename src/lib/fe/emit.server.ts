@@ -275,6 +275,8 @@ function invoiceForNotaFromReferenciaFe(
 export type EmitFeOptions = FeMonedaEmitOptions & {
 	mediosPago?: FeMedioPagoItem[];
 	extraCorreos?: string | null;
+	/** No reescribe CABYS/IVA desde tratamientos; respeta las líneas editadas al emitir. */
+	preserveInvoiceLines?: boolean;
 };
 
 export async function emitirFacturaElectronica(
@@ -296,10 +298,12 @@ export async function emitirFacturaElectronica(
 	const invoice = await loadInvoice(invoiceId);
 	const client = await loadClientFiscal(invoice.client_id);
 
-	await syncInvoiceLinesFeFromCase(invoiceId);
-	await syncInvoiceLinesImpuestoFromCabys(invoiceId);
-	await normalizeInvoiceLinesImpuestoTarifa(invoiceId);
-	await recalculateAndPersistInvoiceTotals(invoiceId);
+	if (!options?.preserveInvoiceLines) {
+		await syncInvoiceLinesFeFromCase(invoiceId);
+		await syncInvoiceLinesImpuestoFromCabys(invoiceId);
+		await normalizeInvoiceLinesImpuestoTarifa(invoiceId);
+		await recalculateAndPersistInvoiceTotals(invoiceId);
+	}
 	const invoiceFresh = await loadInvoice(invoiceId);
 
 	const emisorCheck = validateEmisorForEmit(emisor);

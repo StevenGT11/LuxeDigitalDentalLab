@@ -4,6 +4,7 @@ import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import { getFeEmisorConfigPublicByAmbiente } from '$lib/fe/emisor.server';
 import type { FeEmisorConfigPublic } from '$lib/fe/types';
 import { formatFeCorreosLabel } from '$lib/fe/fe-correos';
+import { clientFeAddressRowToForm, formatClientFeAddressLabel } from '$lib/fe/client-fiscal-address';
 import { invoicePdfFilename } from '$lib/lab/invoice-pdf';
 import {
 	loadInvoiceDetailPage,
@@ -187,6 +188,11 @@ function drawParties(doc: PdfDoc, invoice: InvoiceDetail, client: ClientFiscalSn
 		doc.text(mail, MARGIN_X, leftY, { width: colW, height: 12, ellipsis: true });
 		leftY = doc.y;
 	}
+	const direccion = formatClientFeAddressLabel(clientFeAddressRowToForm(client));
+	if (direccion !== '—') {
+		doc.text(direccion, MARGIN_X, leftY, { width: colW, height: 24 });
+		leftY = doc.y;
+	}
 
 	doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8).text('CASO', rightX, top, { lineBreak: false });
 	doc.fillColor(INK).font('Helvetica-Bold').fontSize(10).text(invoice.case_number, rightX, top + 12, {
@@ -276,6 +282,18 @@ function drawTotals(doc: PdfDoc, invoice: InvoiceDetail) {
 	doc.y = y;
 }
 
+function drawNotes(doc: PdfDoc, notas: string) {
+	const text = notas.trim();
+	if (!text) return;
+	ensureSpace(doc, 36);
+	let y = doc.y + 12;
+	doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8).text('NOTAS', MARGIN_X, y, { lineBreak: false });
+	y = doc.y + 4;
+	doc.fillColor(INK).font('Helvetica').fontSize(8);
+	doc.text(text, MARGIN_X, y, { width: CONTENT_W });
+	doc.y = doc.y + 4;
+}
+
 function drawFeBox(doc: PdfDoc, fe: FeComprobanteDetail | null) {
 	if (!fe) return;
 	ensureSpace(doc, 52);
@@ -357,6 +375,7 @@ export async function buildInvoicePdfBuffer(invoiceId: string): Promise<{
 		drawParties(doc, detail.invoice, detail.client);
 		drawLines(doc, detail.invoice.lineas);
 		drawTotals(doc, detail.invoice);
+		drawNotes(doc, detail.invoice.notas);
 		drawFeBox(doc, detail.fe);
 		drawFooters(doc);
 		doc.end();

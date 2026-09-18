@@ -2,9 +2,12 @@ import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { FeComprobanteEstado } from '$lib/fe/types';
 import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
 import { canReemitFacturaTrasNc } from '$lib/fe/reemit-factura';
+import { isValidFeCabys } from '$lib/fe/constants';
+import { normalizeFeUnidadMedida } from '$lib/fe/emisor-normalize';
 import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
 import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 import {
+	invoiceLineAmounts,
 	normalizeInvoiceLineAmounts,
 	roundMoney
 } from '$lib/lab/invoice-line-amounts';
@@ -33,6 +36,7 @@ export type InvoiceDetail = {
 	estado: InvoiceEstado;
 	lineas: InvoiceLineDetail[];
 	source_invoice_id: string | null;
+	notas: string;
 };
 
 export type ClientFiscalSnapshot = {
@@ -42,6 +46,10 @@ export type ClientFiscalSnapshot = {
 	fe_numero_identificacion: string | null;
 	fe_codigo_actividad: string | null;
 	fe_correo_facturacion: string | null;
+	fe_provincia: number | null;
+	fe_canton: string | null;
+	fe_distrito: string | null;
+	fe_otras_senas: string | null;
 };
 
 export type FeComprobanteDetail = {
@@ -74,6 +82,10 @@ type ClientEmbedRow = {
 	fe_numero_identificacion: string | null;
 	fe_codigo_actividad: string | null;
 	fe_correo_facturacion: string | null;
+	fe_provincia: number | null;
+	fe_canton: string | null;
+	fe_distrito: string | null;
+	fe_otras_senas: string | null;
 };
 
 type FeEmbedDetailRow = {
@@ -212,7 +224,11 @@ function invoiceDetailSelect(flags: InvoiceDetailQueryFlags): string {
 				fe_tipo_identificacion,
 				fe_numero_identificacion,
 				fe_codigo_actividad,
-				fe_correo_facturacion
+				fe_correo_facturacion,
+				fe_provincia,
+				fe_canton,
+				fe_distrito,
+				fe_otras_senas
 			),
 			fe_comprobantes (${feCols}
 			)`;
@@ -297,6 +313,7 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 		fecha_vencimiento: inv.fecha_vencimiento,
 		estado: inv.estado as InvoiceEstado,
 		source_invoice_id: (inv.source_invoice_id as string | null | undefined) ?? null,
+		notas: '',
 		lineas: lineas.map((l) => {
 			const normalized = normalizeInvoiceLineAmounts({
 				cantidad: Number(l.cantidad),
@@ -320,8 +337,21 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 		fe_tipo_identificacion: clientRow?.fe_tipo_identificacion ?? null,
 		fe_numero_identificacion: clientRow?.fe_numero_identificacion ?? null,
 		fe_codigo_actividad: clientRow?.fe_codigo_actividad ?? null,
-		fe_correo_facturacion: clientRow?.fe_correo_facturacion ?? null
+		fe_correo_facturacion: clientRow?.fe_correo_facturacion ?? null,
+		fe_provincia: clientRow?.fe_provincia ?? null,
+		fe_canton: clientRow?.fe_canton ?? null,
+		fe_distrito: clientRow?.fe_distrito ?? null,
+		fe_otras_senas: clientRow?.fe_otras_senas ?? null
 	};
+
+	const { data: notasRow, error: notasError } = await admin
+		.from('invoices')
+		.select('notas')
+		.eq('id', invoiceId)
+		.maybeSingle();
+	if (!notasError) {
+		invoice.notas = String((notasRow as { notas?: string | null } | null)?.notas ?? '').trim();
+	}
 
 	const fe: FeComprobanteDetail | null = feRow ? mapFeComprobanteDetail(feRow) : null;
 	const notas: FeComprobanteDetail[] = notaRows.map(mapFeComprobanteDetail);
@@ -545,6 +575,148 @@ export async function updateInvoiceLinePrices(
 	if (invErr) throw invErr;
 }
 
+export type InvoiceLineWrite = {
+	id?: string;
+	descripcion: string;
+	cantidad: number;
+	precio_unitario: number;
+	fe_cabys: string;
+	fe_unidad_medida: string;
+	impuesto_tarifa: number;
+};
+
+export function parseInvoiceLinesJson(raw: unknown): InvoiceLineWrite[] {
+	let parsed: unknown = raw;
+	if (typeof raw === 'string') {
+		try {
+			parsed = JSON.parse(raw);
+		} catch {
+			throw new Error('Formato de líneas inválido.');
+		}
+	}
+	if (!Array.isArray(parsed) || parsed.length === 0) {
+		throw new Error('La factura debe tener al menos una línea.');
+	}
+
+	const lines: InvoiceLineWrite[] = [];
+	for (const [index, row] of parsed.entries()) {
+		if (!row || typeof row !== 'object') continue;
+		const r = row as Record<string, unknown>;
+		const descripcion = String(r.descripcion ?? '').trim();
+		const cabys = String(r.fe_cabys ?? r.cabys ?? '').replace(/\D/g, '');
+		if (!descripcion) {
+			throw new Error(`La línea ${index + 1} no tiene descripción.`);
+		}
+		if (!/^\d{13}$/.test(cabys) || !isValidFeCabys(cabys)) {
+			throw new Error(`La línea «${descripcion}» necesita un CABYS de 13 dígitos.`);
+		}
+		const amounts = invoiceLineAmounts(Number(r.cantidad), Number(r.precio_unitario));
+		lines.push({
+			id: String(r.id ?? '').trim() || undefined,
+			descripcion,
+			cantidad: Math.max(1, Math.round(amounts.cantidad)),
+			precio_unitario: amounts.precio_unitario,
+			fe_cabys: cabys,
+			fe_unidad_medida: normalizeFeUnidadMedida(r.fe_unidad_medida ?? r.unidad),
+			impuesto_tarifa: normalizeImpuestoTarifaForFe(r.impuesto_tarifa)
+		});
+	}
+	if (lines.length === 0) throw new Error('La factura debe tener al menos una línea.');
+	return lines;
+}
+
+/** Reemplaza las líneas de una factura (alta, baja y edición) y recalcula totales. */
+export async function replaceInvoiceLines(invoiceId: string, incoming: InvoiceLineWrite[]): Promise<void> {
+	if (incoming.length === 0) throw new Error('La factura debe tener al menos una línea.');
+
+	const admin = createSupabaseAdminClient();
+	const { data: feRow } = await admin
+		.from('fe_comprobantes')
+		.select('estado')
+		.eq('invoice_id', invoiceId)
+		.eq('tipo_documento', '01')
+		.maybeSingle();
+	if (feRow?.estado === 'aceptado') {
+		throw new Error('No se pueden editar líneas de una FE aceptada.');
+	}
+
+	const { data: current, error: curErr } = await admin
+		.from('invoice_lines')
+		.select('id')
+		.eq('invoice_id', invoiceId);
+	if (curErr) throw curErr;
+
+	const currentIds = new Set((current ?? []).map((r) => r.id));
+	const keepIds = new Set<string>();
+
+	for (const [i, line] of incoming.entries()) {
+		const amounts = invoiceLineAmounts(line.cantidad, line.precio_unitario);
+		const payload = {
+			sort_order: i,
+			descripcion: line.descripcion,
+			cantidad: amounts.cantidad,
+			precio_unitario: amounts.precio_unitario,
+			subtotal: amounts.subtotal,
+			fe_cabys: line.fe_cabys,
+			fe_unidad_medida: line.fe_unidad_medida,
+			impuesto_tarifa: line.impuesto_tarifa
+		};
+		if (line.id && currentIds.has(line.id)) {
+			const { error } = await admin.from('invoice_lines').update(payload).eq('id', line.id);
+			if (error) throw error;
+			keepIds.add(line.id);
+		} else {
+			const { error } = await admin.from('invoice_lines').insert({
+				id: crypto.randomUUID(),
+				invoice_id: invoiceId,
+				...payload
+			});
+			if (error) throw error;
+		}
+	}
+
+	const toDelete = [...currentIds].filter((id) => !keepIds.has(id));
+	if (toDelete.length > 0) {
+		const { error } = await admin.from('invoice_lines').delete().in('id', toDelete);
+		if (error) throw error;
+	}
+
+	const totals = computeInvoiceTaxTotals(
+		incoming.map((l) => {
+			const amounts = invoiceLineAmounts(l.cantidad, l.precio_unitario);
+			return { subtotal: amounts.subtotal, impuesto_tarifa: l.impuesto_tarifa };
+		})
+	);
+	const { error: invErr } = await admin
+		.from('invoices')
+		.update({
+			subtotal: totals.subtotal,
+			impuesto: totals.impuesto,
+			total: totals.total
+		})
+		.eq('id', invoiceId);
+	if (invErr) throw invErr;
+}
+
+const INVOICE_NOTAS_MAX = 800;
+
+export function normalizeInvoiceNotas(raw: unknown): string {
+	return String(raw ?? '')
+		.replace(/\r\n/g, '\n')
+		.trim()
+		.slice(0, INVOICE_NOTAS_MAX);
+}
+
+export async function updateInvoiceNotas(invoiceId: string, notas: string): Promise<void> {
+	const admin = createSupabaseAdminClient();
+	const { error } = await admin
+		.from('invoices')
+		.update({ notas: normalizeInvoiceNotas(notas) })
+		.eq('id', invoiceId);
+	if (error && isUndefinedColumnError(error, 'notas')) return;
+	if (error) throw error;
+}
+
 /** Factura corregida ya creada a partir de la factura origen (si existe). */
 export async function findCorrectionInvoiceForSource(sourceInvoiceId: string): Promise<{
 	id: string;
@@ -593,14 +765,27 @@ export async function duplicateInvoiceForCorrection(sourceInvoiceId: string): Pr
 		total: inv.total,
 		fecha_emision: new Date().toISOString(),
 		fecha_vencimiento: inv.fecha_vencimiento,
-		estado: 'pendiente' as const
+		estado: 'pendiente' as const,
+		notas: inv.notas
 	};
 
 	let invError = (
 		await admin.from('invoices').insert({ ...headerBase, source_invoice_id: sourceInvoiceId })
 	).error;
-	if (invError && isUndefinedColumnError(invError, 'source_invoice_id')) {
+	if (invError && isUndefinedColumnError(invError, 'notas')) {
+		const { notas: _omit, ...withoutNotas } = headerBase;
+		invError = (
+			await admin.from('invoices').insert({ ...withoutNotas, source_invoice_id: sourceInvoiceId })
+		).error;
+		if (invError && isUndefinedColumnError(invError, 'source_invoice_id')) {
+			invError = (await admin.from('invoices').insert(withoutNotas)).error;
+		}
+	} else if (invError && isUndefinedColumnError(invError, 'source_invoice_id')) {
 		invError = (await admin.from('invoices').insert(headerBase)).error;
+		if (invError && isUndefinedColumnError(invError, 'notas')) {
+			const { notas: _omit, ...withoutNotas } = headerBase;
+			invError = (await admin.from('invoices').insert(withoutNotas)).error;
+		}
 	}
 	if (invError?.code === '23505') {
 		throw new Error(

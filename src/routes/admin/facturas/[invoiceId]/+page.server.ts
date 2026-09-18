@@ -12,8 +12,11 @@ import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
 import {
 	duplicateInvoiceForCorrection,
 	findCorrectionInvoiceForSource,
+	parseInvoiceLinesJson,
 	reconcileInvoiceAmounts,
-	updateInvoiceLinePrices
+	replaceInvoiceLines,
+	updateInvoiceLinePrices,
+	updateInvoiceNotas
 } from '$lib/lab/invoice-detail.server';
 import { updateInvoiceStatusServer } from '$lib/lab/invoice-status.server';
 
@@ -151,10 +154,16 @@ export const actions: Actions = {
 			if (invalid.length) {
 				return fail(400, { message: `Correo inválido: ${invalid.join(', ')}` });
 			}
+			const rawLineas = String(form.get('lineas_json') ?? '').trim();
+			if (rawLineas) {
+				await replaceInvoiceLines(invoiceId, parseInvoiceLinesJson(rawLineas));
+			}
+			await updateInvoiceNotas(invoiceId, String(form.get('notas') ?? ''));
 			const result = await emitirYConsultarFacturaElectronica(invoiceId, {
 				mediosPago,
 				...monedaEmit,
-				extraCorreos
+				extraCorreos,
+				preserveInvoiceLines: Boolean(rawLineas)
 			});
 			return {
 				success: true,

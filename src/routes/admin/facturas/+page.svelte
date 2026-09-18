@@ -2,13 +2,8 @@
 	import { enhance } from '$app/forms';
 	import { goto, invalidate } from '$app/navigation';
 	import { navigating } from '$app/state';
-	import { tick } from 'svelte';
-	import FeMediosPagoModal, {
-		type FeMediosPagoConfirm
-	} from '$lib/components/fe/FeMediosPagoModal.svelte';
 	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
 	import FeProcessingBanner from '$lib/components/fe/FeProcessingBanner.svelte';
-	import type { FeMedioPagoItem } from '$lib/fe/medios-pago';
 	import {
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
@@ -16,8 +11,6 @@
 		INVOICE_ESTADOS
 	} from '$lib/lab/invoice-estado';
 	import {
-		feComprobanteBlocksEmit,
-		feComprobanteCanReemit,
 		feComprobanteCanConsultar,
 		getFeComprobanteEstadoClass,
 		getFeComprobanteEstadoLabel
@@ -36,7 +29,6 @@
 	let searchInput = $state('');
 	let filtroEstado = $state<'todos' | InvoiceEstado>('todos');
 	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
-	let emittingFe = $state(false);
 	let reemittingFactura = $state(false);
 	let emittingLabel = $state('');
 
@@ -113,29 +105,6 @@
 
 	let pdfPreviewOpen = $state(false);
 	let pdfPreview = $state<{ id: string; number: string } | null>(null);
-	let emitModalOpen = $state(false);
-	let emitTarget = $state<{ id: string; label: string; total: number } | null>(null);
-	let emitFormEl = $state<HTMLFormElement | null>(null);
-	let mediosPagoJson = $state('');
-	let emitMoneda = $state('USD');
-	let emitTipoCambio = $state('1');
-
-	function openEmitModal(fac: InvoiceListRow) {
-		emitTarget = { id: fac.id, label: fac.invoice_number, total: fac.total };
-		mediosPagoJson = '';
-		emitModalOpen = true;
-	}
-
-	async function onMediosConfirm(result: FeMediosPagoConfirm) {
-		mediosPagoJson = JSON.stringify(result.medios);
-		emitMoneda = result.moneda;
-		emitTipoCambio = String(result.tipoCambio);
-		emittingLabel = emitTarget?.label ?? '';
-		emittingFe = true;
-		emitModalOpen = false;
-		await tick();
-		emitFormEl?.requestSubmit();
-	}
 
 	function canReemitFacturaTrasNc(fac: InvoiceListRow): boolean {
 		return Boolean(fac.fe?.estado === 'aceptado' && fac.reemit?.ncAceptada);
@@ -145,13 +114,7 @@
 <div class="dash-page">
 	<p class="dash-lead">Facturación por caso y cliente — generadas al registrar cada caso.</p>
 
-	{#if emittingFe}
-		<FeProcessingBanner
-			title="Generando factura electrónica"
-			subtitle={emittingLabel}
-			detail="Firmando XML, enviando y consultando en Hacienda…"
-		/>
-	{:else if reemittingFactura}
+	{#if reemittingFactura}
 		<FeProcessingBanner
 			title="Reemitiendo factura"
 			subtitle={emittingLabel}
@@ -159,7 +122,7 @@
 		/>
 	{/if}
 
-	{#if !data.facturadorOk && !emittingFe && !reemittingFactura}
+	{#if !data.facturadorOk && !reemittingFactura}
 		<p class="fe-facturador-alert" role="alert">
 			<strong>Facturador no disponible</strong> ({data.facturadorUrl}).
 			{data.facturadorError ?? 'Verifique que @happy-prod/facturador esté instalado (npm install).'}
@@ -202,7 +165,7 @@
 		</div>
 	{/if}
 
-	{#if isLoading && data.invoices.length === 0 && !emittingFe && !reemittingFactura}
+	{#if isLoading && data.invoices.length === 0 && !reemittingFactura}
 		<div class="store-utility-card empty-state">
 			<p>Cargando facturas…</p>
 		</div>
@@ -233,7 +196,7 @@
 		{/if}
 		<div
 			class="data-table-wrap"
-			class:fe-processing-blocked={isLoading || emittingFe || reemittingFactura}
+			class:fe-processing-blocked={isLoading || reemittingFactura}
 		>
 			<table class="data-table">
 				<thead>
@@ -316,15 +279,6 @@
 										{/each}
 									</select>
 								</form>
-								{#if data.hasActiveEmisor && data.facturadorOk && !feComprobanteBlocksEmit(fe?.estado)}
-									<button
-										type="button"
-										class="btn-primary fe-actions__btn"
-										onclick={() => openEmitModal(fac)}
-									>
-										{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura'}
-									</button>
-								{/if}
 								{#if fe && feComprobanteCanConsultar(fe.estado) && fe.clave}
 									<form
 										method="POST"
@@ -403,7 +357,7 @@
 
 		<nav
 			class="facturas-pagination"
-			class:fe-processing-blocked={isLoading || emittingFe || reemittingFactura}
+			class:fe-processing-blocked={isLoading || reemittingFactura}
 			aria-label="Paginación de facturas"
 		>
 			<p class="type-caption facturas-pagination__summary">
@@ -447,46 +401,10 @@
 		</nav>
 	{/if}
 
-	<form
-		bind:this={emitFormEl}
-		method="POST"
-		action="?/emitir"
-		class="fe-emit-form-hidden"
-		aria-hidden="true"
-		use:enhance={() => {
-			return async ({ update }) => {
-				emittingFe = true;
-				try {
-					await update({ reset: false });
-					await invalidate('app:facturas-list');
-				} finally {
-					emittingFe = false;
-					emittingLabel = '';
-					emitTarget = null;
-				}
-			};
-		}}
-	>
-		<input type="hidden" name="invoice_id" value={emitTarget?.id ?? ''} />
-		<input type="hidden" name="medios_pago" value={mediosPagoJson} />
-		<input type="hidden" name="moneda" value={emitMoneda} />
-		<input type="hidden" name="tipo_cambio" value={emitTipoCambio} />
-	</form>
-
 	<InvoicePdfPreview
 		bind:open={pdfPreviewOpen}
 		invoiceId={pdfPreview?.id ?? ''}
 		invoiceNumber={pdfPreview?.number ?? ''}
-	/>
-
-	<FeMediosPagoModal
-		bind:open={emitModalOpen}
-		total={emitTarget?.total ?? 0}
-		subtitle={emitTarget ? `Factura ${emitTarget.label}` : ''}
-		onCancel={() => {
-			emitTarget = null;
-		}}
-		onConfirm={onMediosConfirm}
 	/>
 </div>
 
@@ -581,16 +499,5 @@
 	}
 	.fe-row-highlight {
 		background: color-mix(in srgb, var(--color-accent) 8%, transparent);
-	}
-	.fe-emit-form-hidden {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		padding: 0;
-		margin: -1px;
-		overflow: hidden;
-		clip: rect(0, 0, 0, 0);
-		white-space: nowrap;
-		border: 0;
 	}
 </style>

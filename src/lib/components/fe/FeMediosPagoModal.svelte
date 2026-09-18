@@ -28,6 +28,7 @@
 		subtitle?: string;
 		showCurrency?: boolean;
 		defaultMoneda?: FeMoneda;
+		confirmLabel?: string;
 		onCancel: () => void;
 		onConfirm: (result: FeMediosPagoConfirm) => void;
 	}
@@ -38,6 +39,7 @@
 		subtitle = '',
 		showCurrency = true,
 		defaultMoneda = 'USD',
+		confirmLabel = 'Aplicar pagos',
 		onCancel,
 		onConfirm
 	}: Props = $props();
@@ -352,7 +354,7 @@
 		<footer class="fe-medios-dialog__footer">
 			<button type="button" class="btn-secondary-pill" onclick={close}>Cancelar</button>
 			<button type="button" class="btn-primary" disabled={!canApply} onclick={handleConfirm}>
-				Aplicar pagos
+				{confirmLabel}
 			</button>
 		</footer>
 	</div>

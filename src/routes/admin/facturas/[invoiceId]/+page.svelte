@@ -5,6 +5,9 @@
 	import FeMediosPagoModal, {
 		type FeMediosPagoConfirm
 	} from '$lib/components/fe/FeMediosPagoModal.svelte';
+	import FeEmitReviewModal, {
+		type FeEmitReviewConfirm
+	} from '$lib/components/fe/FeEmitReviewModal.svelte';
 	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
 	import FeNotaEmitModal from '$lib/components/fe/FeNotaEmitModal.svelte';
 	import FeCorreosField from '$lib/components/fe/FeCorreosField.svelte';
@@ -26,6 +29,7 @@
 		INVOICE_ESTADOS
 	} from '$lib/lab/invoice-estado';
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
+	import { clientFeAddressRowToForm, formatClientFeAddressLabel } from '$lib/fe/client-fiscal-address';
 	import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 	import type { InvoiceLineDetail } from '$lib/lab/invoice-detail.server';
 	import FeProcessingBanner from '$lib/components/fe/FeProcessingBanner.svelte';
@@ -180,12 +184,15 @@
 	const emitFeLabel = $derived(fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura');
 
 	let pdfPreviewOpen = $state(false);
+	let emitReviewOpen = $state(false);
 	let emitModalOpen = $state(false);
 	let notaModalOpen = $state(false);
 	let emitFormEl = $state<HTMLFormElement | null>(null);
 	let mediosPagoJson = $state('');
 	let emitMoneda = $state('USD');
 	let emitTipoCambio = $state('1');
+	let emitNotas = $state('');
+	let emitLineasJson = $state('');
 	let mediosModalMode = $state<'fe' | 'nota'>('fe');
 	let notaDraft = $state<{
 		tipoDocumento: '02' | '03';
@@ -306,6 +313,14 @@
 		);
 	}
 
+	const receptorAddress = $derived(formatClientFeAddressLabel(clientFeAddressRowToForm(client)));
+	const receptorCorreo = $derived(formatFeCorreosLabel(client.fe_correo_facturacion, client.email));
+
+	function openEmitReview() {
+		feFeedback = null;
+		emitReviewOpen = true;
+	}
+
 	function openEmitModal() {
 		mediosModalMode = 'fe';
 		mediosPagoJson = '';
@@ -415,6 +430,19 @@
 		setNotaFormFields({ ...notaDraft, feComprobanteId: reemitNotaId });
 		reemitNotaId = undefined;
 		openNotaMediosModal();
+	}
+
+	async function onEmitReviewConfirm(result: FeEmitReviewConfirm) {
+		feFeedback = null;
+		emitNotas = result.notas;
+		extraCorreos = result.extraCorreos;
+		emitLineasJson = JSON.stringify(result.lineas);
+		mediosPagoJson = JSON.stringify(result.medios);
+		emitMoneda = result.moneda;
+		emitTipoCambio = String(result.tipoCambio);
+		await tick();
+		emittingFe = true;
+		emitFormEl?.requestSubmit();
 	}
 
 	async function onMediosConfirm(result: FeMediosPagoConfirm) {
@@ -618,7 +646,11 @@
 				<div><dt>Tipo ID</dt><dd>{tipoIdLabel}</dd></div>
 				<div><dt>Identificación</dt><dd>{client.fe_numero_identificacion ?? '—'}</dd></div>
 				<div><dt>Actividad económica</dt><dd>{client.fe_codigo_actividad ?? '—'}</dd></div>
-				<div><dt>Correo FE</dt><dd>{formatFeCorreosLabel(client.fe_correo_facturacion, client.email)}</dd></div>
+				<div><dt>Correo FE</dt><dd>{receptorCorreo}</dd></div>
+				<div class="invoice-detail__dl-span">
+					<dt>Dirección fiscal</dt>
+					<dd>{receptorAddress}</dd>
+				</div>
 			</dl>
 		</section>
 	</div>
@@ -763,7 +795,8 @@
 	<section class="dash-panel dash-panel--section">
 		<h2 class="dash-panel__section-title">Factura electrónica (Hacienda)</h2>
 		<p class="type-caption" style="margin-bottom: var(--spacing-md);">
-			Ambiente de envío: {data.emitAmbiente === 'production' ? 'Producción' : 'Pruebas (staging)'}
+			Ambiente de envío: {data.emitAmbiente === 'production' ? 'Producción' : 'Pruebas (staging)'}.
+			Al generar puede editar líneas, notas, moneda, pagos y correos de copia.
 		</p>
 
 		{#if !feDisplay}
@@ -836,8 +869,10 @@
 					<input type="hidden" name="moneda" value={emitMoneda} />
 					<input type="hidden" name="tipo_cambio" value={emitTipoCambio} />
 					<input type="hidden" name="extra_correos" value={extraCorreos} />
+					<input type="hidden" name="notas" value={emitNotas} />
+					<input type="hidden" name="lineas_json" value={emitLineasJson} />
 				</form>
-				<button type="button" class="btn-primary" onclick={openEmitModal} disabled={feBusy}>
+				<button type="button" class="btn-primary" onclick={openEmitReview} disabled={feBusy}>
 					{emittingFe ? 'Enviando…' : emitFeLabel}
 				</button>
 			{/if}
@@ -1120,6 +1155,32 @@
 	{/if}
 	</div>
 
+	<FeEmitReviewModal
+		bind:open={emitReviewOpen}
+		invoiceNumber={invoice.invoice_number}
+		receptor={{
+			nombre: client.nombre,
+			tipoId: tipoIdLabel,
+			identificacion: client.fe_numero_identificacion ?? '—',
+			actividad: client.fe_codigo_actividad ?? '—',
+			correo: receptorCorreo,
+			direccion: receptorAddress
+		}}
+		lines={computedLineRows.map((line) => ({
+			id: line.id,
+			descripcion: line.descripcion,
+			cantidad: line.cantidad,
+			unidad: line.fe_unidad_medida,
+			cabys: line.fe_cabys ?? '',
+			impuesto_tarifa: line.impuesto_tarifa,
+			precio_unitario: line.precio_unitario
+		}))}
+		initialNotas={invoice.notas ?? ''}
+		initialExtraCorreos={extraCorreos}
+		onCancel={() => {}}
+		onConfirm={onEmitReviewConfirm}
+	/>
+
 	<FeNotaEmitModal
 		bind:open={notaModalOpen}
 		onConfirm={onNotaModalConfirm}
@@ -1137,6 +1198,7 @@
 		total={mediosModalTotal}
 		subtitle={mediosModalSubtitle}
 		showCurrency={mediosModalMode === 'fe'}
+		confirmLabel={mediosModalMode === 'fe' ? 'Enviar a Hacienda' : 'Aplicar pagos'}
 		onCancel={() => {}}
 		onConfirm={onMediosConfirm}
 	/>
@@ -1196,6 +1258,10 @@
 
 	.invoice-detail__dl div {
 		min-width: 0;
+	}
+
+	.invoice-detail__dl-span {
+		grid-column: 1 / -1;
 	}
 
 	.invoice-detail__dl dt {

@@ -3,10 +3,8 @@ import type { Actions, PageServerLoad } from './$types';
 import { requireFinancialProfile } from '$lib/auth/guards.server';
 import { requireAdmin } from '$lib/auth/require-admin';
 import { canViewFinancial } from '$lib/auth/roles';
-import { consultarFacturaElectronica, emitirYConsultarFacturaElectronica } from '$lib/fe/emit.server';
+import { consultarFacturaElectronica } from '$lib/fe/emit.server';
 import { loadFeEmitPanelContext } from '$lib/fe/emit-panel-context.server';
-import { parseFeMonedaEmitForm } from '$lib/fe/fe-moneda';
-import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
 import {
 	duplicateInvoiceForCorrection,
 	findCorrectionInvoiceForSource
@@ -53,42 +51,6 @@ export const actions: Actions = {
 		}
 	},
 
-	emitir: async ({ request, locals: { supabase, safeGetSession } }) => {
-		const { user } = await safeGetSession();
-		const gate = await requireAdmin(supabase, user?.id, 'Solo administradores pueden emitir factura electrónica.');
-		if (!gate.ok) return fail(gate.status, { message: gate.message });
-
-		const form = await request.formData();
-		const invoiceId = String(form.get('invoice_id') ?? '').trim();
-		if (!invoiceId) return fail(400, { message: 'Factura no válida.' });
-
-		try {
-			let mediosPago;
-			let monedaEmit;
-			try {
-				mediosPago = parseMediosPagoFormValue(form.get('medios_pago'));
-				monedaEmit = parseFeMonedaEmitForm(form);
-			} catch (parseErr) {
-				const message = parseErr instanceof Error ? parseErr.message : 'Medios de pago inválidos.';
-				return fail(400, { message, invoiceId });
-			}
-			const result = await emitirYConsultarFacturaElectronica(invoiceId, {
-				mediosPago,
-				...monedaEmit
-			});
-			return {
-				success: true,
-				message: result.message,
-				invoiceId,
-				clave: result.clave,
-				feEstado: result.feEstado,
-				consultaPending: result.consultaPending ?? false
-			};
-		} catch (err) {
-			const message = err instanceof Error ? err.message : 'No se pudo emitir.';
-			return fail(400, { message, invoiceId });
-		}
-	},
 	consultar: async ({ request, locals: { supabase, safeGetSession } }) => {
 		const { user } = await safeGetSession();
 		const gate = await requireAdmin(supabase, user?.id, 'Solo administradores pueden consultar Hacienda.');
