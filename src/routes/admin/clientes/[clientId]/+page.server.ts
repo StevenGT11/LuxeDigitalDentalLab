@@ -8,6 +8,10 @@ import {
 	clientFeAddressRowToForm,
 	parseClientFeAddressFromForm
 } from '$lib/fe/client-fiscal-address';
+import {
+	validateClientTelefono,
+	validateFeNumeroIdentificacion
+} from '$lib/fe/client-fiscal-validation';
 import { invalidFeCorreos, normalizeFeCorreos } from '$lib/fe/fe-correos';
 import { loadFeEmitPanelContext } from '$lib/fe/emit-panel-context.server';
 import { parseFeMonedaEmitForm } from '$lib/fe/fe-moneda';
@@ -30,16 +34,16 @@ export const load: PageServerLoad = async ({ params, parent, depends }) => {
 	}
 
 	const admin = createSupabaseAdminClient();
-	const [{ data, error }, clientInvoices, emit] = await Promise.all([
+	const emit = await loadFeEmitPanelContext();
+	const [{ data, error }, clientInvoices] = await Promise.all([
 		admin
 			.from('clients')
 			.select(
-				'fe_tipo_identificacion, fe_numero_identificacion, fe_codigo_actividad, fe_correo_facturacion, fe_provincia, fe_canton, fe_distrito, fe_otras_senas'
+				'telefono, fe_tipo_identificacion, fe_numero_identificacion, fe_codigo_actividad, fe_correo_facturacion, fe_provincia, fe_canton, fe_distrito, fe_otras_senas'
 			)
 			.eq('id', clientId)
 			.maybeSingle(),
-		fetchInvoicesByClientId(clientId),
-		loadFeEmitPanelContext()
+		fetchInvoicesByClientId(clientId, emit.emitAmbiente)
 	]);
 
 	if (error) throw error;
@@ -50,6 +54,7 @@ export const load: PageServerLoad = async ({ params, parent, depends }) => {
 			fe_numero_identificacion: data?.fe_numero_identificacion ?? '',
 			fe_codigo_actividad: data?.fe_codigo_actividad ?? '',
 			fe_correo_facturacion: data?.fe_correo_facturacion ?? '',
+			telefono: data?.telefono ?? '',
 			...clientFeAddressRowToForm(data)
 		},
 		clientInvoices,
@@ -80,8 +85,15 @@ export const actions: Actions = {
 		}
 		const fe_correo_facturacion = normalizeFeCorreos(fe_correo_raw);
 
-		if (!fe_tipo_identificacion || !fe_numero_identificacion) {
-			return fail(400, { message: 'Tipo y número de identificación son requeridos.', kind: 'fiscal' as const });
+		const idCheck = validateFeNumeroIdentificacion(fe_tipo_identificacion, fe_numero_identificacion);
+		if (!idCheck.ok) {
+			return fail(400, { message: idCheck.message, kind: 'fiscal' as const });
+		}
+
+		const telefonoRaw = String(form.get('telefono') ?? '').trim();
+		const telCheck = validateClientTelefono(telefonoRaw);
+		if (!telCheck.ok) {
+			return fail(400, { message: telCheck.message, kind: 'fiscal' as const });
 		}
 
 		let feAddress;
@@ -99,9 +111,10 @@ export const actions: Actions = {
 			.from('clients')
 			.update({
 				fe_tipo_identificacion,
-				fe_numero_identificacion,
+				fe_numero_identificacion: idCheck.normalized,
 				fe_codigo_actividad: fe_codigo_actividad || null,
 				fe_correo_facturacion,
+				telefono: telCheck.normalized || null,
 				fe_provincia: feAddress.fe_provincia,
 				fe_canton: feAddress.fe_canton || null,
 				fe_distrito: feAddress.fe_distrito || null,

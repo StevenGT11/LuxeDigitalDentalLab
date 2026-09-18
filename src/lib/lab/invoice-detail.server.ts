@@ -1,9 +1,14 @@
-import { createSupabaseAdminClient } from '$lib/supabase/admin';
-import type { FeComprobanteEstado } from '$lib/fe/types';
+import { feComprobanteMatchesEmitAmbiente } from '$lib/fe/ambiente';
 import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
+import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
+import type { FeAmbiente, FeComprobanteEstado } from '$lib/fe/types';
+import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import { canReemitFacturaTrasNc } from '$lib/fe/reemit-factura';
+import { loadCabysCatalog } from '$lib/cabys/loadCatalog.server';
+import { findCabysByCodigo } from '$lib/cabys/searchCatalog';
 import { isValidFeCabys } from '$lib/fe/constants';
 import { normalizeFeUnidadMedida } from '$lib/fe/emisor-normalize';
+import { resolveFeUnidadMedidaForCabys } from '$lib/fe/fe-unidad-medida';
 import { normalizeImpuestoTarifaForFe } from '$lib/fe/impuesto-tarifa';
 import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 import {
@@ -91,6 +96,7 @@ type ClientEmbedRow = {
 type FeEmbedDetailRow = {
 	id: string;
 	tipo_documento: string;
+	ambiente?: string | null;
 	consecutivo_num: number;
 	clave: string | null;
 	consecutivo: string | null;
@@ -146,6 +152,7 @@ function collectFeComprobantes(
 const FE_EMBED_SELECT_BASE = `
 				id,
 				tipo_documento,
+				ambiente,
 				consecutivo_num,
 				clave,
 				consecutivo,
@@ -258,8 +265,15 @@ async function fetchInvoiceDetailRow(admin: ReturnType<typeof createSupabaseAdmi
 	return { data: null, error: null };
 }
 
+function filterFeRowsForAmbiente(rows: FeEmbedDetailRow[], emitAmbiente: FeAmbiente): FeEmbedDetailRow[] {
+	return rows.filter((r) => feComprobanteMatchesEmitAmbiente(r.ambiente, emitAmbiente));
+}
+
 /** Una consulta: factura + líneas + cliente fiscal + comprobantes FE (01 + NC/ND). */
-export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
+export async function loadInvoiceDetailPage(
+	invoiceId: string,
+	emitAmbiente: FeAmbiente
+): Promise<{
 	invoice: InvoiceDetail;
 	client: ClientFiscalSnapshot;
 	fe: FeComprobanteDetail | null;
@@ -285,8 +299,11 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 		| ClientEmbedRow
 		| null
 		| undefined;
-	const feRows = collectFeComprobantes(
-		inv.fe_comprobantes as FeEmbedDetailRow[] | FeEmbedDetailRow | null | undefined
+	const feRows = filterFeRowsForAmbiente(
+		collectFeComprobantes(
+			inv.fe_comprobantes as FeEmbedDetailRow[] | FeEmbedDetailRow | null | undefined
+		),
+		emitAmbiente
 	);
 	const feRow = feRows.find((r) => r.tipo_documento === '01') ?? null;
 	const notaRows = feRows
@@ -368,7 +385,10 @@ export async function loadInvoiceDetailPage(invoiceId: string): Promise<{
 			.select('invoice_number')
 			.eq('id', invoice.source_invoice_id)
 			.maybeSingle();
-		const sourceNcAceptada = await hasAcceptedNotaCreditoForInvoice(invoice.source_invoice_id);
+		const sourceNcAceptada = await hasAcceptedNotaCreditoForInvoice(
+			invoice.source_invoice_id,
+			emitAmbiente
+		);
 		correctionContext = {
 			sourceInvoiceId: invoice.source_invoice_id,
 			sourceInvoiceNumber: String(srcInv?.invoice_number ?? invoice.source_invoice_id),
@@ -622,7 +642,13 @@ export function parseInvoiceLinesJson(raw: unknown): InvoiceLineWrite[] {
 		});
 	}
 	if (lines.length === 0) throw new Error('La factura debe tener al menos una línea.');
-	return lines;
+
+	const catalog = loadCabysCatalog();
+	const cabysLookup = (code: string) => findCabysByCodigo(catalog, code);
+	return lines.map((line) => ({
+		...line,
+		fe_unidad_medida: resolveFeUnidadMedidaForCabys(line.fe_cabys, line.fe_unidad_medida, cabysLookup)
+	}));
 }
 
 /** Reemplaza las líneas de una factura (alta, baja y edición) y recalcula totales. */
@@ -741,7 +767,8 @@ export async function duplicateInvoiceForCorrection(sourceInvoiceId: string): Pr
 	id: string;
 	invoice_number: string;
 }> {
-	const detail = await loadInvoiceDetailPage(sourceInvoiceId);
+	const emitAmbiente = await getEmitAmbiente();
+	const detail = await loadInvoiceDetailPage(sourceInvoiceId, emitAmbiente);
 	if (!detail) throw new Error('Factura origen no encontrada.');
 
 	const admin = createSupabaseAdminClient();

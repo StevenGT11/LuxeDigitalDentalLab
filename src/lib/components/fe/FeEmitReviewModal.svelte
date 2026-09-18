@@ -139,6 +139,24 @@
 		refreshPagos(totalFromDrafts(next));
 	}
 
+	async function suggestUnidadForCabys(key: string, cabys: string) {
+		if (!/^\d{13}$/.test(cabys)) return;
+		try {
+			const res = await fetch(`/api/cabys/search?q=${encodeURIComponent(cabys)}&limit=1`);
+			if (!res.ok) return;
+			const data = (await res.json()) as {
+				cabys?: { codigo: string; unidad_sugerida?: 'Sp' | 'Unid' }[];
+			};
+			const match = data.cabys?.find((e) => e.codigo === cabys);
+			if (!match?.unidad_sugerida) return;
+			const line = drafts.find((d) => d.key === key);
+			if (!line || line.unidad === match.unidad_sugerida) return;
+			patchDraft(key, { unidad: match.unidad_sugerida });
+		} catch {
+			// optional hint only
+		}
+	}
+
 	function totalFromDrafts(source: DraftLine[]): number {
 		return roundMoney(
 			computeInvoiceTaxTotals(
@@ -565,6 +583,11 @@
 			<section class="fe-review-dialog__section">
 				<div class="fe-review-dialog__section-head">
 					<h3 class="fe-review-dialog__section-title">Líneas</h3>
+					<p class="type-caption fe-review-dialog__lines-hint">
+						<strong>Unidad:</strong> use <strong>Sp</strong> para servicios del laboratorio y <strong>Unid</strong> para
+						piezas o productos (prótesis, materiales). Si el CABYS es de mercancía pero la unidad es Sp, Hacienda
+						rechaza con error <strong>-107</strong>. Al ingresar CABYS se sugiere la unidad correcta.
+					</p>
 					<button type="button" class="btn-secondary-pill" onclick={addLine}>Agregar ítem</button>
 				</div>
 				<div class="fe-review-dialog__table-wrap">
@@ -614,7 +637,9 @@
 											placeholder="13 dígitos"
 											bind:value={line.cabys}
 											oninput={(e) => {
-												line.cabys = e.currentTarget.value.replace(/\D/g, '').slice(0, 13);
+												const next = e.currentTarget.value.replace(/\D/g, '').slice(0, 13);
+												line.cabys = next;
+												if (next.length === 13) void suggestUnidadForCabys(line.key, next);
 											}}
 										/>
 									</td>

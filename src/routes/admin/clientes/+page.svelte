@@ -7,6 +7,13 @@
 	import { Plus, X } from '@lucide/svelte';
 	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
 	import { FE_TIPO_IDENTIFICACION_OPTIONS } from '$lib/fe/constants';
+	import {
+		feIdentificacionInputHint,
+		feIdentificacionMaxLength,
+		normalizeFeNumeroIdentificacion,
+		validateClientTelefono,
+		validateFeNumeroIdentificacion
+	} from '$lib/fe/client-fiscal-validation';
 	import ActividadEconomica from '$lib/components/actividadEconomica/components/actividadEconomica.svelte';
 	import ClientFeAddressFields from '$lib/components/admin/ClientFeAddressFields.svelte';
 	import { emptyClientFeAddress } from '$lib/fe/client-fiscal-address';
@@ -57,6 +64,44 @@
 		fe_codigo_actividad: '',
 		...emptyClientFeAddress()
 	});
+
+	const identificacionHint = $derived(feIdentificacionInputHint(form.fe_tipo_identificacion));
+	const identificacionMaxLen = $derived(feIdentificacionMaxLength(form.fe_tipo_identificacion));
+
+	function onIdentificacionInput(raw: string) {
+		form.fe_numero_identificacion = normalizeFeNumeroIdentificacion(raw).slice(0, identificacionMaxLen);
+	}
+
+	function validateCreateForm(): boolean {
+		const telCheck = validateClientTelefono(form.telefono);
+		if (!telCheck.ok) {
+			error = telCheck.message;
+			return false;
+		}
+		form.telefono = telCheck.normalized;
+
+		const hasFiscal =
+			form.fe_tipo_identificacion ||
+			form.fe_numero_identificacion.trim() ||
+			form.fe_codigo_actividad.trim();
+		if (!hasFiscal) return true;
+
+		if (!form.fe_tipo_identificacion || !form.fe_numero_identificacion.trim()) {
+			error =
+				'Para datos fiscales al crear, indique tipo y número de identificación, o déjelos vacíos.';
+			return false;
+		}
+		const idCheck = validateFeNumeroIdentificacion(
+			form.fe_tipo_identificacion,
+			form.fe_numero_identificacion
+		);
+		if (!idCheck.ok) {
+			error = idCheck.message;
+			return false;
+		}
+		form.fe_numero_identificacion = idCheck.normalized;
+		return true;
+	}
 
 	let filtered = $derived(
 		clients.filter((c) => {
@@ -233,9 +278,13 @@
 			class="case-file-modal__body admin-client-form"
 			method="POST"
 			action="?/create"
-			use:enhance={() => {
-				saving = true;
+			use:enhance={({ cancel }) => {
 				error = '';
+				if (!validateCreateForm()) {
+					cancel();
+					return;
+				}
+				saving = true;
 				return async ({ result, update }) => {
 					try {
 						if (result.type === 'redirect') {
@@ -342,9 +391,10 @@
 					class="field-input"
 					type="tel"
 					bind:value={form.telefono}
-					placeholder="+506 0000-0000"
+					placeholder="88887777 o +506 8888-7777"
 					autocomplete="tel"
 				/>
+				<span class="type-caption">8 dígitos (Costa Rica)</span>
 			</div>
 
 			{#if showFinancial}
@@ -372,8 +422,13 @@
 						name="fe_numero_identificacion"
 						class="field-input"
 						type="text"
-						bind:value={form.fe_numero_identificacion}
+						inputmode="numeric"
+						autocomplete="off"
+						maxlength={identificacionMaxLen}
+						value={form.fe_numero_identificacion}
+						oninput={(e) => onIdentificacionInput(e.currentTarget.value)}
 					/>
+					<span class="type-caption">{identificacionHint}</span>
 				</div>
 				<div style="grid-column: 1 / -1;">
 					<ActividadEconomica

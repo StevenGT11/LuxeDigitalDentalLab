@@ -347,7 +347,8 @@ export async function buildInvoicePdfBuffer(invoiceId: string): Promise<{
 	buffer: Buffer;
 	filename: string;
 }> {
-	const [detail, ambiente] = await Promise.all([loadInvoiceDetailPage(invoiceId), getEmitAmbiente()]);
+	const ambiente = await getEmitAmbiente();
+	const detail = await loadInvoiceDetailPage(invoiceId, ambiente);
 	if (!detail) {
 		throw new Error('Factura no encontrada');
 	}

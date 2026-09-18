@@ -12,10 +12,8 @@ export const GET: RequestHandler = async (event) => {
 	const invoiceId = event.params.invoiceId?.trim();
 	if (!invoiceId) error(400, 'Factura no válida');
 
-	const [detail, emit] = await Promise.all([
-		loadInvoiceDetailPage(invoiceId),
-		loadFeEmitPanelContext()
-	]);
+	const emit = await loadFeEmitPanelContext();
+	const detail = await loadInvoiceDetailPage(invoiceId, emit.emitAmbiente);
 
 	if (!detail) error(404, 'Factura no encontrada');
 

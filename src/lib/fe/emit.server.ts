@@ -1,3 +1,5 @@
+import { loadCabysCatalog } from '$lib/cabys/loadCatalog.server';
+import { findCabysByCodigo } from '$lib/cabys/searchCatalog';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import {
 	fetchFeComprobanteById,
@@ -33,6 +35,7 @@ import {
 import { facturadorConsultar, facturadorEnviar, facturadorValidarEnviar } from './facturador.server';
 import { primaryFeCorreo } from './fe-correos';
 import { normalizeLineAmountsForFe } from './fe-line-amounts';
+import { resolveFeUnidadMedidaForCabys } from './fe-unidad-medida';
 import { duplicateInvoiceForCorrection } from '$lib/lab/invoice-detail.server';
 import { parseFeXmlLineas, parseFeXmlTotals } from './parse-fe-xml-lineas';
 import { clientFeAddressToFacturadorCliente } from './client-fiscal-address';
@@ -165,6 +168,9 @@ function buildPayload(
 	const lineas = [...(invoiceScaled.invoice_lines ?? [])].sort((a, b) => a.sort_order - b.sort_order);
 	if (lineas.length === 0) throw new Error('La factura no tiene líneas.');
 
+	const cabysCatalog = loadCabysCatalog();
+	const cabysLookup = (code: string) => findCabysByCodigo(cabysCatalog, code);
+
 	const lineasPayload = lineas.map((l) => {
 		if (!l.fe_cabys?.trim()) {
 			throw new Error(
@@ -172,7 +178,11 @@ function buildPayload(
 			);
 		}
 		const tarifa = normalizeImpuestoTarifaForFe(l.impuesto_tarifa);
-		const unidad_medida = normalizeFeUnidadMedida(l.fe_unidad_medida);
+		const unidad_medida = resolveFeUnidadMedidaForCabys(
+			l.fe_cabys,
+			l.fe_unidad_medida,
+			cabysLookup
+		);
 		const amounts = normalizeLineAmountsForFe({
 			cantidad: l.cantidad,
 			precio_unitario: Number(l.precio_unitario),
@@ -302,7 +312,7 @@ export async function emitirFacturaElectronica(
 
 	const emitAmbiente = emisor.ambiente;
 
-	await assertNotaCreditoAceptadaParaFeCorregida(invoiceId);
+	await assertNotaCreditoAceptadaParaFeCorregida(invoiceId, emitAmbiente);
 
 	const invoice = await loadInvoice(invoiceId);
 	const client = await loadClientFiscal(invoice.client_id);
@@ -322,7 +332,7 @@ export async function emitirFacturaElectronica(
 		);
 	}
 
-	let fe = await fetchFeComprobanteForInvoice(invoiceId);
+	let fe = await fetchFeComprobanteForInvoice(invoiceId, emitAmbiente);
 	if (fe && feComprobanteBlocksEmit(fe.estado)) {
 		throw new Error('Esta factura ya tiene un comprobante en trámite o aceptado.');
 	}
@@ -478,7 +488,8 @@ export async function consultarFacturaElectronica(
 	const emisor = await getFeEmisorConfigForEmit();
 	if (!emisor) throw new Error('No hay configuración de emisor para el ambiente actual.');
 
-	const fe = await fetchFeComprobanteForInvoice(invoiceId);
+	const emitAmbiente = emisor.ambiente;
+	const fe = await fetchFeComprobanteForInvoice(invoiceId, emitAmbiente);
 	if (!fe?.clave) throw new Error('Esta factura no tiene clave de Hacienda. Envíela primero.');
 
 	const consulta = await facturadorConsultar(fe.clave, emisorRowToConsultaConfig(emisor));
@@ -772,7 +783,9 @@ export async function emitirNotaCreditoDebito(
 	invoiceId: string,
 	options: EmitNotaOptions
 ): Promise<{ message: string; clave?: string; feComprobanteId: string }> {
-	const fePrincipal = await fetchFeComprobanteForInvoice(invoiceId);
+	const emisor = await getFeEmisorConfigForEmit();
+	if (!emisor) throw new Error('No hay configuración de emisor para el ambiente actual.');
+	const fePrincipal = await fetchFeComprobanteForInvoice(invoiceId, emisor.ambiente);
 	if (!fePrincipal?.id) {
 		throw new Error('Emita y acepte la factura electrónica antes de crear una nota.');
 	}

@@ -112,7 +112,11 @@
 </script>
 
 <div class="dash-page">
-	<p class="dash-lead">Facturación por caso y cliente — generadas al registrar cada caso.</p>
+	<p class="dash-lead">
+		Facturación por caso y cliente — generadas al registrar cada caso.
+		Comprobantes FE: <strong>{data.emitAmbiente === 'production' ? 'Producción' : 'Pruebas (staging)'}</strong>.
+		<a href="/admin/factura-electronica" class="text-link">Cambiar ambiente</a>
+	</p>
 
 	{#if reemittingFactura}
 		<FeProcessingBanner

@@ -256,7 +256,13 @@
 		{/if}
 
 		{#if showFinancial && $page.data.fiscal}
-			<AdminClientFiscalEditor fiscal={$page.data.fiscal} form={fiscalForm} />
+			<AdminClientFiscalEditor
+				fiscal={$page.data.fiscal}
+				form={fiscalForm}
+				onSaved={(telefono) => {
+					if (client) client = { ...client, telefono };
+				}}
+			/>
 		{/if}
 
 		<section style="margin-top: var(--spacing-xxl);">
@@ -339,7 +345,12 @@
 
 		{#if showFinancial}
 			<section style="margin-top: var(--spacing-xxl);">
-				<h3 class="type-tagline" style="margin: 0 0 var(--spacing-lg);">Facturas</h3>
+				<h3 class="type-tagline" style="margin: 0 0 var(--spacing-sm);">Facturas</h3>
+				<p class="type-caption" style="margin: 0 0 var(--spacing-lg);">
+					Estado FE según ambiente
+					<strong>{$page.data.emitAmbiente === 'production' ? 'Producción' : 'Pruebas (staging)'}</strong>.
+					<a href="/admin/factura-electronica" class="text-link">Cambiar</a>
+				</p>
 				{#if emittingFe}
 					<FeProcessingBanner
 						title="Generando factura electrónica"

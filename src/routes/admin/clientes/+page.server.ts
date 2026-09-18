@@ -1,5 +1,9 @@
 import { fail, isRedirect, redirect } from '@sveltejs/kit';
 import { parseClientFeAddressFromForm } from '$lib/fe/client-fiscal-address';
+import {
+	validateClientTelefono,
+	validateFeNumeroIdentificacion
+} from '$lib/fe/client-fiscal-validation';
 import { createPortalClientUser } from '$lib/auth/create-portal-user';
 import { requireStaff } from '$lib/auth/require-staff';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
@@ -25,6 +29,11 @@ export const actions: Actions = {
 		const fe_numero_identificacion = String(form.get('fe_numero_identificacion') ?? '').trim();
 		const fe_codigo_actividad = String(form.get('fe_codigo_actividad') ?? '').trim();
 
+		const telCheck = validateClientTelefono(telefono);
+		if (!telCheck.ok) {
+			return fail(400, { message: telCheck.message });
+		}
+
 		try {
 			const admin = createSupabaseAdminClient();
 			const client = await createPortalClientUser(admin, {
@@ -33,7 +42,7 @@ export const actions: Actions = {
 				passwordConfirm,
 				nombre,
 				clinica,
-				telefono
+				telefono: telCheck.normalized
 			});
 
 			if (fe_tipo_identificacion || fe_numero_identificacion || fe_codigo_actividad) {
@@ -42,6 +51,13 @@ export const actions: Actions = {
 						message:
 							'Para datos fiscales al crear, indique tipo y número de identificación, o déjelos vacíos.'
 					});
+				}
+				const idCheck = validateFeNumeroIdentificacion(
+					fe_tipo_identificacion,
+					fe_numero_identificacion
+				);
+				if (!idCheck.ok) {
+					return fail(400, { message: idCheck.message });
 				}
 				let feAddress;
 				try {
@@ -55,7 +71,7 @@ export const actions: Actions = {
 					.from('clients')
 					.update({
 						fe_tipo_identificacion,
-						fe_numero_identificacion,
+						fe_numero_identificacion: idCheck.normalized,
 						fe_codigo_actividad: fe_codigo_actividad || null,
 						fe_provincia: feAddress.fe_provincia,
 						fe_canton: feAddress.fe_canton || null,

@@ -10,7 +10,8 @@ export const GET: RequestHandler = async (event) => {
 	if (!gate.ok) return gate.response;
 
 	const listQuery = parseInvoiceListQuery(event.url.searchParams);
-	const [list, emit] = await Promise.all([fetchInvoiceListPage(listQuery), loadFeEmitPanelContext()]);
+	const emit = await loadFeEmitPanelContext();
+	const list = await fetchInvoiceListPage(listQuery, emit.emitAmbiente);
 
 	return json({ ...list, ...emit });
 };

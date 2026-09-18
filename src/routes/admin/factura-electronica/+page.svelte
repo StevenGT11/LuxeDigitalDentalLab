@@ -48,6 +48,8 @@
 						toggling = false;
 						await update({ reset: false });
 						await invalidate('app:fe-emisor');
+						await invalidate('app:facturas-list');
+						await invalidate('app:client-invoices');
 					};
 				}}
 			>

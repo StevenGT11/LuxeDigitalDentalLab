@@ -1,5 +1,6 @@
+import { feAmbienteOrFilter, feComprobanteMatchesEmitAmbiente } from '$lib/fe/ambiente';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
-import type { FeComprobanteSummary } from '$lib/fe/types';
+import type { FeAmbiente, FeComprobanteSummary } from '$lib/fe/types';
 import {
 	INVOICE_LIST_PAGE_SIZES,
 	type InvoiceListPageSize,
@@ -35,6 +36,8 @@ const LIST_SELECT = `
 	fe_comprobantes (
 		id,
 		invoice_id,
+		tipo_documento,
+		ambiente,
 		clave,
 		consecutivo,
 		estado,
@@ -48,6 +51,8 @@ const LIST_SELECT = `
 type FeEmbedRow = {
 	id: string;
 	invoice_id: string;
+	tipo_documento?: string | null;
+	ambiente?: string | null;
 	clave: string | null;
 	consecutivo: string | null;
 	estado: FeComprobanteSummary['estado'];
@@ -101,9 +106,18 @@ export function parseInvoiceListQuery(searchParams: URLSearchParams): InvoiceLis
 	return { page, pageSize, q, estado };
 }
 
-function mapFeEmbed(raw: FeEmbedRow[] | FeEmbedRow | null | undefined): FeComprobanteSummary | null {
+function mapFeEmbed(
+	raw: FeEmbedRow[] | FeEmbedRow | null | undefined,
+	emitAmbiente: FeAmbiente
+): FeComprobanteSummary | null {
 	if (!raw) return null;
-	const row = Array.isArray(raw) ? raw[0] : raw;
+	const rows = (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
+	const row = rows.find(
+		(r) =>
+			r.id &&
+			(r.tipo_documento === '01' || r.tipo_documento == null) &&
+			feComprobanteMatchesEmitAmbiente(r.ambiente, emitAmbiente)
+	);
 	if (!row?.id) return null;
 	return {
 		id: row.id,
@@ -120,7 +134,8 @@ function mapFeEmbed(raw: FeEmbedRow[] | FeEmbedRow | null | undefined): FeCompro
 
 /** NC aceptada y factura corregida para filas con FE aceptada. */
 export async function fetchInvoiceReemitContexts(
-	invoiceIds: string[]
+	invoiceIds: string[],
+	emitAmbiente: FeAmbiente
 ): Promise<
 	Record<
 		string,
@@ -134,12 +149,14 @@ export async function fetchInvoiceReemitContexts(
 	if (invoiceIds.length === 0) return {};
 	const admin = createSupabaseAdminClient();
 
-	const { data: ncRows, error: ncErr } = await admin
+	let ncQuery = admin
 		.from('fe_comprobantes')
 		.select('invoice_id')
 		.in('invoice_id', invoiceIds)
 		.eq('tipo_documento', '03')
 		.eq('estado', 'aceptado');
+	ncQuery = ncQuery.or(feAmbienteOrFilter(emitAmbiente));
+	const { data: ncRows, error: ncErr } = await ncQuery;
 	if (ncErr) throw ncErr;
 	const ncAceptadaIds = new Set((ncRows ?? []).map((r) => r.invoice_id as string));
 
@@ -185,7 +202,7 @@ export async function fetchInvoiceReemitContexts(
 	return out;
 }
 
-function mapInvoiceRow(row: DbInvoiceListRow): InvoiceListRow {
+function mapInvoiceRow(row: DbInvoiceListRow, emitAmbiente: FeAmbiente): InvoiceListRow {
 	return {
 		id: row.id,
 		invoice_number: row.invoice_number,
@@ -198,34 +215,40 @@ function mapInvoiceRow(row: DbInvoiceListRow): InvoiceListRow {
 		total: Number(row.total),
 		fecha_emision: row.fecha_emision,
 		estado: row.estado === 'pagada' ? 'pagado' : (row.estado as InvoiceEstado),
-		fe: mapFeEmbed(row.fe_comprobantes)
+		fe: mapFeEmbed(row.fe_comprobantes, emitAmbiente)
 	};
 }
 
 /** PostgREST no admite fe_comprobantes.clave dentro de .or() en invoices; ids vía consulta aparte. */
 async function fetchInvoiceIdsMatchingFeClave(
 	admin: ReturnType<typeof createSupabaseAdminClient>,
-	term: string
+	term: string,
+	emitAmbiente: FeAmbiente
 ): Promise<string[]> {
-	const { data, error } = await admin
+	let query = admin
 		.from('fe_comprobantes')
 		.select('invoice_id')
 		.eq('tipo_documento', '01')
 		.ilike('clave', term)
 		.not('invoice_id', 'is', null)
 		.limit(200);
+	query = query.or(feAmbienteOrFilter(emitAmbiente));
+	const { data, error } = await query;
 	if (error) throw error;
 	return [...new Set((data ?? []).map((r) => r.invoice_id).filter(Boolean) as string[])];
 }
 
 /** Facturas paginadas + comprobante FE embebido (2 consultas solo si hay búsqueda por clave). */
-export async function fetchInvoiceListPage(query: InvoiceListQuery): Promise<InvoiceListResult> {
+export async function fetchInvoiceListPage(
+	query: InvoiceListQuery,
+	emitAmbiente: FeAmbiente
+): Promise<InvoiceListResult> {
 	const admin = createSupabaseAdminClient();
 
 	let feInvoiceIds: string[] = [];
 	if (query.q) {
 		const term = `%${escapeIlike(query.q)}%`;
-		feInvoiceIds = await fetchInvoiceIdsMatchingFeClave(admin, term);
+		feInvoiceIds = await fetchInvoiceIdsMatchingFeClave(admin, term, emitAmbiente);
 	}
 
 	let dbQuery = admin
@@ -274,8 +297,10 @@ export async function fetchInvoiceListPage(query: InvoiceListQuery): Promise<Inv
 		data = retry.data;
 	}
 
-	const invoices = ((data ?? []) as DbInvoiceListRow[]).map(mapInvoiceRow);
-	const reemitById = await fetchInvoiceReemitContexts(invoices.map((i) => i.id));
+	const invoices = ((data ?? []) as DbInvoiceListRow[]).map((row) =>
+		mapInvoiceRow(row, emitAmbiente)
+	);
+	const reemitById = await fetchInvoiceReemitContexts(invoices.map((i) => i.id), emitAmbiente);
 	for (const inv of invoices) {
 		const ctx = reemitById[inv.id];
 		if (ctx) inv.reemit = ctx;
@@ -292,7 +317,10 @@ export async function fetchInvoiceListPage(query: InvoiceListQuery): Promise<Inv
 }
 
 /** Facturas de un cliente con comprobante FE embebido (ficha de cliente). */
-export async function fetchInvoicesByClientId(clientId: string): Promise<InvoiceListRow[]> {
+export async function fetchInvoicesByClientId(
+	clientId: string,
+	emitAmbiente: FeAmbiente
+): Promise<InvoiceListRow[]> {
 	const admin = createSupabaseAdminClient();
 	const { data, error } = await admin
 		.from('invoices')
@@ -301,8 +329,10 @@ export async function fetchInvoicesByClientId(clientId: string): Promise<Invoice
 		.order('fecha_emision', { ascending: false });
 	if (error) throw error;
 
-	const invoices = ((data ?? []) as DbInvoiceListRow[]).map(mapInvoiceRow);
-	const reemitById = await fetchInvoiceReemitContexts(invoices.map((i) => i.id));
+	const invoices = ((data ?? []) as DbInvoiceListRow[]).map((row) =>
+		mapInvoiceRow(row, emitAmbiente)
+	);
+	const reemitById = await fetchInvoiceReemitContexts(invoices.map((i) => i.id), emitAmbiente);
 	for (const inv of invoices) {
 		const ctx = reemitById[inv.id];
 		if (ctx) inv.reemit = ctx;

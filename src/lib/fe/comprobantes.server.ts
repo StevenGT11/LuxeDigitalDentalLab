@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
+import { feAmbienteOrFilter } from './ambiente';
 import type { FeAmbiente, FeComprobanteEstado, FeComprobanteSummary } from './types';
 
 type DbFe = {
@@ -80,28 +81,36 @@ export async function fetchNotasComprobantesForInvoice(invoiceId: string): Promi
 	return (data ?? []) as DbFe[];
 }
 
-export async function fetchFeComprobanteForInvoice(invoiceId: string): Promise<DbFe | null> {
+export async function fetchFeComprobanteForInvoice(
+	invoiceId: string,
+	emitAmbiente: FeAmbiente
+): Promise<DbFe | null> {
 	const admin = createSupabaseAdminClient();
-	const { data, error } = await admin
+	let query = admin
 		.from('fe_comprobantes')
 		.select('*')
 		.eq('invoice_id', invoiceId)
-		.eq('tipo_documento', '01')
-		.maybeSingle();
+		.eq('tipo_documento', '01');
+	query = query.or(feAmbienteOrFilter(emitAmbiente));
+	const { data, error } = await query.maybeSingle();
 	if (error) throw error;
 	return (data as DbFe | null) ?? null;
 }
 
 /** NC tipo 03 aceptada por Hacienda en la factura origen (requerida antes de FE corregida). */
-export async function hasAcceptedNotaCreditoForInvoice(invoiceId: string): Promise<boolean> {
+export async function hasAcceptedNotaCreditoForInvoice(
+	invoiceId: string,
+	emitAmbiente: FeAmbiente
+): Promise<boolean> {
 	const admin = createSupabaseAdminClient();
-	const { data, error } = await admin
+	let query = admin
 		.from('fe_comprobantes')
 		.select('id')
 		.eq('invoice_id', invoiceId)
 		.eq('tipo_documento', '03')
-		.eq('estado', 'aceptado')
-		.limit(1);
+		.eq('estado', 'aceptado');
+	query = query.or(feAmbienteOrFilter(emitAmbiente));
+	const { data, error } = await query.limit(1);
 	if (error) throw error;
 	return (data?.length ?? 0) > 0;
 }
@@ -120,11 +129,14 @@ export async function fetchInvoiceSourceInvoiceId(invoiceId: string): Promise<st
 	return (data?.source_invoice_id as string | null | undefined) ?? null;
 }
 
-export async function assertNotaCreditoAceptadaParaFeCorregida(invoiceId: string): Promise<void> {
+export async function assertNotaCreditoAceptadaParaFeCorregida(
+	invoiceId: string,
+	emitAmbiente: FeAmbiente
+): Promise<void> {
 	const sourceId = await fetchInvoiceSourceInvoiceId(invoiceId);
 	if (!sourceId) return;
 
-	const ok = await hasAcceptedNotaCreditoForInvoice(sourceId);
+	const ok = await hasAcceptedNotaCreditoForInvoice(sourceId, emitAmbiente);
 	if (!ok) {
 		throw new Error(
 			'La factura corregida requiere una nota de crédito aceptada por Hacienda en la factura anterior (la que esta copia reemplaza). Corrija y reenvíe la NC hasta que figure como aceptada.'

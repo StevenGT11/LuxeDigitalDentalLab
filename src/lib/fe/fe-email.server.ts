@@ -4,6 +4,7 @@ import { invoicePdfFilename } from '$lib/lab/invoice-pdf';
 import { buildInvoicePdfBuffer } from '$lib/lab/invoice-pdf.server';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import { fetchFeComprobanteForInvoice } from './comprobantes.server';
+import { getEmitAmbiente } from './hacienda-settings.server';
 import { invalidFeCorreos, mergeFeCorreos, parseFeCorreos, primaryFeCorreo } from './fe-correos';
 
 function safeFilePart(value: string): string {
@@ -35,7 +36,8 @@ export async function sendFeAceptadaPackageToClient(
 	invoiceId: string,
 	extraCorreos?: string | null
 ): Promise<string> {
-	const fe = await fetchFeComprobanteForInvoice(invoiceId);
+	const emitAmbiente = await getEmitAmbiente();
+	const fe = await fetchFeComprobanteForInvoice(invoiceId, emitAmbiente);
 	if (!fe) throw new Error('No hay comprobante electrónico para esta factura.');
 	if (fe.estado !== 'aceptado') {
 		throw new Error('La factura electrónica aún no está aceptada por Hacienda.');

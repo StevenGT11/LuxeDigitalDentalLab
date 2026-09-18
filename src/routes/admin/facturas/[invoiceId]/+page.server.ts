@@ -8,7 +8,9 @@ import { sendFeAceptadaPackageToClient } from '$lib/fe/fe-email.server';
 import { invalidFeCorreos } from '$lib/fe/fe-correos';
 import { parseFeMonedaEmitForm } from '$lib/fe/fe-moneda';
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
+import { feAmbienteOrFilter } from '$lib/fe/ambiente';
 import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
+import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import {
 	duplicateInvoiceForCorrection,
 	findCorrectionInvoiceForSource,
@@ -105,12 +107,14 @@ export const actions: Actions = {
 		const invoiceId = String(form.get('invoice_id') ?? '').trim();
 		if (!invoiceId) return fail(400, { message: 'Factura no válida.' });
 
-		const { data: feRow } = await supabase
+		const emitAmbiente = await getEmitAmbiente();
+		let feQuery = supabase
 			.from('fe_comprobantes')
 			.select('estado')
 			.eq('invoice_id', invoiceId)
-			.eq('tipo_documento', '01')
-			.maybeSingle();
+			.eq('tipo_documento', '01');
+		feQuery = feQuery.or(feAmbienteOrFilter(emitAmbiente));
+		const { data: feRow } = await feQuery.maybeSingle();
 		if (feRow?.estado === 'aceptado') {
 			return fail(400, { message: 'No se pueden corregir montos de una FE aceptada.' });
 		}
@@ -306,7 +310,8 @@ export const actions: Actions = {
 		if (!invoiceId) return fail(400, { message: 'Factura no válida.' });
 
 		try {
-			const ncOk = await hasAcceptedNotaCreditoForInvoice(invoiceId);
+			const emitAmbiente = await getEmitAmbiente();
+			const ncOk = await hasAcceptedNotaCreditoForInvoice(invoiceId, emitAmbiente);
 			if (!ncOk) {
 				return fail(400, {
 					message:

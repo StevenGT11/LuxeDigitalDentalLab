@@ -4,6 +4,7 @@ import { requireFinancialProfile } from '$lib/auth/guards.server';
 import { requireAdmin } from '$lib/auth/require-admin';
 import { canViewFinancial } from '$lib/auth/roles';
 import { consultarFacturaElectronica } from '$lib/fe/emit.server';
+import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import { loadFeEmitPanelContext } from '$lib/fe/emit-panel-context.server';
 import {
 	duplicateInvoiceForCorrection,
@@ -20,10 +21,8 @@ export const load: PageServerLoad = async ({ parent, url, depends }) => {
 	requireFinancialProfile(profile);
 
 	const listQuery = parseInvoiceListQuery(url.searchParams);
-	const [list, emit] = await Promise.all([
-		fetchInvoiceListPage(listQuery),
-		loadFeEmitPanelContext()
-	]);
+	const emit = await loadFeEmitPanelContext();
+	const list = await fetchInvoiceListPage(listQuery, emit.emitAmbiente);
 
 	return { ...list, ...emit };
 };
@@ -83,7 +82,8 @@ export const actions: Actions = {
 		if (!invoiceId) return fail(400, { message: 'Factura no válida.' });
 
 		try {
-			const ncOk = await hasAcceptedNotaCreditoForInvoice(invoiceId);
+			const emitAmbiente = await getEmitAmbiente();
+			const ncOk = await hasAcceptedNotaCreditoForInvoice(invoiceId, emitAmbiente);
 			if (!ncOk) {
 				return fail(400, {
 					message:

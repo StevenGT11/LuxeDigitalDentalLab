@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { loadCabysCatalog } from '$lib/cabys/loadCatalog.server';
 import { findCabysByCodigo, searchCabysCatalog } from '$lib/cabys/searchCatalog';
+import { cabysSuggestedUnidadMedida } from '$lib/cabys/feHints';
 import { normalizeCabys } from '$lib/cabys/normalize';
 
 export const GET: RequestHandler = async ({ url, locals: { safeGetSession } }) => {
@@ -21,5 +22,10 @@ export const GET: RequestHandler = async ({ url, locals: { safeGetSession } }) =
 		if (exact) cabys = [exact, ...cabys].slice(0, Math.min(limit, 50));
 	}
 
-	return json({ cabys });
+	return json({
+		cabys: cabys.map((entry) => ({
+			...entry,
+			unidad_sugerida: cabysSuggestedUnidadMedida(entry)
+		}))
+	});
 };
