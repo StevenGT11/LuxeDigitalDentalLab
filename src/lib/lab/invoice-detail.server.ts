@@ -1,4 +1,5 @@
 import { feComprobanteMatchesEmitAmbiente } from '$lib/fe/ambiente';
+import { decodeHaciendaRespuestaXml } from '$lib/fe/hacienda-respuesta-xml';
 import { hasAcceptedNotaCreditoForInvoice } from '$lib/fe/comprobantes.server';
 import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import type { FeAmbiente, FeComprobanteEstado } from '$lib/fe/types';
@@ -135,7 +136,7 @@ function mapFeComprobanteDetail(row: FeEmbedDetailRow): FeComprobanteDetail {
 		enviado_at: row.enviado_at,
 		resuelto_at: row.resuelto_at,
 		xml_firmado: row.xml_firmado,
-		respuesta_xml: row.respuesta_xml,
+		respuesta_xml: decodeHaciendaRespuestaXml(row.respuesta_xml),
 		rechazo: (row.rechazo as Record<string, unknown> | null) ?? null,
 		referencia_codigo: row.referencia_codigo ?? null,
 		referencia_razon: row.referencia_razon ?? null

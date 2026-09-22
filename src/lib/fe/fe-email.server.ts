@@ -4,6 +4,7 @@ import { invoicePdfFilename } from '$lib/lab/invoice-pdf';
 import { buildInvoicePdfBuffer } from '$lib/lab/invoice-pdf.server';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import { fetchFeComprobanteForInvoice } from './comprobantes.server';
+import { decodeHaciendaRespuestaXml } from './hacienda-respuesta-xml';
 import { getEmitAmbiente } from './hacienda-settings.server';
 import { invalidFeCorreos, mergeFeCorreos, parseFeCorreos, primaryFeCorreo } from './fe-correos';
 
@@ -77,7 +78,7 @@ export async function sendFeAceptadaPackageToClient(
 
 	const invoiceNumber = String(invoice.invoice_number);
 	const { buffer: pdf, filename: pdfName } = await buildInvoicePdfBuffer(invoiceId);
-	const xmlAceptado = fe.respuesta_xml?.trim() ?? '';
+	const xmlAceptado = decodeHaciendaRespuestaXml(fe.respuesta_xml) ?? '';
 
 	const attachments = [
 		{
