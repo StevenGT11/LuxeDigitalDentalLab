@@ -7,6 +7,7 @@
 	import CaseFilesList from '$lib/components/lab/CaseFilesList.svelte';
 	import { canViewFinancial } from '$lib/auth/roles';
 	import {
+		ESTADOS,
 		getCaseItemTipoLabel,
 		getEstadoBadgeClass,
 		getEstadoLabel,
@@ -23,30 +24,37 @@
 		formatDeliveryCountdown,
 		formatLastEditedLine
 	} from '$lib/lab/helpers';
-	import { getInvoiceByCaseIdAsync } from '$lib/lab/store';
-	import type { Invoice, LabCase } from '$lib/lab/types';
+	import { getInvoiceByCaseIdAsync, updateCaseStatus } from '$lib/lab/store';
+	import type { Invoice, LabCase, LabCaseEstado } from '$lib/lab/types';
+	import { requestCaseFinalizedClientNotification } from '$lib/lab/notify-client';
 	import { ArrowRight, X } from '@lucide/svelte';
 
 	interface Props {
 		caso: LabCase | null;
 		detailed?: boolean;
+		returnToClient?: boolean;
+		onUpdated?: (caso: LabCase) => void;
 		onClose: () => void;
 	}
 
-	let { caso, detailed = false, onClose }: Props = $props();
+	let { caso, detailed = false, returnToClient = false, onUpdated, onClose }: Props = $props();
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 	let factura = $state<Invoice | null>(null);
+	let saved = $state<LabCase | null>(null);
+	let view = $derived(saved && caso && saved.id === caso.id ? saved : caso);
+	const estadosAdmin = ESTADOS.filter((estado) => estado.value !== 'todos');
 
 	const modalTitleId = 'case-preview-title';
 
 	$effect(() => {
-		if (!caso || !detailed || !showFinancial) {
+		const current = view;
+		if (!current || !detailed || !showFinancial) {
 			factura = null;
 			return;
 		}
 		let cancelled = false;
-		void getInvoiceByCaseIdAsync(caso.id).then((result) => {
+		void getInvoiceByCaseIdAsync(current.id).then((result) => {
 			if (!cancelled) factura = result;
 		});
 		return () => {
@@ -59,8 +67,21 @@
 	}
 
 	function goToCase() {
-		if (!caso) return;
-		void goto(`/admin/casos/${caso.id}`);
+		if (!view) return;
+		const from = returnToClient ? '?from=cliente' : '';
+		void goto(`/admin/casos/${view.id}${from}`);
+	}
+
+	async function handleStatusChange(estado: string) {
+		if (!view) return;
+		const prevEstado = view.estado;
+		const updated = await updateCaseStatus(view.id, estado as LabCaseEstado);
+		if (!updated) return;
+		saved = updated;
+		if (prevEstado !== 'finalizado' && updated.estado === 'finalizado') {
+			requestCaseFinalizedClientNotification(updated.id);
+		}
+		onUpdated?.(updated);
 	}
 
 	function teethLabel(item: LabCase['items'][number]): string {
@@ -70,9 +91,9 @@
 	}
 </script>
 
-<svelte:window onkeydown={caso ? onKeydown : undefined} />
+<svelte:window onkeydown={view ? onKeydown : undefined} />
 
-{#if caso}
+{#if view}
 	<div class="case-file-modal__backdrop" onclick={onClose} role="presentation"></div>
 	<div
 		class="case-file-modal case-preview-modal"
@@ -84,7 +105,7 @@
 		<header class="case-file-modal__header">
 			<div>
 				<p class="case-file-modal__eyebrow">{detailed ? 'Detalle del caso' : 'Vista previa'}</p>
-				<h3 class="case-file-modal__title" id={modalTitleId}>{caso.case_number}</h3>
+				<h3 class="case-file-modal__title" id={modalTitleId}>{view.case_number}</h3>
 			</div>
 			<button type="button" class="case-file-modal__close" aria-label="Cerrar" onclick={onClose}>
 				<X size={18} />
@@ -94,43 +115,55 @@
 		<div class="case-file-modal__body case-preview-modal__body">
 			<div class="case-preview-modal__head">
 				<div>
-					<h4 class="case-preview-modal__patient">{caso.paciente_name}</h4>
-					{#if detailed && formatLastEditedLine(caso)}
-						<p class="case-preview-modal__edited type-fine-print">{formatLastEditedLine(caso)}</p>
+					<h4 class="case-preview-modal__patient">{view.paciente_name}</h4>
+					{#if detailed && formatLastEditedLine(view)}
+						<p class="case-preview-modal__edited type-fine-print">{formatLastEditedLine(view)}</p>
 					{/if}
 				</div>
-				<span class={getEstadoBadgeClass(caso.estado)}>{getEstadoLabel(caso.estado)}</span>
+				<div class="case-preview-modal__status">
+					<span class={getEstadoBadgeClass(view.estado)}>{getEstadoLabel(view.estado)}</span>
+					<select
+						class="field-select case-preview-modal__status-select"
+						aria-label="Estado del caso"
+						value={view.estado}
+						onchange={(e) => handleStatusChange(e.currentTarget.value)}
+					>
+						{#each estadosAdmin as estado (estado.value)}
+							<option value={estado.value}>{estado.label}</option>
+						{/each}
+					</select>
+				</div>
 			</div>
 
 			<dl class="case-preview-modal__meta">
 				<div class="case-preview-modal__row">
 					<dt>Cliente</dt>
-					<dd>{caso.client_name}{caso.client_clinica ? ` · ${caso.client_clinica}` : ''}</dd>
+					<dd>{view.client_name}{view.client_clinica ? ` · ${view.client_clinica}` : ''}</dd>
 				</div>
 				<div class="case-preview-modal__row">
 					<dt>Doctor</dt>
-					<dd>{caso.doctor_name}</dd>
+					<dd>{view.doctor_name}</dd>
 				</div>
 				<div class="case-preview-modal__row">
 					<dt>Entrega</dt>
-					<dd>{formatDateTime(caso.fecha_entrega)}</dd>
+					<dd>{formatDateTime(view.fecha_entrega)}</dd>
 				</div>
 				{#if detailed}
 					<div class="case-preview-modal__row">
 						<dt>Creado</dt>
-						<dd>{formatDateTime(caso.fecha_creacion)}</dd>
+						<dd>{formatDateTime(view.fecha_creacion)}</dd>
 					</div>
 				{/if}
 				{#if showFinancial}
 					<div class="case-preview-modal__row">
 						<dt>Costo</dt>
-						<dd>{formatCurrency(caso.costo)}</dd>
+						<dd>{formatCurrency(view.costo)}</dd>
 					</div>
 				{/if}
 			</dl>
 
-			<span class={deliveryUrgencyClass(caso.fecha_entrega, caso.estado)}>
-				{formatDeliveryCountdown(caso.fecha_entrega, caso.estado)}
+			<span class={deliveryUrgencyClass(view.fecha_entrega, view.estado)}>
+				{formatDeliveryCountdown(view.fecha_entrega, view.estado)}
 			</span>
 
 			{#if detailed}
@@ -154,7 +187,7 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each caso.items as item (item.id)}
+								{#each view.items as item (item.id)}
 									<tr>
 										<td>{teethLabel(item)}</td>
 										<td class="type-body-strong">{getCaseItemTipoLabel(item)}</td>
@@ -206,7 +239,7 @@
 								<tfoot>
 									<tr>
 										<td colspan="8">Total caso</td>
-										<td>{formatCurrency(caso.costo)}</td>
+										<td>{formatCurrency(view.costo)}</td>
 									</tr>
 								</tfoot>
 							{/if}
@@ -217,8 +250,8 @@
 				<section class="case-preview-modal__section">
 					<h5 class="case-preview-modal__section-title">Escaneos y diseños</h5>
 					<CaseFilesList
-						archivos={caso.archivos}
-						emptyMessage="El cliente no adjuntó archivos al enviar este caso."
+						archivos={view.archivos}
+						emptyMessage="El cliente no adjuntó archivos al enviar este view."
 					/>
 				</section>
 
@@ -228,7 +261,9 @@
 						<dl class="case-preview-modal__meta case-preview-modal__meta--invoice">
 							<div class="case-preview-modal__row">
 								<dt>Número</dt>
-								<dd>{factura.invoice_number}</dd>
+								<dd>
+									<a href="/admin/facturas/{factura.id}?from=caso{returnToClient ? '&client=1' : ''}" class="text-link">{factura.invoice_number}</a>
+								</dd>
 							</div>
 							<div class="case-preview-modal__row">
 								<dt>Estado</dt>
@@ -247,20 +282,20 @@
 				{/if}
 			{:else}
 				<CaseWorkTags
-					items={caso.items}
+					items={view.items}
 					fallback={{
-						tipo_trabajo: caso.tipo_trabajo,
-						material: caso.material,
-						color: caso.color,
-						piezas: caso.piezas
+						tipo_trabajo: view.tipo_trabajo,
+						material: view.material,
+						color: view.color,
+						piezas: view.piezas
 					}}
 				/>
 			{/if}
 
-			<EstadoProgress estado={caso.estado} compact />
+			<EstadoProgress estado={view.estado} compact />
 
-			{#if caso.notas?.trim()}
-				<p class="case-preview-modal__notes"><strong>Notas:</strong> {caso.notas}</p>
+			{#if view.notas?.trim()}
+				<p class="case-preview-modal__notes"><strong>Notas:</strong> {view.notas}</p>
 			{/if}
 		</div>
 

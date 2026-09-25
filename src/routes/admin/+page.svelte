@@ -12,7 +12,7 @@
 		getDeliveriesThisWeek,
 		getUpcomingDeliveries
 	} from '$lib/lab/analytics';
-	import { ESTADOS_EN_PROCESO, getEstadoBadgeClass, getEstadoLabel } from '$lib/lab/constants';
+	import { ESTADOS, ESTADOS_EN_PROCESO, getEstadoBadgeClass, getEstadoLabel } from '$lib/lab/constants';
 	import {
 		deliveryUrgencyClass,
 		formatCurrency,
@@ -24,9 +24,11 @@
 		getAllClients,
 		getAllInvoices,
 		initializeLabStorage,
-		revalidateLabDataFromDb
+		revalidateLabDataFromDb,
+		updateCaseStatus
 	} from '$lib/lab/store';
-	import type { LabCase } from '$lib/lab/types';
+	import type { LabCase, LabCaseEstado } from '$lib/lab/types';
+	import { requestCaseFinalizedClientNotification } from '$lib/lab/notify-client';
 
 	let stats = $state({
 		totalCasos: 0,
@@ -41,6 +43,17 @@
 	let upcomingDeliveries = $state<LabCase[]>([]);
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
+	const estadosAdmin = ESTADOS.filter((e) => e.value !== 'todos');
+
+	async function handleStatusChange(caso: LabCase, estado: string) {
+		const prevEstado = caso.estado;
+		const updated = await updateCaseStatus(caso.id, estado as LabCaseEstado);
+		if (!updated) return;
+		if (prevEstado !== 'finalizado' && updated.estado === 'finalizado') {
+			requestCaseFinalizedClientNotification(updated.id);
+		}
+		await refresh();
+	}
 
 	onMount(() => void refresh());
 
@@ -110,7 +123,7 @@
 			<div>
 				<h3 class="dash-panel__title">Casos activos</h3>
 				<p class="dash-panel__subtitle">
-					Material, tono y fecha de entrega — ordenados por urgencia
+					Los últimos casos que entraron al taller
 				</p>
 			</div>
 			<a href="/admin/casos" class="btn-secondary-pill">Ver todos los casos</a>
@@ -167,6 +180,16 @@
 							{#if showFinancial}
 								<span class="case-card__cost">{formatCurrency(caso.costo)}</span>
 							{/if}
+							<select
+								class="field-select dash-case-status"
+								aria-label="Estado de {caso.case_number}"
+								value={caso.estado}
+								onchange={(e) => handleStatusChange(caso, e.currentTarget.value)}
+							>
+								{#each estadosAdmin as e (e.value)}
+									<option value={e.value}>{e.label}</option>
+								{/each}
+							</select>
 							<button
 								type="button"
 								class="text-link"
@@ -185,7 +208,7 @@
 		<div class="dash-panel__header-row">
 			<div>
 				<h3 class="dash-panel__title">Próximas entregas</h3>
-				<p class="dash-panel__subtitle">Compromisos más urgentes</p>
+				<p class="dash-panel__subtitle">Las más próximas a entregar, incluidas las atrasadas</p>
 			</div>
 			<a href="/admin/calendario" class="btn-secondary-pill">Ver calendario</a>
 		</div>
@@ -193,8 +216,8 @@
 			<p class="type-caption">No hay entregas pendientes.</p>
 		{:else}
 			<ul class="dash-delivery-preview">
-				{#each upcomingDeliveries as caso}
-					<li>
+				{#each upcomingDeliveries as caso (caso.id)}
+					<li class="dash-delivery-row">
 						<button
 							type="button"
 							class="dash-delivery-preview__item"
@@ -215,9 +238,38 @@
 								</span>
 							</div>
 						</button>
+						<select
+							class="field-select dash-case-status"
+							aria-label="Estado de {caso.case_number}"
+							value={caso.estado}
+							onchange={(e) => handleStatusChange(caso, e.currentTarget.value)}
+						>
+							{#each estadosAdmin as e (e.value)}
+								<option value={e.value}>{e.label}</option>
+							{/each}
+						</select>
 					</li>
 				{/each}
 			</ul>
 		{/if}
 	</section>
 </div>
+
+<style>
+	.dash-case-status {
+		width: auto;
+		min-width: 9.5rem;
+		flex: 0 0 auto;
+	}
+
+	.dash-delivery-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.dash-delivery-row :global(.dash-delivery-preview__item) {
+		flex: 1 1 16rem;
+	}
+</style>

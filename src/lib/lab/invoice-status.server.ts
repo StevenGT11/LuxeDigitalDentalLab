@@ -15,9 +15,15 @@ function dbEstadoCandidates(estado: InvoiceEstado): string[] {
 /** Actualiza cobro en servidor. La BD puede tener `pagada` (enum original) o `pagado`. */
 export async function updateInvoiceStatusServer(
 	invoiceId: string,
-	estadoRaw: string
+	estadoRaw: string,
+	options?: { fromFeAceptada?: boolean }
 ): Promise<InvoiceEstado> {
 	const estado = parseInvoiceEstado(estadoRaw);
+	if (estado === 'facturado' && !options?.fromFeAceptada) {
+		throw new Error(
+			'El estado Facturado se asigna solo cuando Hacienda acepta la factura electrónica.'
+		);
+	}
 	const admin = createSupabaseAdminClient();
 
 	let lastError: { message?: string; code?: string } | null = null;
@@ -41,4 +47,25 @@ export async function updateInvoiceStatusServer(
 	}
 
 	throw new Error(lastError?.message ?? 'No se pudo actualizar el cobro.');
+}
+
+/** Pasa a Facturado al aceptar la FE, sin tocar pagado ni cancelada. */
+export async function markInvoiceFacturadoOnFeAceptada(invoiceId: string): Promise<void> {
+	const admin = createSupabaseAdminClient();
+	const { data, error } = await admin
+		.from('invoices')
+		.select('estado')
+		.eq('id', invoiceId)
+		.maybeSingle();
+	if (error) throw error;
+	const current = String(data?.estado ?? '');
+	if (
+		current === 'pagado' ||
+		current === 'pagada' ||
+		current === 'cancelada' ||
+		current === 'facturado'
+	) {
+		return;
+	}
+	await updateInvoiceStatusServer(invoiceId, 'facturado', { fromFeAceptada: true });
 }

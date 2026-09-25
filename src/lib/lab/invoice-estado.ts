@@ -8,6 +8,22 @@ export const INVOICE_ESTADOS = [
 	{ value: 'cancelada', label: 'Cancelada' }
 ] as const;
 
+/** Estados que el usuario puede elegir a mano (Facturado solo lo pone Hacienda). */
+export const INVOICE_ESTADOS_MANUAL = INVOICE_ESTADOS.filter((e) => e.value !== 'facturado');
+
+/**
+ * Opciones del select de cobro. Facturado no se elige a mano: solo aparece
+ * cuando ya está facturado y Hacienda aceptó la FE.
+ */
+export function invoiceCobroSelectOptions(estado: string, feEstado?: string | null) {
+	if (estado === 'facturado' && feEstado === 'aceptado') return [...INVOICE_ESTADOS];
+	if (estado === 'facturado') {
+		const facturado = INVOICE_ESTADOS.find((e) => e.value === 'facturado');
+		return facturado ? [facturado, ...INVOICE_ESTADOS_MANUAL] : [...INVOICE_ESTADOS_MANUAL];
+	}
+	return [...INVOICE_ESTADOS_MANUAL];
+}
+
 export type InvoiceTrafficTone = 'danger' | 'warning' | 'success' | 'muted';
 
 export function parseInvoiceEstado(raw: string): InvoiceEstado {

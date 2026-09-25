@@ -264,10 +264,11 @@ export function shadesToChartSegments(stats: ShadeStat[]): ChartSegment[] {
 	}));
 }
 
+/** Casos en curso, los últimos que entraron primero. */
 export function getActiveCases(casos: LabCase[], limit = 8): LabCase[] {
 	return casos
 		.filter((c) => c.estado !== 'finalizado')
-		.sort((a, b) => new Date(a.fecha_entrega).getTime() - new Date(b.fecha_entrega).getTime())
+		.sort((a, b) => new Date(b.fecha_creacion).getTime() - new Date(a.fecha_creacion).getTime())
 		.slice(0, limit);
 }
 
@@ -281,7 +282,7 @@ export function getDeliveriesThisWeek(casos: LabCase[]): number {
 	}).length;
 }
 
-/** Entregas pendientes ordenadas por fecha (incluye atrasados). */
+/** Entregas pendientes: primero la fecha más próxima (incluye atrasadas). */
 export function getUpcomingDeliveries(casos: LabCase[], limit = 6): LabCase[] {
 	return casos
 		.filter((c) => c.estado !== 'finalizado')

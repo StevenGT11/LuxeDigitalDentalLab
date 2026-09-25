@@ -37,6 +37,7 @@ import { primaryFeCorreo } from './fe-correos';
 import { normalizeLineAmountsForFe } from './fe-line-amounts';
 import { resolveFeUnidadMedidaForCabys } from './fe-unidad-medida';
 import { duplicateInvoiceForCorrection } from '$lib/lab/invoice-detail.server';
+import { markInvoiceFacturadoOnFeAceptada } from '$lib/lab/invoice-status.server';
 import { parseFeXmlLineas, parseFeXmlTotals } from './parse-fe-xml-lineas';
 import { clientFeAddressToFacturadorCliente } from './client-fiscal-address';
 import {
@@ -475,6 +476,10 @@ export async function consultarComprobanteElectronicoById(
 		estado
 	});
 
+	if (estado === 'aceptado' && (fe.tipo_documento ?? '01') === '01') {
+		await markInvoiceFacturadoOnFeAceptada(fe.invoice_id);
+	}
+
 	return {
 		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }) + emailNote,
 		estado
@@ -524,6 +529,10 @@ export async function consultarFacturaElectronica(
 		estado,
 		extraCorreos
 	});
+
+	if (estado === 'aceptado') {
+		await markInvoiceFacturadoOnFeAceptada(invoiceId);
+	}
 
 	return {
 		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }) + emailNote,

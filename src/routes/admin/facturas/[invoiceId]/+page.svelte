@@ -28,7 +28,7 @@
 	import {
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
-		INVOICE_ESTADOS
+		invoiceCobroSelectOptions
 	} from '$lib/lab/invoice-estado';
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
 	import { clientFeAddressRowToForm, formatClientFeAddressLabel } from '$lib/fe/client-fiscal-address';
@@ -56,11 +56,20 @@
 	const notas = $derived(data.notas ?? []);
 	const client = $derived(data.client);
 	const fromCliente = $derived(page.url.searchParams.get('from') === 'cliente');
+	const fromCaso = $derived(page.url.searchParams.get('from') === 'caso');
 	const backHref = $derived(
-		fromCliente ? `/admin/clientes/${invoice.client_id}#facturas` : '/admin/facturas'
+		fromCliente
+			? `/admin/clientes/${invoice.client_id}#facturas`
+			: fromCaso
+				? `/admin/casos/${invoice.case_id}${page.url.searchParams.get('client') === '1' ? '?from=cliente' : ''}`
+				: '/admin/facturas'
 	);
 	const backLabel = $derived(
-		fromCliente ? '← Volver a facturas del cliente' : '← Volver a facturas'
+		fromCliente
+			? '← Volver a facturas del cliente'
+			: fromCaso
+				? '← Volver al caso'
+				: '← Volver a facturas'
 	);
 
 	const tipoIdLabel = $derived(
@@ -648,7 +657,7 @@
 				<label class="field">
 					<span class="field-label">Estado de cobro</span>
 					<select class="field-select" name="estado" value={invoice.estado}>
-						{#each INVOICE_ESTADOS as e (e.value)}
+						{#each invoiceCobroSelectOptions(invoice.estado, feDisplay?.estado) as e (e.value)}
 							<option value={e.value} selected={e.value === invoice.estado}>{e.label}</option>
 						{/each}
 					</select>
