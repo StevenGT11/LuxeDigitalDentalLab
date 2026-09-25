@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 import { enviarFacturaConDesgloseExento } from './facturador-enviar.server';
 import { installFacturadorExemptDesglosePatch } from './facturador-patch.server';
+import { decodeHaciendaRespuestaXml } from './hacienda-respuesta-xml';
 
 export const FACTURADOR_LIBRARY_LABEL = '@happy-prod/facturador';
 
@@ -148,10 +149,20 @@ export async function facturadorConsultar(
 		const result = (await consultarFactura({ clave, config })) as LibraryResult;
 
 		if (result.success && result.data) {
-			const data = result.data as FacturadorConsultaResult extends { ok: true; data: infer D } ? D : never;
+			const raw = result.data as Record<string, unknown>;
+			const respuestaXml = decodeHaciendaRespuestaXml(
+				raw.respuesta_xml as string | undefined,
+				raw.respuesta_xml_decoded as string | undefined
+			);
+			const data = {
+				clave: String(raw.clave ?? ''),
+				respuesta_xml: respuestaXml ?? undefined,
+				rechazo: raw.rechazo as Record<string, unknown> | undefined,
+				detalle_mensaje: raw.detalle_mensaje as string | undefined
+			};
 			return {
 				ok: true,
-				estado: (result.data.estado as string) ?? 'aceptado',
+				estado: (raw.estado as string) ?? 'aceptado',
 				data
 			};
 		}
