@@ -84,6 +84,7 @@
 	let consultingFe = $state(false);
 	let consultingNotaId = $state<string | null>(null);
 	let sendingFeEmail = $state(false);
+	let sendingNotaEmailId = $state<string | null>(null);
 	let extraCorreos = $state('');
 
 	const feBusy = $derived(
@@ -92,7 +93,8 @@
 			emittingNota ||
 			consultingNotaId !== null ||
 			reemittingFactura ||
-			sendingFeEmail
+			sendingFeEmail ||
+			sendingNotaEmailId !== null
 	);
 
 	let lastFe = $state<(typeof data.fe)>(null);
@@ -403,6 +405,7 @@
 		formData.set('razon', notaFormRazon);
 		if (notaFormFeId) formData.set('fe_comprobante_id', notaFormFeId);
 		if (medios?.length) formData.set('medios_pago', JSON.stringify(medios));
+		formData.set('extra_correos', extraCorreos);
 
 		try {
 			const response = await fetch('?/emitirNota', { method: 'POST', body: formData });
@@ -1021,8 +1024,13 @@
 						{/if}
 					{/if}
 					{#if canEmitNota}
-						<button type="button" class="btn-primary-pill" onclick={() => openNotaModal()} disabled={feBusy}>
-							Emitir y enviar a Hacienda
+						<button
+							type="button"
+							class="btn-primary-pill btn-nota-credito"
+							onclick={() => openNotaModal()}
+							disabled={feBusy}
+						>
+							Emitir nota de crédito
 						</button>
 					{/if}
 				</div>
@@ -1083,7 +1091,7 @@
 										{#if feComprobanteNeedsEnviar(nota.estado)}
 											<button
 												type="button"
-												class="btn-primary-pill btn-secondary-pill--sm"
+												class="btn-primary-pill btn-nota-credito btn-secondary-pill--sm"
 												disabled={feBusy}
 												onclick={() => enviarNotaPendiente(nota)}
 											>
@@ -1099,6 +1107,33 @@
 											>
 												Reemitir
 											</button>
+										{/if}
+										{#if nota.estado === 'aceptado'}
+											<form
+												method="POST"
+												action="?/enviarNotaCorreo"
+												use:enhance={() => {
+													sendingNotaEmailId = nota.id;
+													feFeedback = null;
+													return async ({ update, result }) => {
+														try {
+															await afterFeFormAction(result, update);
+														} finally {
+															sendingNotaEmailId = null;
+														}
+													};
+												}}
+											>
+												<input type="hidden" name="fe_comprobante_id" value={nota.id} />
+												<input type="hidden" name="extra_correos" value={extraCorreos} />
+												<button
+													type="submit"
+													class="btn-secondary-pill btn-secondary-pill--sm"
+													disabled={feBusy}
+												>
+													{sendingNotaEmailId === nota.id ? 'Enviando…' : 'Enviar por correo'}
+												</button>
+											</form>
 										{/if}
 										{#if feComprobanteCanConsultar(nota.estado) && nota.clave}
 											<form
@@ -1117,6 +1152,7 @@
 												}}
 											>
 												<input type="hidden" name="fe_comprobante_id" value={nota.id} />
+												<input type="hidden" name="extra_correos" value={extraCorreos} />
 												<button type="submit" class="btn-secondary-pill btn-secondary-pill--sm" disabled={feBusy}>
 													{consultingNotaId === nota.id ? 'Consultando…' : 'Consultar'}
 												</button>

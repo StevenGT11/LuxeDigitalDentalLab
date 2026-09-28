@@ -4,7 +4,7 @@ import { requireFinancialProfile } from '$lib/auth/guards.server';
 import { requireAdmin } from '$lib/auth/require-admin';
 import { canViewFinancial } from '$lib/auth/roles';
 import { consultarFacturaElectronica, emitirYConsultarFacturaElectronica, emitirYConsultarNotaCreditoDebito, consultarComprobanteElectronicoById } from '$lib/fe/emit.server';
-import { sendFeAceptadaPackageToClient } from '$lib/fe/fe-email.server';
+import { sendFeAceptadaPackageToClient, sendNotaAceptadaPackageToClient } from '$lib/fe/fe-email.server';
 import { invalidFeCorreos } from '$lib/fe/fe-correos';
 import { parseFeMonedaEmitForm } from '$lib/fe/fe-moneda';
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
@@ -258,13 +258,19 @@ export const actions: Actions = {
 				const message = parseErr instanceof Error ? parseErr.message : 'Medios de pago inválidos.';
 				return fail(400, { message });
 			}
+			const extraCorreos = String(form.get('extra_correos') ?? '').trim();
+			const invalid = invalidFeCorreos(extraCorreos);
+			if (invalid.length) {
+				return fail(400, { message: `Correo inválido: ${invalid.join(', ')}` });
+			}
 			const result = await emitirYConsultarNotaCreditoDebito(invoiceId, {
 				tipoDocumento,
 				codigoReferencia,
 				razon,
 				mediosPago,
 				feComprobanteId,
-				crearFacturaCorreccion: false
+				crearFacturaCorreccion: false,
+				extraCorreos
 			});
 			return {
 				success: true,
@@ -279,6 +285,32 @@ export const actions: Actions = {
 		}
 	},
 
+	enviarNotaCorreo: async ({ request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		const gate = await requireAdmin(
+			supabase,
+			user?.id,
+			'Solo administradores pueden reenviar la nota electrónica.'
+		);
+		if (!gate.ok) return fail(gate.status, { message: gate.message });
+
+		const form = await request.formData();
+		const feComprobanteId = String(form.get('fe_comprobante_id') ?? '').trim();
+		const extraCorreos = String(form.get('extra_correos') ?? '').trim();
+		if (!feComprobanteId) return fail(400, { message: 'Nota no válida.' });
+		const invalid = invalidFeCorreos(extraCorreos);
+		if (invalid.length) {
+			return fail(400, { message: `Correo inválido: ${invalid.join(', ')}` });
+		}
+
+		try {
+			const destinos = await sendNotaAceptadaPackageToClient(feComprobanteId, extraCorreos);
+			return { success: true, message: `Se envió la nota a ${destinos}.` };
+		} catch (err) {
+			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo enviar la nota.' });
+		}
+	},
+
 	consultarNota: async ({ request, locals: { supabase, safeGetSession } }) => {
 		const { user } = await safeGetSession();
 		const gate = await requireAdmin(supabase, user?.id, 'Solo administradores pueden consultar Hacienda.');
@@ -289,7 +321,12 @@ export const actions: Actions = {
 		if (!feComprobanteId) return fail(400, { message: 'Comprobante no válido.' });
 
 		try {
-			const result = await consultarComprobanteElectronicoById(feComprobanteId);
+			const extraCorreos = String(form.get('extra_correos') ?? '').trim();
+			const invalid = invalidFeCorreos(extraCorreos);
+			if (invalid.length) {
+				return fail(400, { message: `Correo inválido: ${invalid.join(', ')}` });
+			}
+			const result = await consultarComprobanteElectronicoById(feComprobanteId, extraCorreos);
 			return { success: true, message: result.message, feComprobanteId, feEstado: result.estado };
 		} catch (err) {
 			return fail(400, { message: err instanceof Error ? err.message : 'No se pudo consultar.' });

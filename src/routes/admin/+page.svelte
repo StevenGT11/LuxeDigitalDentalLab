@@ -258,8 +258,9 @@
 <style>
 	.dash-case-status {
 		width: auto;
-		min-width: 9.5rem;
-		flex: 0 0 auto;
+		min-width: 7.75rem;
+		max-width: 10.25rem;
+		flex: 0 1 auto;
 	}
 
 	.dash-delivery-row {

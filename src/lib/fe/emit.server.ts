@@ -436,7 +436,8 @@ export async function emitirFacturaElectronica(
 }
 
 export async function consultarComprobanteElectronicoById(
-	feComprobanteId: string
+	feComprobanteId: string,
+	extraCorreos?: string | null
 ): Promise<{ message: string; estado: string }> {
 	const emisor = await getFeEmisorConfigForEmit();
 	if (!emisor) throw new Error('No hay configuración de emisor para el ambiente actual.');
@@ -469,19 +470,23 @@ export async function consultarComprobanteElectronicoById(
 				: null
 	});
 
+	const tipo = fe.tipo_documento ?? '01';
 	const emailNote = await maybeSendFeAceptadaEmail({
 		invoiceId: fe.invoice_id,
-		tipoDocumento: fe.tipo_documento,
+		feComprobanteId: fe.id,
+		tipoDocumento: tipo,
 		previousEstado: fe.estado,
-		estado
+		estado,
+		extraCorreos
 	});
 
-	if (estado === 'aceptado' && (fe.tipo_documento ?? '01') === '01') {
+	if (estado === 'aceptado' && tipo === '01') {
 		await markInvoiceFacturadoOnFeAceptada(fe.invoice_id);
 	}
 
+	const kind = tipo === '02' || tipo === '03' ? 'nota' : 'fe';
 	return {
-		message: formatFeHaciendaResultMessage(estado, { kind: 'fe' }) + emailNote,
+		message: formatFeHaciendaResultMessage(estado, { kind }) + emailNote,
 		estado
 	};
 }
@@ -524,6 +529,7 @@ export async function consultarFacturaElectronica(
 
 	const emailNote = await maybeSendFeAceptadaEmail({
 		invoiceId,
+		feComprobanteId: fe.id,
 		tipoDocumento: fe.tipo_documento,
 		previousEstado: fe.estado,
 		estado,
@@ -621,6 +627,8 @@ export type EmitNotaOptions = {
 	feComprobanteId?: string;
 	/** Tras NC/ND aceptada, copiar ítems a nueva factura interna para emitir FE corregida. */
 	crearFacturaCorreccion?: boolean;
+	/** Copia (CC) además del correo de facturación del cliente. */
+	extraCorreos?: string | null;
 };
 
 async function emitComprobanteReferenciado(
@@ -803,7 +811,7 @@ export async function emitirNotaCreditoDebito(
 
 export async function consultarComprobanteElectronicaConReintentos(
 	feComprobanteId: string,
-	options?: { maxAttempts?: number; delayMs?: number }
+	options?: { maxAttempts?: number; delayMs?: number; extraCorreos?: string | null }
 ): Promise<{ message: string; estado: string }> {
 	const maxAttempts = options?.maxAttempts ?? 6;
 	const delayMs = options?.delayMs ?? 2000;
@@ -812,7 +820,7 @@ export async function consultarComprobanteElectronicaConReintentos(
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {
 		if (attempt > 0) await sleep(delayMs);
 		try {
-			last = await consultarComprobanteElectronicoById(feComprobanteId);
+			last = await consultarComprobanteElectronicoById(feComprobanteId, options?.extraCorreos);
 			if (last.estado !== 'procesando') return last;
 		} catch (err) {
 			if (attempt === maxAttempts - 1) throw err;
@@ -836,7 +844,9 @@ export async function emitirYConsultarNotaCreditoDebito(
 }> {
 	const emit = await emitirNotaCreditoDebito(invoiceId, options);
 	await sleep(1500);
-	const consult = await consultarComprobanteElectronicaConReintentos(emit.feComprobanteId);
+	const consult = await consultarComprobanteElectronicaConReintentos(emit.feComprobanteId, {
+		extraCorreos: options.extraCorreos
+	});
 	const consultaPending = consult.estado === 'procesando';
 	let message = formatFeHaciendaResultMessage(consult.estado, {
 		kind: 'nota',

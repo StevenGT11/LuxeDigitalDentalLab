@@ -153,8 +153,8 @@
 						Elegir medios…
 					</button>
 				{/if}
-				<button type="button" class="btn-primary fe-modal__submit" onclick={submit} disabled={razon.trim().length < 3}>
-					Enviar a Hacienda
+				<button type="button" class="btn-primary-pill btn-nota-credito fe-modal__submit" onclick={submit} disabled={razon.trim().length < 3}>
+					{tipoDocumento === '03' ? 'Emitir nota de crédito' : 'Emitir nota de débito'}
 				</button>
 			</div>
 		</div>
@@ -224,6 +224,24 @@
 	}
 
 	.fe-modal__submit {
-		min-width: 9rem;
+		min-width: 11.5rem;
+		padding: 0.55rem 1rem;
+		border: none;
+		border-radius: 999px;
+		background: var(--luxe-gold, #92772f);
+		color: #fff;
+		font-family: inherit;
+		font-size: 0.8125rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.fe-modal__submit:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--luxe-gold, #92772f) 82%, #000);
+	}
+
+	.fe-modal__submit:disabled {
+		opacity: 0.48;
+		cursor: not-allowed;
 	}
 </style>

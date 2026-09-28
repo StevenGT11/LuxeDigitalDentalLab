@@ -116,6 +116,35 @@ export async function notifyClient(params: {
 	await sendEmail({ to: params.to, subject: params.subject, text, html });
 }
 
+/** Paquete de nota de crédito o débito aceptada: XML firmado, XML de Hacienda y PDF. */
+export async function notifyNotaElectronicaAceptada(params: {
+	to: string | string[];
+	cc?: string | string[];
+	documentLabel: string;
+	reference: string;
+	clientName: string;
+	clave?: string | null;
+	attachments: {
+		filename: string;
+		content: Buffer | string;
+		contentType?: string;
+	}[];
+}): Promise<void> {
+	const subject = `${params.documentLabel} ${params.reference} — ${APP_NAME}`;
+	const claveLine = params.clave ? ` Clave: ${params.clave}.` : '';
+	const files = params.attachments.map((a) => a.filename).join(', ');
+	const text = `Adjuntamos la ${params.documentLabel.toLowerCase()} ${params.reference} de ${params.clientName}.${claveLine}
+
+Archivos: ${files}
+
+— ${APP_NAME}`;
+	const html = layoutHtml(
+		`${escapeHtml(params.documentLabel)} ${escapeHtml(params.reference)}`,
+		`Adjuntamos la ${escapeHtml(params.documentLabel.toLowerCase())} de <strong>${escapeHtml(params.clientName)}</strong>: XML generado, XML de aceptación de Hacienda y representación gráfica (PDF).${params.clave ? ` Clave: <strong>${escapeHtml(params.clave)}</strong>.` : ''}`
+	);
+	await sendComprobanteEmail(params.to, params.cc, subject, text, html, params.attachments);
+}
+
 /** Paquete de factura electrónica aceptada: XML firmado, XML de Hacienda y PDF. */
 export async function notifyFacturaElectronicaAceptada(params: {
 	to: string | string[];
@@ -141,13 +170,26 @@ Archivos: ${files}
 		`Factura ${escapeHtml(params.invoiceNumber)}`,
 		`Adjuntamos la factura electrónica de <strong>${escapeHtml(params.clientName)}</strong>: XML generado, XML de aceptación de Hacienda y representación gráfica (PDF).${params.clave ? ` Clave: <strong>${escapeHtml(params.clave)}</strong>.` : ''}`
 	);
-	const recipients = (Array.isArray(params.to) ? params.to : [params.to])
-		.map((e) => e.trim())
-		.filter(Boolean);
+	await sendComprobanteEmail(params.to, params.cc, subject, text, html, params.attachments);
+}
+
+async function sendComprobanteEmail(
+	to: string | string[],
+	ccInput: string | string[] | undefined,
+	subject: string,
+	text: string,
+	html: string,
+	attachments: {
+		filename: string;
+		content: Buffer | string;
+		contentType?: string;
+	}[]
+): Promise<void> {
+	const recipients = (Array.isArray(to) ? to : [to]).map((e) => e.trim()).filter(Boolean);
 	if (recipients.length === 0) {
-		throw new Error('Indique al menos un correo para enviar la factura electrónica.');
+		throw new Error('Indique al menos un correo para enviar el comprobante electrónico.');
 	}
-	const cc = (Array.isArray(params.cc) ? params.cc : params.cc ? [params.cc] : [])
+	const cc = (Array.isArray(ccInput) ? ccInput : ccInput ? [ccInput] : [])
 		.map((e) => e.trim())
 		.filter(Boolean)
 		.filter((e) => !recipients.some((r) => r.toLowerCase() === e.toLowerCase()));
@@ -157,6 +199,6 @@ Archivos: ${files}
 		subject,
 		text,
 		html,
-		attachments: params.attachments
+		attachments
 	});
 }
