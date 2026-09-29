@@ -32,3 +32,10 @@ export type InvoiceListQuery = {
 	q: string;
 	estado: 'todos' | InvoiceEstado;
 };
+
+export type ClientInvoicesPageResult = {
+	invoices: InvoiceListRow[];
+	totalCount: number;
+	page: number;
+	pageSize: InvoiceListPageSize;
+};
