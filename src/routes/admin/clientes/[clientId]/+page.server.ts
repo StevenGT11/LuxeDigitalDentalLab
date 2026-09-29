@@ -1,4 +1,5 @@
 import { fail, isRedirect, redirect } from '@sveltejs/kit';
+import { canViewFinancial } from '$lib/auth/roles';
 import { deletePortalClient } from '$lib/auth/delete-portal-user';
 import { requireAdmin } from '$lib/auth/require-admin';
 import { requireStaff } from '$lib/auth/require-staff';
@@ -16,25 +17,50 @@ import { invalidFeCorreos, normalizeFeCorreos } from '$lib/fe/fe-correos';
 import { loadFeEmitPanelContext } from '$lib/fe/emit-panel-context.server';
 import { parseFeMonedaEmitForm } from '$lib/fe/fe-moneda';
 import { parseMediosPagoFormValue } from '$lib/fe/medios-pago';
-import { fetchInvoicesByClientId } from '$lib/lab/invoices-list.server';
+import {
+	createDirectInvoiceForClient,
+	parseDirectInvoiceLinesJson
+} from '$lib/lab/direct-invoice.server';
+import {
+	fetchClientInvoicesPage,
+	parseClientInvoicesQuery
+} from '$lib/lab/invoices-list.server';
+import type { ClientInvoicesPageResult } from '$lib/lab/invoices-list';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, parent, depends }) => {
+function actionErrorMessage(err: unknown, fallback: string): string {
+	if (err instanceof Error && err.message.trim()) return err.message.trim();
+	if (err && typeof err === 'object' && 'message' in err) {
+		const message = String(err.message ?? '').trim();
+		if (message) return message;
+	}
+	return fallback;
+}
+
+const EMPTY_CLIENT_INVOICES: ClientInvoicesPageResult = {
+	invoices: [],
+	totalCount: 0,
+	page: 1,
+	pageSize: 15
+};
+
+export const load: PageServerLoad = async ({ params, parent, depends, url }) => {
 	depends('app:client-invoices');
 	const { profile } = await parent();
 
 	if (!canViewFinancial(profile?.role)) {
-		return { fiscal: null, clientInvoices: [], hasActiveEmisor: false, facturadorOk: false };
+		return { fiscal: null, clientInvoices: EMPTY_CLIENT_INVOICES, hasActiveEmisor: false, facturadorOk: false };
 	}
 
 	const clientId = params.clientId;
 	if (!clientId) {
-		return { fiscal: null, clientInvoices: [], hasActiveEmisor: false, facturadorOk: false };
+		return { fiscal: null, clientInvoices: EMPTY_CLIENT_INVOICES, hasActiveEmisor: false, facturadorOk: false };
 	}
 
 	const admin = createSupabaseAdminClient();
 	const emit = await loadFeEmitPanelContext();
+	const invoicesQuery = parseClientInvoicesQuery(url.searchParams);
 	const [{ data, error }, clientInvoices] = await Promise.all([
 		admin
 			.from('clients')
@@ -43,7 +69,7 @@ export const load: PageServerLoad = async ({ params, parent, depends }) => {
 			)
 			.eq('id', clientId)
 			.maybeSingle(),
-		fetchInvoicesByClientId(clientId, emit.emitAmbiente)
+		fetchClientInvoicesPage(clientId, emit.emitAmbiente, invoicesQuery)
 	]);
 
 	if (error) throw error;
@@ -63,6 +89,46 @@ export const load: PageServerLoad = async ({ params, parent, depends }) => {
 };
 
 export const actions: Actions = {
+	createDirectInvoice: async ({ params, request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		if (!user) return fail(401, { message: 'Debe iniciar sesión.', kind: 'directInvoice' as const });
+
+		const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+		if (!canViewFinancial(profile?.role)) {
+			return fail(403, {
+				message: 'Sin permiso para crear facturas.',
+				kind: 'directInvoice' as const
+			});
+		}
+
+		const clientId = params.clientId;
+		if (!clientId) {
+			return fail(400, { message: 'Cliente no válido.', kind: 'directInvoice' as const });
+		}
+
+		const form = await request.formData();
+		const paciente_name = String(form.get('paciente_name') ?? '').trim();
+		const notas = String(form.get('notas') ?? '').trim();
+		const rawLineas = String(form.get('lineas_json') ?? '').trim();
+
+		try {
+			const items = parseDirectInvoiceLinesJson(rawLineas);
+			const result = await createDirectInvoiceForClient(clientId, {
+				paciente_name,
+				notas,
+				items
+			});
+			redirect(303, `/admin/facturas/${result.invoiceId}?from=cliente&emit=1`);
+		} catch (err) {
+			if (isRedirect(err)) throw err;
+			console.error('[createDirectInvoice]', err);
+			return fail(400, {
+				message: actionErrorMessage(err, 'No se pudo crear la factura.'),
+				kind: 'directInvoice' as const
+			});
+		}
+	},
+
 	saveFiscal: async ({ params, request, locals: { supabase, safeGetSession } }) => {
 		const { user } = await safeGetSession();
 		const gate = await requireAdmin(supabase, user?.id, 'Solo administradores pueden editar datos fiscales.');

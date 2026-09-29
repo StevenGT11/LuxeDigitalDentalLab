@@ -3,13 +3,19 @@ import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { FeAmbiente, FeComprobanteSummary } from '$lib/fe/types';
 import {
 	INVOICE_LIST_PAGE_SIZES,
+	type ClientInvoicesPageResult,
 	type InvoiceListPageSize,
 	type InvoiceListQuery,
 	type InvoiceListRow
 } from './invoices-list';
 import type { InvoiceEstado } from './types';
 
-export type { InvoiceListPageSize, InvoiceListQuery, InvoiceListRow } from './invoices-list';
+export type {
+	ClientInvoicesPageResult,
+	InvoiceListPageSize,
+	InvoiceListQuery,
+	InvoiceListRow
+} from './invoices-list';
 export { INVOICE_LIST_PAGE_SIZES } from './invoices-list';
 
 export type InvoiceListResult = {
@@ -81,9 +87,18 @@ function escapeIlike(value: string): string {
 	return value.replace(/[%_\\]/g, '\\$&');
 }
 
-function parsePageSize(raw: string | null): InvoiceListPageSize {
+export function parsePageSize(raw: string | null): InvoiceListPageSize {
 	const n = Number(raw);
 	return INVOICE_LIST_PAGE_SIZES.includes(n as InvoiceListPageSize) ? (n as InvoiceListPageSize) : 15;
+}
+
+export function parseClientInvoicesQuery(searchParams: URLSearchParams): {
+	page: number;
+	pageSize: InvoiceListPageSize;
+} {
+	const page = Math.max(1, Number.parseInt(searchParams.get('facturas_page') ?? '1', 10) || 1);
+	const pageSize = parsePageSize(searchParams.get('facturas_size'));
+	return { page, pageSize };
 }
 
 export function parseInvoiceListQuery(searchParams: URLSearchParams): InvoiceListQuery {
@@ -316,18 +331,40 @@ export async function fetchInvoiceListPage(
 	};
 }
 
-/** Facturas de un cliente con comprobante FE embebido (ficha de cliente). */
-export async function fetchInvoicesByClientId(
+/** Facturas de un cliente con comprobante FE embebido (ficha de cliente, paginado). */
+export async function fetchClientInvoicesPage(
 	clientId: string,
-	emitAmbiente: FeAmbiente
-): Promise<InvoiceListRow[]> {
+	emitAmbiente: FeAmbiente,
+	query: { page: number; pageSize: InvoiceListPageSize }
+): Promise<ClientInvoicesPageResult> {
 	const admin = createSupabaseAdminClient();
-	const { data, error } = await admin
+	let from = (query.page - 1) * query.pageSize;
+	let to = from + query.pageSize - 1;
+
+	let { data, error, count } = await admin
 		.from('invoices')
-		.select(LIST_SELECT)
+		.select(LIST_SELECT, { count: 'exact' })
 		.eq('client_id', clientId)
-		.order('fecha_emision', { ascending: false });
+		.order('fecha_emision', { ascending: false })
+		.range(from, to);
 	if (error) throw error;
+
+	const totalCount = count ?? 0;
+	const totalPages = Math.max(1, Math.ceil(totalCount / query.pageSize));
+	const page = Math.min(Math.max(1, query.page), totalPages);
+
+	if (page !== query.page && totalCount > 0) {
+		from = (page - 1) * query.pageSize;
+		to = from + query.pageSize - 1;
+		const retry = await admin
+			.from('invoices')
+			.select(LIST_SELECT, { count: 'exact' })
+			.eq('client_id', clientId)
+			.order('fecha_emision', { ascending: false })
+			.range(from, to);
+		if (retry.error) throw retry.error;
+		data = retry.data;
+	}
 
 	const invoices = ((data ?? []) as DbInvoiceListRow[]).map((row) =>
 		mapInvoiceRow(row, emitAmbiente)
@@ -337,5 +374,11 @@ export async function fetchInvoicesByClientId(
 		const ctx = reemitById[inv.id];
 		if (ctx) inv.reemit = ctx;
 	}
-	return invoices;
+
+	return {
+		invoices,
+		totalCount,
+		page,
+		pageSize: query.pageSize
+	};
 }

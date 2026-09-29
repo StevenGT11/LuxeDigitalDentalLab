@@ -58,11 +58,7 @@
 	const fromCliente = $derived(page.url.searchParams.get('from') === 'cliente');
 	const fromCaso = $derived(page.url.searchParams.get('from') === 'caso');
 	const backHref = $derived(
-		fromCliente
-			? `/admin/clientes/${invoice.client_id}#facturas`
-			: fromCaso
-				? `/admin/casos/${invoice.case_id}${page.url.searchParams.get('client') === '1' ? '?from=cliente' : ''}`
-				: '/admin/facturas'
+		fromCliente ? `/admin/clientes/${invoice.client_id}?tab=facturas` : '/admin/facturas'
 	);
 	const backLabel = $derived(
 		fromCliente
@@ -229,6 +225,7 @@
 	let savingLineas = $state(false);
 	let reconcilingMontos = $state(false);
 	let feFeedback = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
+	let autoEmitHandled = $state(false);
 
 	const canEmitNota = $derived(
 		data.hasActiveEmisor &&
@@ -350,6 +347,25 @@
 		}));
 		emitReviewOpen = true;
 	}
+
+	$effect(() => {
+		if (autoEmitHandled) return;
+		if (page.url.searchParams.get('emit') !== '1') return;
+		autoEmitHandled = true;
+		const url = new URL(page.url);
+		url.searchParams.delete('emit');
+		const qs = url.searchParams.toString();
+		void goto(`${url.pathname}${qs ? `?${qs}` : ''}`, { replaceState: true, noScroll: true });
+		if (canEmitFe) {
+			openEmitReview();
+			return;
+		}
+		feFeedback = {
+			kind: 'error',
+			message:
+				'Factura creada. Complete el emisor y verifique el facturador para generar FE, registrar medios de pago y enviar el correo.'
+		};
+	});
 
 	function openEmitModal() {
 		mediosModalMode = 'fe';
