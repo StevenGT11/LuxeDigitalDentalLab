@@ -26,9 +26,10 @@
 
 	interface Props {
 		cases?: LabCase[];
+		onUpdated?: (caso: LabCase) => void;
 	}
 
-	let { cases = [] }: Props = $props();
+	let { cases = [], onUpdated }: Props = $props();
 
 	let viewMode = $state<CalendarViewMode>('month');
 	let viewYear = $state(new Date().getFullYear());
@@ -75,6 +76,11 @@
 
 	function closeCasePreview() {
 		previewCase = null;
+	}
+
+	function onCaseUpdated(updated: LabCase) {
+		previewCase = updated;
+		onUpdated?.(updated);
 	}
 
 	function setViewMode(mode: CalendarViewMode) {
@@ -381,5 +387,5 @@
 		</section>
 	{/if}
 
-	<CasePreviewModal caso={previewCase} onClose={closeCasePreview} />
+	<CasePreviewModal caso={previewCase} onUpdated={onCaseUpdated} onClose={closeCasePreview} />
 </div>

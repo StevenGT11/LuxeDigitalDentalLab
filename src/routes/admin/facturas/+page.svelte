@@ -8,7 +8,8 @@
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
 		getInvoiceRowClass,
-		INVOICE_ESTADOS
+		INVOICE_ESTADOS,
+		invoiceCobroSelectOptions
 	} from '$lib/lab/invoice-estado';
 	import {
 		feComprobanteCanConsultar,
@@ -278,7 +279,7 @@
 										onchange={(e) => e.currentTarget.form?.requestSubmit()}
 										aria-label="Estado de cobro"
 									>
-										{#each INVOICE_ESTADOS as e (e.value)}
+										{#each invoiceCobroSelectOptions(fac.estado, fe?.estado) as e (e.value)}
 											<option value={e.value}>{e.label}</option>
 										{/each}
 									</select>

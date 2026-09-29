@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { FE_TIPO_IDENTIFICACION_OPTIONS, getFeComprobanteEstadoLabel } from '$lib/fe/constants';
+import { parseFeXmlLineas, parseFeXmlTotals } from '$lib/fe/parse-fe-xml-lineas';
 import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import { getFeEmisorConfigPublicByAmbiente } from '$lib/fe/emisor.server';
 import type { FeEmisorConfigPublic } from '$lib/fe/types';
@@ -36,6 +37,65 @@ function moneyCrc(amount: number): string {
 	return `CRC ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}`;
 }
 
+function roundMoney(amount: number): number {
+	return Math.round(amount * 100) / 100;
+}
+
+function formatMoneyFor(moneda: string): (amount: number) => string {
+	return moneda.toUpperCase() === 'CRC' ? moneyCrc : moneyUsd;
+}
+
+/** Líneas y totales en la moneda del comprobante. El libro interno sigue en USD. */
+function amountsInComprobanteCurrency(
+	invoice: InvoiceDetail,
+	fe: { subtotal: number; impuesto: number; total: number; xml_firmado: string | null } | null,
+	moneda: string
+): { lines: InvoiceLineDetail[]; totals: { subtotal: number; impuesto: number; total: number } } {
+	const ledgerTotals = {
+		subtotal: invoice.subtotal,
+		impuesto: invoice.impuesto,
+		total: invoice.total
+	};
+	if (moneda.toUpperCase() !== 'CRC' || !fe) {
+		return { lines: invoice.lineas, totals: ledgerTotals };
+	}
+
+	const xmlLines = parseFeXmlLineas(fe.xml_firmado);
+	const xmlTotals = parseFeXmlTotals(fe.xml_firmado);
+	const totals = xmlTotals ?? {
+		subtotal: fe.subtotal,
+		impuesto: fe.impuesto,
+		total: fe.total
+	};
+
+	if (xmlLines.length > 0) {
+		return {
+			lines: xmlLines.map((line) => ({
+				id: String(line.numero_linea),
+				sort_order: line.numero_linea,
+				descripcion: line.descripcion,
+				cantidad: line.cantidad,
+				precio_unitario: line.precio_unitario,
+				subtotal: line.subtotal,
+				fe_cabys: line.fe_cabys,
+				fe_unidad_medida: line.fe_unidad_medida,
+				impuesto_tarifa: line.impuesto_tarifa
+			})),
+			totals
+		};
+	}
+
+	const rate = invoice.subtotal > 0 ? fe.subtotal / invoice.subtotal : 1;
+	return {
+		lines: invoice.lineas.map((line) => ({
+			...line,
+			precio_unitario: roundMoney(line.precio_unitario * rate),
+			subtotal: roundMoney(line.subtotal * rate)
+		})),
+		totals
+	};
+}
+
 function formatCrDate(iso: string | null | undefined): string {
 	if (!iso) return '—';
 	return new Date(iso).toLocaleDateString('es-CR', {
@@ -69,9 +129,9 @@ function rule(doc: PdfDoc, y: number, color = GOLD, width = 1.5) {
 }
 
 function columnXs() {
-	const amtW = 72;
-	const ivaW = 40;
-	const unitW = 72;
+	const amtW = 88;
+	const ivaW = 36;
+	const unitW = 84;
 	const qtyW = 40;
 	const gap = 8;
 	const descW = CONTENT_W - amtW - ivaW - unitW - qtyW - gap * 4;
@@ -83,7 +143,7 @@ function columnXs() {
 	return { desc, descW, qty, qtyW, unit, unitW, iva, ivaW, amt, amtW };
 }
 
-function drawEmisor(doc: PdfDoc, emisor: FeEmisorConfigPublic | null) {
+function drawEmisor(doc: PdfDoc, emisor: FeEmisorConfigPublic | null, documentTitle = 'FACTURA') {
 	const brand = emisor?.nombre_comercial?.trim() || emisor?.razon_social?.trim() || 'Luxe Digital Dental Lab';
 	const leftW = CONTENT_W * 0.58;
 	const rightX = MARGIN_X + leftW;
@@ -100,7 +160,7 @@ function drawEmisor(doc: PdfDoc, emisor: FeEmisorConfigPublic | null) {
 	const leftBottom = doc.y;
 
 	let y = MARGIN_TOP;
-	doc.fillColor(INK).font('Helvetica-Bold').fontSize(11).text('FACTURA', rightX, y, {
+	doc.fillColor(INK).font('Helvetica-Bold').fontSize(11).text(documentTitle, rightX, y, {
 		width: rightW,
 		align: 'right',
 		lineBreak: false
@@ -131,17 +191,11 @@ function drawEmisor(doc: PdfDoc, emisor: FeEmisorConfigPublic | null) {
 	doc.y = Math.max(leftBottom, y);
 }
 
-function drawMeta(doc: PdfDoc, invoice: InvoiceDetail) {
+function drawMetaRow(doc: PdfDoc, items: [string, string][]) {
 	const y = doc.y + 12;
 	rule(doc, y);
 	const labelY = y + 8;
-	const col = CONTENT_W / 4;
-	const items: [string, string][] = [
-		['Número', invoice.invoice_number],
-		['Emisión', formatCrDate(invoice.fecha_emision)],
-		['Vencimiento', formatCrDate(invoice.fecha_vencimiento)],
-		['Cobro', getInvoiceEstadoLabel(invoice.estado)]
-	];
+	const col = CONTENT_W / items.length;
 	items.forEach(([label, value], i) => {
 		const x = MARGIN_X + col * i;
 		doc.fillColor(MUTED).font('Helvetica').fontSize(7).text(label.toUpperCase(), x, labelY, {
@@ -154,6 +208,15 @@ function drawMeta(doc: PdfDoc, invoice: InvoiceDetail) {
 		});
 	});
 	doc.y = labelY + 28;
+}
+
+function drawMeta(doc: PdfDoc, invoice: InvoiceDetail) {
+	drawMetaRow(doc, [
+		['Número', invoice.invoice_number],
+		['Emisión', formatCrDate(invoice.fecha_emision)],
+		['Vencimiento', formatCrDate(invoice.fecha_vencimiento)],
+		['Cobro', getInvoiceEstadoLabel(invoice.estado)]
+	]);
 }
 
 function drawParties(doc: PdfDoc, invoice: InvoiceDetail, client: ClientFiscalSnapshot) {
@@ -224,7 +287,11 @@ function drawTableHeader(doc: PdfDoc, y: number) {
 	return y + 16;
 }
 
-function drawLines(doc: PdfDoc, lines: InvoiceLineDetail[]) {
+function drawLines(
+	doc: PdfDoc,
+	lines: InvoiceLineDetail[],
+	formatMoney: (amount: number) => string
+) {
 	let y = drawTableHeader(doc, doc.y);
 	const cols = columnXs();
 
@@ -239,7 +306,7 @@ function drawLines(doc: PdfDoc, lines: InvoiceLineDetail[]) {
 		doc.fillColor(INK).font('Helvetica').fontSize(8);
 		doc.text(line.descripcion, cols.desc, textY, { width: cols.descW, height: rowH - 6, ellipsis: true });
 		doc.text(String(line.cantidad), cols.qty, textY, { width: cols.qtyW, align: 'right', lineBreak: false });
-		doc.text(moneyUsd(line.precio_unitario), cols.unit, textY, {
+		doc.text(formatMoney(line.precio_unitario), cols.unit, textY, {
 			width: cols.unitW,
 			align: 'right',
 			lineBreak: false
@@ -249,7 +316,7 @@ function drawLines(doc: PdfDoc, lines: InvoiceLineDetail[]) {
 			align: 'right',
 			lineBreak: false
 		});
-		doc.text(moneyUsd(line.subtotal), cols.amt, textY, {
+		doc.text(formatMoney(line.subtotal), cols.amt, textY, {
 			width: cols.amtW,
 			align: 'right',
 			lineBreak: false
@@ -263,15 +330,19 @@ function drawLines(doc: PdfDoc, lines: InvoiceLineDetail[]) {
 	}
 }
 
-function drawTotals(doc: PdfDoc, invoice: InvoiceDetail) {
+function drawTotals(
+	doc: PdfDoc,
+	totals: { subtotal: number; impuesto: number; total: number },
+	formatMoney: (amount: number) => string = moneyUsd
+) {
 	ensureSpace(doc, 58);
 	const boxW = 200;
 	const x = MARGIN_X + CONTENT_W - boxW;
 	let y = doc.y + 10;
 	const rows: [string, string, boolean][] = [
-		['Subtotal', moneyUsd(invoice.subtotal), false],
-		['IVA', moneyUsd(invoice.impuesto), false],
-		['Total', moneyUsd(invoice.total), true]
+		['Subtotal', formatMoney(totals.subtotal), false],
+		['IVA', formatMoney(totals.impuesto), false],
+		['Total', formatMoney(totals.total), true]
 	];
 	for (const [label, value, strong] of rows) {
 		doc.fillColor(MUTED).font(strong ? 'Helvetica-Bold' : 'Helvetica').fontSize(strong ? 11 : 9);
@@ -294,14 +365,15 @@ function drawNotes(doc: PdfDoc, notas: string) {
 	doc.y = doc.y + 4;
 }
 
-function drawFeBox(doc: PdfDoc, fe: FeComprobanteDetail | null) {
+function drawFeBox(doc: PdfDoc, fe: FeComprobanteDetail | null, heading = 'FACTURA ELECTRÓNICA — HACIENDA') {
 	if (!fe) return;
 	ensureSpace(doc, 52);
 	const y = doc.y + 8;
 	doc.save();
 	doc.roundedRect(MARGIN_X, y, CONTENT_W, 46, 4).strokeColor(GOLD).lineWidth(0.8).stroke();
 	doc.restore();
-	doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8).text('FACTURA ELECTRÓNICA — HACIENDA', MARGIN_X + 10, y + 7, {
+	doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8).text(heading, MARGIN_X + 10, y + 7, {
+		width: CONTENT_W - 20,
 		lineBreak: false
 	});
 	const estado = getFeComprobanteEstadoLabel(fe.estado);
@@ -321,7 +393,7 @@ function drawFeBox(doc: PdfDoc, fe: FeComprobanteDetail | null) {
 	doc.y = y + 50;
 }
 
-function drawFooters(doc: PdfDoc) {
+function drawFooters(doc: PdfDoc, caption = 'Luxe Digital Dental Lab  ·  Representación gráfica de la factura') {
 	const range = doc.bufferedPageRange();
 	for (let i = 0; i < range.count; i++) {
 		doc.switchToPage(range.start + i);
@@ -330,7 +402,7 @@ function drawFooters(doc: PdfDoc) {
 		const y = doc.page.height - 32;
 		rule(doc, y - 8, GOLD, 0.8);
 		doc.fillColor(MUTED).font('Helvetica').fontSize(7);
-		doc.text('Luxe Digital Dental Lab  ·  Representación gráfica de la factura', MARGIN_X, y, {
+		doc.text(caption, MARGIN_X, y, {
 			width: CONTENT_W * 0.68,
 			lineBreak: false
 		});
@@ -371,11 +443,14 @@ export async function buildInvoicePdfBuffer(invoiceId: string): Promise<{
 		doc.on('end', () => resolve(Buffer.concat(chunks)));
 		doc.on('error', reject);
 
+		const moneda = (detail.fe?.moneda ?? 'USD').toUpperCase();
+		const formatMoney = formatMoneyFor(moneda);
+		const amounts = amountsInComprobanteCurrency(detail.invoice, detail.fe, moneda);
 		drawEmisor(doc, emisor);
 		drawMeta(doc, detail.invoice);
 		drawParties(doc, detail.invoice, detail.client);
-		drawLines(doc, detail.invoice.lineas);
-		drawTotals(doc, detail.invoice);
+		drawLines(doc, amounts.lines, formatMoney);
+		drawTotals(doc, amounts.totals, formatMoney);
 		drawNotes(doc, detail.invoice.notas);
 		drawFeBox(doc, detail.fe);
 		drawFooters(doc);
@@ -383,4 +458,112 @@ export async function buildInvoicePdfBuffer(invoiceId: string): Promise<{
 	});
 
 	return { buffer, filename: invoicePdfFilename(detail.invoice.invoice_number) };
+}
+
+export type NotaPdfSource = {
+	tipo_documento: string;
+	consecutivo: string | null;
+	clave: string | null;
+	estado: FeComprobanteDetail['estado'];
+	subtotal: number;
+	impuesto: number;
+	total: number;
+	moneda: string;
+	fecha_emision: string | null;
+	referencia_razon: string | null;
+	xml_firmado?: string | null;
+};
+
+/** Representación gráfica de una NC/ND aceptada, con los montos del comprobante. */
+export async function buildNotaPdfBuffer(
+	invoiceId: string,
+	nota: NotaPdfSource
+): Promise<{ buffer: Buffer; filename: string }> {
+	const ambiente = await getEmitAmbiente();
+	const detail = await loadInvoiceDetailPage(invoiceId, ambiente);
+	if (!detail) throw new Error('Factura no encontrada');
+	const emisor = await getFeEmisorConfigPublicByAmbiente(ambiente);
+	const isCredito = nota.tipo_documento === '03';
+	const title = isCredito ? 'NOTA DE CRÉDITO' : 'NOTA DE DÉBITO';
+	const prefix = isCredito ? 'NC' : 'ND';
+	const moneda = (nota.moneda || 'USD').toUpperCase();
+	const formatMoney = formatMoneyFor(moneda);
+	const amounts = amountsInComprobanteCurrency(
+		detail.invoice,
+		{
+			subtotal: nota.subtotal,
+			impuesto: nota.impuesto,
+			total: nota.total,
+			xml_firmado: nota.xml_firmado ?? null
+		},
+		moneda
+	);
+	const fileKey = nota.consecutivo?.trim() || detail.invoice.invoice_number;
+
+	const buffer = await new Promise<Buffer>((resolve, reject) => {
+		const doc = new PDFDocument({
+			size: 'LETTER',
+			bufferPages: true,
+			autoFirstPage: true,
+			margins: { top: MARGIN_TOP, left: MARGIN_X, right: MARGIN_X, bottom: MARGIN_BOTTOM },
+			info: {
+				Title: `${title} ${fileKey}`,
+				Author: emisor?.razon_social || 'Luxe Digital Dental Lab',
+				Creator: 'Luxe Digital Dental Lab'
+			}
+		});
+		const chunks: Buffer[] = [];
+		doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+		doc.on('end', () => resolve(Buffer.concat(chunks)));
+		doc.on('error', reject);
+
+		drawEmisor(doc, emisor, title);
+		drawMetaRow(doc, [
+			['Consecutivo', nota.consecutivo?.trim() || '—'],
+			['Emisión', formatCrDate(nota.fecha_emision)],
+			['Factura', detail.invoice.invoice_number],
+			['Estado', getFeComprobanteEstadoLabel(nota.estado)]
+		]);
+		drawParties(doc, detail.invoice, detail.client);
+		drawLines(doc, amounts.lines, formatMoney);
+		drawTotals(doc, amounts.totals, formatMoney);
+		const referencia = [
+			`Referencia factura ${detail.invoice.invoice_number}.`,
+			nota.referencia_razon?.trim() ?? ''
+		]
+			.filter(Boolean)
+			.join(' ');
+		drawNotes(doc, referencia);
+		drawFeBox(
+			doc,
+			{
+				id: '',
+				tipo_documento: nota.tipo_documento,
+				consecutivo_num: 0,
+				clave: nota.clave,
+				consecutivo: nota.consecutivo,
+				estado: nota.estado,
+				hacienda_status: null,
+				subtotal: nota.subtotal,
+				impuesto: nota.impuesto,
+				total: nota.total,
+				fecha_emision: nota.fecha_emision,
+				moneda,
+				ultimo_error: null,
+				enviado_at: null,
+				resuelto_at: null,
+				xml_firmado: null,
+				respuesta_xml: null,
+				rechazo: null,
+				referencia_codigo: null,
+				referencia_razon: nota.referencia_razon
+			},
+			`${title} — HACIENDA`
+		);
+		drawFooters(doc, `Luxe Digital Dental Lab  ·  Representación gráfica de la ${title.toLowerCase()}`);
+		doc.end();
+	});
+
+	const safe = fileKey.replace(/[^\w.-]+/g, '_');
+	return { buffer, filename: `${prefix}-${safe}.pdf` };
 }

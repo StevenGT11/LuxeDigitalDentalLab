@@ -14,6 +14,10 @@
 		casos = getAllCases();
 	}
 
+	function onCaseUpdated(updated: LabCase) {
+		casos = casos.map((caso) => (caso.id === updated.id ? updated : caso));
+	}
+
 	onMount(() => refresh());
 
 	afterNavigate(() => refresh());
@@ -24,5 +28,5 @@
 		Planifica entregas por día y hora. Selecciona un día en el calendario para ver la agenda completa.
 	</p>
 
-	<DeliveryCalendar cases={casos} />
+	<DeliveryCalendar cases={casos} onUpdated={onCaseUpdated} />
 </div>

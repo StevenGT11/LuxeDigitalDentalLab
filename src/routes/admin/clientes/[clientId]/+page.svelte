@@ -32,7 +32,6 @@
 		getEstadoLabel,
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
-		getInvoiceRowClass,
 		getMaterialLabel,
 		getTipoTrabajoLabel
 	} from '$lib/lab/constants';
@@ -84,23 +83,70 @@
 		$page.form && 'invoiceId' in $page.form ? String($page.form.invoiceId ?? '') : ''
 	);
 
+	let invoicesByCaseId = $derived.by(() => {
+		const map: Record<string, InvoiceListRow[]> = {};
+		for (const fac of clientInvoices) {
+			(map[fac.case_id] ??= []).push(fac);
+		}
+		return map;
+	});
+
+	function materialLabels(caso: LabCase): string[] {
+		const fromItems = caso.items
+			.map((item) => getMaterialLabel(item.material, item.tipo_trabajo))
+			.filter((label) => label !== '—');
+		if (fromItems.length > 0) return [...new Set(fromItems)];
+		const fallback = getMaterialLabel(caso.material, caso.tipo_trabajo);
+		return fallback === '—' ? [] : [fallback];
+	}
+
+	function materialLabel(caso: LabCase): string {
+		const labels = materialLabels(caso);
+		return labels.length > 0 ? labels.join(' · ') : '—';
+	}
+
+	function caseMatchesQuery(caso: LabCase, q: string): boolean {
+		const invoices = invoicesByCaseId[caso.id] ?? [];
+		return (
+			caso.case_number.toLowerCase().includes(q) ||
+			caso.paciente_name.toLowerCase().includes(q) ||
+			getTipoTrabajoLabel(caso.tipo_trabajo).toLowerCase().includes(q) ||
+			getEstadoLabel(caso.estado).toLowerCase().includes(q) ||
+			materialLabels(caso).some((label) => label.toLowerCase().includes(q)) ||
+			(caso.doctor_name?.toLowerCase().includes(q) ?? false) ||
+			(caso.color?.toLowerCase().includes(q) ?? false) ||
+			caso.items.some(
+				(item) =>
+					getTipoTrabajoLabel(item.tipo_trabajo).toLowerCase().includes(q) ||
+					(item.color?.toLowerCase().includes(q) ?? false)
+			) ||
+			invoices.some(
+				(fac) =>
+					fac.invoice_number.toLowerCase().includes(q) ||
+					getInvoiceEstadoLabel(fac.estado).toLowerCase().includes(q)
+			)
+		);
+	}
+
 	let filteredCasos = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
 		if (!q) return casos;
-		return casos.filter(
-			(c) =>
-				c.case_number.toLowerCase().includes(q) ||
-				c.paciente_name.toLowerCase().includes(q) ||
-				getTipoTrabajoLabel(c.tipo_trabajo).toLowerCase().includes(q) ||
-				getEstadoLabel(c.estado).toLowerCase().includes(q) ||
-				(c.material && getMaterialLabel(c.material, c.tipo_trabajo).toLowerCase().includes(q)) ||
-				(c.doctor_name?.toLowerCase().includes(q) ?? false) ||
-				(c.color?.toLowerCase().includes(q) ?? false) ||
-				c.items.some(
-					(i) =>
-						getTipoTrabajoLabel(i.tipo_trabajo).toLowerCase().includes(q) ||
-						(i.color?.toLowerCase().includes(q) ?? false)
-				)
+		return casos.filter((caso) => caseMatchesQuery(caso, q));
+	});
+
+	let orphanInvoices = $derived(
+		clientInvoices.filter((fac) => !casos.some((caso) => caso.id === fac.case_id))
+	);
+
+	let filteredOrphanInvoices = $derived.by(() => {
+		const q = searchQuery.trim().toLowerCase();
+		if (!q) return orphanInvoices;
+		return orphanInvoices.filter(
+			(fac) =>
+				fac.case_number.toLowerCase().includes(q) ||
+				fac.paciente_name.toLowerCase().includes(q) ||
+				fac.invoice_number.toLowerCase().includes(q) ||
+				getInvoiceEstadoLabel(fac.estado).toLowerCase().includes(q)
 		);
 	});
 
@@ -171,6 +217,11 @@
 
 	function closeCasePreview() {
 		previewCase = null;
+	}
+
+	function onCaseUpdated(updated: LabCase) {
+		previewCase = updated;
+		casos = casos.map((caso) => (caso.id === updated.id ? updated : caso));
 	}
 
 	let pdfPreviewOpen = $state(false);
@@ -622,36 +673,35 @@
 											<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">{fac.invoice_number}</a>
 										</td>
 										<td>
-											<a href="/admin/casos/{fac.case_id}" class="text-link">{fac.case_number}</a>
+											<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">{fac.invoice_number}</a>
 										</td>
-										<td>{formatCurrency(fac.total)}</td>
 										<td>
-											<span class={getInvoiceEstadoClass(fac.estado, fe?.estado)}>
+											<span class={getInvoiceEstadoClass(fac.estado, fac.fe?.estado)}>
 												{getInvoiceEstadoLabel(fac.estado)}
 											</span>
 										</td>
 										<td>
-											{#if fe}
-												<span class={getFeComprobanteEstadoClass(fe.estado)}>
-													{getFeComprobanteEstadoLabel(fe.estado)}
+											{#if fac.fe}
+												<span class={getFeComprobanteEstadoClass(fac.fe.estado)}>
+													{getFeComprobanteEstadoLabel(fac.fe.estado)}
 												</span>
 											{:else}
 												<span class="type-caption">Sin enviar</span>
 											{/if}
 										</td>
-										<td>{formatDate(fac.fecha_emision)}</td>
+										<td><span class="type-caption">—</span></td>
 										<td class="client-fe-actions">
-											{#if hasActiveEmisor && facturadorOk && !feComprobanteBlocksEmit(fe?.estado)}
+											{#if hasActiveEmisor && facturadorOk && !feComprobanteBlocksEmit(fac.fe?.estado)}
 												<button
 													type="button"
 													class="btn-primary client-fe-actions__btn"
 													disabled={emittingFe}
 													onclick={() => openEmitModal(fac)}
 												>
-													{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura'}
+													{fac.fe && feComprobanteCanReemit(fac.fe.estado) ? 'Reemitir FE' : 'Generar factura'}
 												</button>
 											{/if}
-											{#if fe && feComprobanteCanConsultar(fe.estado) && fe.clave}
+											{#if fac.fe && feComprobanteCanConsultar(fac.fe.estado) && fac.fe.clave}
 												<form
 													method="POST"
 													action="?/consultar"
@@ -683,7 +733,7 @@
 												PDF
 											</button>
 											<a href="/admin/facturas/{fac.id}?from=cliente" class="btn-secondary-pill client-fe-actions__btn">
-												Ver
+												Ver factura
 											</a>
 										</td>
 									</tr>
@@ -701,8 +751,16 @@
 						onPageSizeChange={(size) => goClientInvoicesList({ facturasPageSize: size, facturasPage: 1 })}
 					/>
 				{/if}
-			</section>
+			{/if}
+		</section>
+
+		{#if canManage}
+			<AdminClientDoctorsEditor clientId={client.id} />
 		{/if}
+
+		<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-lg);">
+			<DoctorProductionSummary stats={doctorProduction} />
+		</div>
 	{/if}
 </div>
 
@@ -780,7 +838,13 @@
 	</div>
 {/if}
 
-<CasePreviewModal caso={previewCase} detailed onClose={closeCasePreview} />
+<CasePreviewModal
+	caso={previewCase}
+	detailed
+	returnToClient
+	onUpdated={onCaseUpdated}
+	onClose={closeCasePreview}
+/>
 
 <form
 	bind:this={emitFormEl}
@@ -957,6 +1021,13 @@
 
 	.client-cases-section__empty {
 		margin-top: 0;
+	}
+
+	.client-case-invoices {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.35rem;
 	}
 
 	.client-fe-actions {

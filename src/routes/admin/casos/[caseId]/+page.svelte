@@ -35,6 +35,11 @@
 	const estadosAdmin = ESTADOS.filter((e) => e.value !== 'todos');
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
+	const fromCliente = $derived($page.url.searchParams.get('from') === 'cliente');
+	const backHref = $derived(
+		fromCliente && caso ? `/admin/clientes/${caso.client_id}#facturas` : '/admin/casos'
+	);
+	const backLabel = $derived(fromCliente ? '← Volver a casos del cliente' : '← Volver a casos');
 
 	onMount(async () => {
 		await hydrateLabDataOnce();
@@ -71,8 +76,8 @@
 </script>
 
 <div class="dash-page">
-	<button type="button" class="text-link dash-back" onclick={() => goto('/admin/casos')}>
-		← Volver a casos
+	<button type="button" class="text-link dash-back" onclick={() => goto(backHref)}>
+		{backLabel}
 	</button>
 
 	{#if !caso}
@@ -257,8 +262,12 @@
 							<p class="detail-item__value">{formatCurrency(factura.total)}</p>
 						</div>
 					</div>
-					<a href="/admin/facturas" class="text-link" style="display: inline-block; margin-top: var(--spacing-md);">
-						Ver todas las facturas →
+					<a
+						href="/admin/facturas/{factura.id}?from=caso{fromCliente ? '&client=1' : ''}"
+						class="text-link"
+						style="display: inline-block; margin-top: var(--spacing-md);"
+					>
+						Ver factura {factura.invoice_number} →
 					</a>
 				</section>
 			{/if}
