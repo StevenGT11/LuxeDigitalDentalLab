@@ -32,6 +32,7 @@
 		getEstadoLabel,
 		getInvoiceEstadoClass,
 		getInvoiceEstadoLabel,
+		getInvoiceRowClass,
 		getMaterialLabel,
 		getTipoTrabajoLabel
 	} from '$lib/lab/constants';
@@ -673,35 +674,36 @@
 											<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">{fac.invoice_number}</a>
 										</td>
 										<td>
-											<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">{fac.invoice_number}</a>
+											<a href="/admin/casos/{fac.case_id}" class="text-link">{fac.case_number}</a>
 										</td>
+										<td>{formatCurrency(fac.total)}</td>
 										<td>
-											<span class={getInvoiceEstadoClass(fac.estado, fac.fe?.estado)}>
+											<span class={getInvoiceEstadoClass(fac.estado, fe?.estado)}>
 												{getInvoiceEstadoLabel(fac.estado)}
 											</span>
 										</td>
 										<td>
-											{#if fac.fe}
-												<span class={getFeComprobanteEstadoClass(fac.fe.estado)}>
-													{getFeComprobanteEstadoLabel(fac.fe.estado)}
+											{#if fe}
+												<span class={getFeComprobanteEstadoClass(fe.estado)}>
+													{getFeComprobanteEstadoLabel(fe.estado)}
 												</span>
 											{:else}
 												<span class="type-caption">Sin enviar</span>
 											{/if}
 										</td>
-										<td><span class="type-caption">—</span></td>
+										<td>{formatDate(fac.fecha_emision)}</td>
 										<td class="client-fe-actions">
-											{#if hasActiveEmisor && facturadorOk && !feComprobanteBlocksEmit(fac.fe?.estado)}
+											{#if hasActiveEmisor && facturadorOk && !feComprobanteBlocksEmit(fe?.estado)}
 												<button
 													type="button"
 													class="btn-primary client-fe-actions__btn"
 													disabled={emittingFe}
 													onclick={() => openEmitModal(fac)}
 												>
-													{fac.fe && feComprobanteCanReemit(fac.fe.estado) ? 'Reemitir FE' : 'Generar factura'}
+													{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura'}
 												</button>
 											{/if}
-											{#if fac.fe && feComprobanteCanConsultar(fac.fe.estado) && fac.fe.clave}
+											{#if fe && feComprobanteCanConsultar(fe.estado) && fe.clave}
 												<form
 													method="POST"
 													action="?/consultar"
@@ -733,7 +735,7 @@
 												PDF
 											</button>
 											<a href="/admin/facturas/{fac.id}?from=cliente" class="btn-secondary-pill client-fe-actions__btn">
-												Ver factura
+												Ver
 											</a>
 										</td>
 									</tr>
@@ -751,16 +753,8 @@
 						onPageSizeChange={(size) => goClientInvoicesList({ facturasPageSize: size, facturasPage: 1 })}
 					/>
 				{/if}
-			{/if}
-		</section>
-
-		{#if canManage}
-			<AdminClientDoctorsEditor clientId={client.id} />
+			</section>
 		{/if}
-
-		<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-lg);">
-			<DoctorProductionSummary stats={doctorProduction} />
-		</div>
 	{/if}
 </div>
 
