@@ -11,6 +11,7 @@
 		ClipboardList,
 		FileInput,
 		FileText,
+		HardDrive,
 		LayoutDashboard,
 		LogOut,
 		Settings,
@@ -40,6 +41,7 @@
 			financialOnly: true
 		},
 		{ href: '/admin/factura-electronica', label: 'Factura electrónica', icon: Settings, financialOnly: true },
+		{ href: '/admin/almacenamiento', label: 'Almacenamiento', icon: HardDrive, financialOnly: true },
 		{ href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3, financialOnly: true }
 	];
 
@@ -52,6 +54,7 @@
 		'/admin/facturas': 'Facturas',
 		'/admin/facturas-recibidas': 'Gastos recibidos',
 		'/admin/factura-electronica': 'Factura electrónica',
+		'/admin/almacenamiento': 'Gestión de almacenamiento',
 		'/admin/estadisticas': 'Estadísticas de producción'
 	};
 
