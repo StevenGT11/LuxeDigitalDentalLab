@@ -1,5 +1,6 @@
 import { createSupabaseBrowserClient } from '$lib/supabase/client';
 import { validateCaseFile } from './attachments';
+import { compressImage, compressMeshFile, isImageFile, isMeshFile } from './file-compression';
 import type { CaseFile, CaseFileCategory } from './types';
 
 function bucketFor(category: CaseFileCategory): 'case-scans' | 'case-designs' {
@@ -57,14 +58,34 @@ async function uploadSingleCaseFile(
 	const err = validateCaseFile(file);
 	if (err) throw new Error(err);
 
-	const supabase = createSupabaseBrowserClient();
+	let processedFile: File = file;
+	if (isImageFile(file.name)) {
+		processedFile = await compressImage(file);
+	}
+
+	let fileToUpload: File | Blob = processedFile;
 	const fileId = crypto.randomUUID();
-	const storage_path = `${caseId}/${fileId}_${sanitizeFileName(file.name)}`;
+	let storage_path = `${caseId}/${fileId}_${sanitizeFileName(processedFile.name)}`;
+	let sizeBytes = processedFile.size;
+	let mimeType = processedFile.type || 'application/octet-stream';
+
+	if (isMeshFile(processedFile.name)) {
+		const meshResult = await compressMeshFile(processedFile);
+		if (meshResult.isCompressed) {
+			fileToUpload = meshResult.file;
+			storage_path = `${caseId}/${fileId}_${sanitizeFileName(processedFile.name)}.gz`;
+			sizeBytes = meshResult.compressedSize;
+			mimeType = 'application/octet-stream';
+		}
+	}
+
+	const supabase = createSupabaseBrowserClient();
 	const bucket = bucketFor(category);
 
-	const { error: uploadError } = await supabase.storage.from(bucket).upload(storage_path, file, {
+	const { error: uploadError } = await supabase.storage.from(bucket).upload(storage_path, fileToUpload, {
 		cacheControl: '3600',
-		upsert: false
+		upsert: false,
+		contentType: mimeType
 	});
 	if (uploadError) throw uploadError;
 
@@ -74,10 +95,10 @@ async function uploadSingleCaseFile(
 			id: fileId,
 			case_id: caseId,
 			category,
-			file_name: file.name,
+			file_name: processedFile.name,
 			storage_path,
-			mime_type: file.type || 'application/octet-stream',
-			size_bytes: file.size
+			mime_type: mimeType,
+			size_bytes: sizeBytes
 		})
 		.select('id, category, file_name, storage_path, mime_type, size_bytes, uploaded_at')
 		.single();
@@ -106,10 +127,56 @@ export async function getSignedUrlForCaseFile(file: CaseFile): Promise<string | 
 export async function downloadCaseFileFromStorage(file: CaseFile): Promise<void> {
 	const url = await getSignedUrlForCaseFile(file);
 	if (!url) return;
-	const link = document.createElement('a');
-	link.href = url;
-	link.download = file.name;
-	link.target = '_blank';
-	link.rel = 'noopener';
-	link.click();
+
+	const isGzipped = file.storage_path?.endsWith('.gz');
+	if (!isGzipped) {
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = file.name;
+		link.target = '_blank';
+		link.rel = 'noopener';
+		link.click();
+		return;
+	}
+
+	try {
+		const response = await fetch(url);
+		if (!response.ok || !response.body) {
+			throw new Error('No se pudo descargar el archivo.');
+		}
+
+		let blob: Blob;
+		if (typeof DecompressionStream !== 'undefined') {
+			const decompressedStream = response.body.pipeThrough(new DecompressionStream('gzip'));
+			blob = await new Response(decompressedStream).blob();
+		} else {
+			blob = await response.blob();
+		}
+
+		const blobUrl = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = blobUrl;
+		link.download = file.name;
+		link.click();
+		setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+	} catch (err) {
+		console.warn('Error al descomprimir en el navegador, descargando directo:', err);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = file.name;
+		link.target = '_blank';
+		link.rel = 'noopener';
+		link.click();
+	}
+}
+
+export async function deleteCaseFileFromDb(file: CaseFile): Promise<void> {
+	if (!file.id) return;
+	const supabase = createSupabaseBrowserClient();
+	if (file.storage_path) {
+		const bucket = bucketFor(file.category);
+		await supabase.storage.from(bucket).remove([file.storage_path]);
+	}
+	const { error } = await supabase.from('case_files').delete().eq('id', file.id);
+	if (error) throw error;
 }

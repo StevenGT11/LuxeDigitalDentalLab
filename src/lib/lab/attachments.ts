@@ -138,3 +138,8 @@ export async function downloadCaseFile(file: CaseFile): Promise<void> {
 	const { downloadCaseFileFromStorage } = await import('./case-files-db');
 	await downloadCaseFileFromStorage(file);
 }
+
+export async function deleteCaseFile(file: CaseFile): Promise<void> {
+	const { deleteCaseFileFromDb } = await import('./case-files-db');
+	await deleteCaseFileFromDb(file);
+}
