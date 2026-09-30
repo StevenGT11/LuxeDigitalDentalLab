@@ -1,5 +1,17 @@
-import type { FeComprobanteSummary } from '$lib/fe/types';
+import type { FeComprobanteEstado, FeComprobanteSummary } from '$lib/fe/types';
 import type { InvoiceEstado } from './types';
+
+/** NC o ND asociada a una factura, para listados. */
+export type InvoiceListNota = {
+	id: string;
+	tipo_documento: string;
+	consecutivo: string | null;
+	clave: string | null;
+	estado: FeComprobanteEstado;
+	total: number;
+	moneda: string;
+	enviado_at: string | null;
+};
 
 /** Campos mínimos para la tabla de facturas (sin líneas). */
 export type InvoiceListRow = {
@@ -15,6 +27,7 @@ export type InvoiceListRow = {
 	fecha_emision: string;
 	estado: InvoiceEstado;
 	fe: FeComprobanteSummary | null;
+	notas: InvoiceListNota[];
 	/** NC aceptada + factura corregida (solo cuando FE original está aceptada). */
 	reemit?: {
 		ncAceptada: boolean;
@@ -33,9 +46,3 @@ export type InvoiceListQuery = {
 	estado: 'todos' | InvoiceEstado;
 };
 
-export type ClientInvoicesPageResult = {
-	invoices: InvoiceListRow[];
-	totalCount: number;
-	page: number;
-	pageSize: InvoiceListPageSize;
-};

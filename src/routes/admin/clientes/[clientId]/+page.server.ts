@@ -4,7 +4,6 @@ import { deletePortalClient } from '$lib/auth/delete-portal-user';
 import { requireAdmin } from '$lib/auth/require-admin';
 import { requireStaff } from '$lib/auth/require-staff';
 import { updatePortalClientCredentials } from '$lib/auth/update-portal-user';
-import { canViewFinancial } from '$lib/auth/roles';
 import {
 	clientFeAddressRowToForm,
 	parseClientFeAddressFromForm
@@ -21,11 +20,8 @@ import {
 	createDirectInvoiceForClient,
 	parseDirectInvoiceLinesJson
 } from '$lib/lab/direct-invoice.server';
-import {
-	fetchClientInvoicesPage,
-	parseClientInvoicesQuery
-} from '$lib/lab/invoices-list.server';
-import type { ClientInvoicesPageResult } from '$lib/lab/invoices-list';
+import { fetchClientInvoices } from '$lib/lab/invoices-list.server';
+import type { InvoiceListRow } from '$lib/lab/invoices-list';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -38,14 +34,9 @@ function actionErrorMessage(err: unknown, fallback: string): string {
 	return fallback;
 }
 
-const EMPTY_CLIENT_INVOICES: ClientInvoicesPageResult = {
-	invoices: [],
-	totalCount: 0,
-	page: 1,
-	pageSize: 15
-};
+const EMPTY_CLIENT_INVOICES: InvoiceListRow[] = [];
 
-export const load: PageServerLoad = async ({ params, parent, depends, url }) => {
+export const load: PageServerLoad = async ({ params, parent, depends }) => {
 	depends('app:client-invoices');
 	const { profile } = await parent();
 
@@ -60,7 +51,6 @@ export const load: PageServerLoad = async ({ params, parent, depends, url }) => 
 
 	const admin = createSupabaseAdminClient();
 	const emit = await loadFeEmitPanelContext();
-	const invoicesQuery = parseClientInvoicesQuery(url.searchParams);
 	const [{ data, error }, clientInvoices] = await Promise.all([
 		admin
 			.from('clients')
@@ -69,7 +59,7 @@ export const load: PageServerLoad = async ({ params, parent, depends, url }) => 
 			)
 			.eq('id', clientId)
 			.maybeSingle(),
-		fetchClientInvoicesPage(clientId, emit.emitAmbiente, invoicesQuery)
+		fetchClientInvoices(clientId, emit.emitAmbiente)
 	]);
 
 	if (error) throw error;

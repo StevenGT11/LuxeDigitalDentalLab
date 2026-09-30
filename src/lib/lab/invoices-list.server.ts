@@ -3,7 +3,7 @@ import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import type { FeAmbiente, FeComprobanteSummary } from '$lib/fe/types';
 import {
 	INVOICE_LIST_PAGE_SIZES,
-	type ClientInvoicesPageResult,
+	type InvoiceListNota,
 	type InvoiceListPageSize,
 	type InvoiceListQuery,
 	type InvoiceListRow
@@ -11,7 +11,7 @@ import {
 import type { InvoiceEstado } from './types';
 
 export type {
-	ClientInvoicesPageResult,
+	InvoiceListNota,
 	InvoiceListPageSize,
 	InvoiceListQuery,
 	InvoiceListRow
@@ -50,7 +50,9 @@ const LIST_SELECT = `
 		hacienda_status,
 		ultimo_error,
 		enviado_at,
-		resuelto_at
+		resuelto_at,
+		total,
+		moneda
 	)
 `;
 
@@ -66,6 +68,8 @@ type FeEmbedRow = {
 	ultimo_error: string | null;
 	enviado_at: string | null;
 	resuelto_at: string | null;
+	total?: number | null;
+	moneda?: string | null;
 };
 
 type DbInvoiceListRow = {
@@ -90,15 +94,6 @@ function escapeIlike(value: string): string {
 export function parsePageSize(raw: string | null): InvoiceListPageSize {
 	const n = Number(raw);
 	return INVOICE_LIST_PAGE_SIZES.includes(n as InvoiceListPageSize) ? (n as InvoiceListPageSize) : 15;
-}
-
-export function parseClientInvoicesQuery(searchParams: URLSearchParams): {
-	page: number;
-	pageSize: InvoiceListPageSize;
-} {
-	const page = Math.max(1, Number.parseInt(searchParams.get('facturas_page') ?? '1', 10) || 1);
-	const pageSize = parsePageSize(searchParams.get('facturas_size'));
-	return { page, pageSize };
 }
 
 export function parseInvoiceListQuery(searchParams: URLSearchParams): InvoiceListQuery {
@@ -217,6 +212,34 @@ export async function fetchInvoiceReemitContexts(
 	return out;
 }
 
+function mapNotasEmbed(
+	raw: FeEmbedRow[] | FeEmbedRow | null | undefined,
+	emitAmbiente: FeAmbiente
+): InvoiceListNota[] {
+	if (!raw) return [];
+	const rows = (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
+	return rows
+		.filter(
+			(r) =>
+				r.id &&
+				(r.tipo_documento === '02' || r.tipo_documento === '03') &&
+				feComprobanteMatchesEmitAmbiente(r.ambiente, emitAmbiente)
+		)
+		.map((r) => ({
+			id: r.id,
+			tipo_documento: r.tipo_documento ?? '',
+			consecutivo: r.consecutivo,
+			clave: r.clave,
+			estado: r.estado,
+			total: Number(r.total ?? 0),
+			moneda: r.moneda ?? 'CRC',
+			enviado_at: r.enviado_at
+		}))
+		.sort(
+			(a, b) => new Date(b.enviado_at ?? 0).getTime() - new Date(a.enviado_at ?? 0).getTime()
+		);
+}
+
 function mapInvoiceRow(row: DbInvoiceListRow, emitAmbiente: FeAmbiente): InvoiceListRow {
 	return {
 		id: row.id,
@@ -230,7 +253,8 @@ function mapInvoiceRow(row: DbInvoiceListRow, emitAmbiente: FeAmbiente): Invoice
 		total: Number(row.total),
 		fecha_emision: row.fecha_emision,
 		estado: row.estado === 'pagada' ? 'pagado' : (row.estado as InvoiceEstado),
-		fe: mapFeEmbed(row.fe_comprobantes, emitAmbiente)
+		fe: mapFeEmbed(row.fe_comprobantes, emitAmbiente),
+		notas: mapNotasEmbed(row.fe_comprobantes, emitAmbiente)
 	};
 }
 
@@ -331,40 +355,19 @@ export async function fetchInvoiceListPage(
 	};
 }
 
-/** Facturas de un cliente con comprobante FE embebido (ficha de cliente, paginado). */
-export async function fetchClientInvoicesPage(
+/** Todas las facturas de un cliente, con FE y notas de crédito/débito del ambiente activo. */
+export async function fetchClientInvoices(
 	clientId: string,
-	emitAmbiente: FeAmbiente,
-	query: { page: number; pageSize: InvoiceListPageSize }
-): Promise<ClientInvoicesPageResult> {
+	emitAmbiente: FeAmbiente
+): Promise<InvoiceListRow[]> {
 	const admin = createSupabaseAdminClient();
-	let from = (query.page - 1) * query.pageSize;
-	let to = from + query.pageSize - 1;
-
-	let { data, error, count } = await admin
+	const { data, error } = await admin
 		.from('invoices')
-		.select(LIST_SELECT, { count: 'exact' })
+		.select(LIST_SELECT)
 		.eq('client_id', clientId)
 		.order('fecha_emision', { ascending: false })
-		.range(from, to);
+		.limit(1000);
 	if (error) throw error;
-
-	const totalCount = count ?? 0;
-	const totalPages = Math.max(1, Math.ceil(totalCount / query.pageSize));
-	const page = Math.min(Math.max(1, query.page), totalPages);
-
-	if (page !== query.page && totalCount > 0) {
-		from = (page - 1) * query.pageSize;
-		to = from + query.pageSize - 1;
-		const retry = await admin
-			.from('invoices')
-			.select(LIST_SELECT, { count: 'exact' })
-			.eq('client_id', clientId)
-			.order('fecha_emision', { ascending: false })
-			.range(from, to);
-		if (retry.error) throw retry.error;
-		data = retry.data;
-	}
 
 	const invoices = ((data ?? []) as DbInvoiceListRow[]).map((row) =>
 		mapInvoiceRow(row, emitAmbiente)
@@ -374,11 +377,5 @@ export async function fetchClientInvoicesPage(
 		const ctx = reemitById[inv.id];
 		if (ctx) inv.reemit = ctx;
 	}
-
-	return {
-		invoices,
-		totalCount,
-		page,
-		pageSize: query.pageSize
-	};
+	return invoices;
 }

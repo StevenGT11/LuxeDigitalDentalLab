@@ -3,7 +3,6 @@
 	import { goto, invalidate, afterNavigate } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
-	import { get } from 'svelte/store';
 	import { onMount, tick } from 'svelte';
 	import { Trash2 } from '@lucide/svelte';
 	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
@@ -41,10 +40,11 @@
 		feComprobanteCanReemit,
 		feComprobanteCanConsultar,
 		getFeComprobanteEstadoClass,
-		getFeComprobanteEstadoLabel
+		getFeComprobanteEstadoLabel,
+		getFeTipoDocumentoLabel
 	} from '$lib/fe/constants';
 	import TablePagination from '$lib/components/ui/TablePagination.svelte';
-	import { formatCurrency, formatDate } from '$lib/lab/helpers';
+	import { formatColones, formatCurrency, formatDate } from '$lib/lab/helpers';
 	import type { InvoiceListPageSize, InvoiceListRow } from '$lib/lab/invoices-list';
 	import type { LabCase, LabClient } from '$lib/lab/types';
 
@@ -65,11 +65,7 @@
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 	let canManage = $derived(canManageClients($page.data.staffRole ?? $page.data.profile?.role));
 	let doctorProduction = $derived(getDoctorProductionStats(casos));
-	let clientInvoicesData = $derived($page.data.clientInvoices);
-	let clientInvoices = $derived(clientInvoicesData?.invoices ?? []);
-	let clientInvoicesTotal = $derived(clientInvoicesData?.totalCount ?? 0);
-	let clientInvoicesPage = $derived(clientInvoicesData?.page ?? 1);
-	let clientInvoicesPageSize = $derived(clientInvoicesData?.pageSize ?? 15);
+	let clientInvoices = $derived(($page.data.clientInvoices ?? []) as InvoiceListRow[]);
 	let hasActiveEmisor = $derived(Boolean($page.data.hasActiveEmisor));
 	let facturadorOk = $derived(Boolean($page.data.facturadorOk));
 	let fiscalForm = $derived($page.form?.kind === 'fiscal' ? $page.form : undefined);
@@ -119,11 +115,7 @@
 					getTipoTrabajoLabel(item.tipo_trabajo).toLowerCase().includes(q) ||
 					(item.color?.toLowerCase().includes(q) ?? false)
 			) ||
-			invoices.some(
-				(fac) =>
-					fac.invoice_number.toLowerCase().includes(q) ||
-					getInvoiceEstadoLabel(fac.estado).toLowerCase().includes(q)
-			)
+			invoices.some((fac) => invoiceMatchesQuery(fac, q))
 		);
 	}
 
@@ -140,18 +132,66 @@
 	let filteredOrphanInvoices = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
 		if (!q) return orphanInvoices;
-		return orphanInvoices.filter(
-			(fac) =>
-				fac.case_number.toLowerCase().includes(q) ||
-				fac.paciente_name.toLowerCase().includes(q) ||
-				fac.invoice_number.toLowerCase().includes(q) ||
-				getInvoiceEstadoLabel(fac.estado).toLowerCase().includes(q)
-		);
+		return orphanInvoices.filter((fac) => invoiceMatchesQuery(fac, q) || caseTextMatchesInvoice(fac, q));
 	});
 
-	let paginatedCasos = $derived.by(() => {
+	type CaseInvoiceGroup = {
+		key: string;
+		caso: LabCase | null;
+		caseNumber: string;
+		paciente: string;
+		items: string;
+		costo: number | null;
+		estado: LabCase['estado'] | null;
+		invoices: InvoiceListRow[];
+	};
+
+	let unifiedGroups = $derived.by(() => {
+		const groups: CaseInvoiceGroup[] = filteredCasos.map((caso) => ({
+			key: caso.id,
+			caso,
+			caseNumber: caso.case_number,
+			paciente: caso.paciente_name,
+			items: itemsLabel(caso),
+			costo: caso.costo,
+			estado: caso.estado,
+			invoices: showFinancial ? (invoicesByCaseId[caso.id] ?? []) : []
+		}));
+		if (!showFinancial) return groups;
+
+		const orphansByCase: Record<string, InvoiceListRow[]> = {};
+		for (const fac of filteredOrphanInvoices) {
+			(orphansByCase[fac.case_id] ??= []).push(fac);
+		}
+		for (const [caseId, invoices] of Object.entries(orphansByCase)) {
+			const first = invoices[0];
+			groups.push({
+				key: `orphan-${caseId}`,
+				caso: null,
+				caseNumber: first.case_number,
+				paciente: first.paciente_name,
+				items: '—',
+				costo: null,
+				estado: null,
+				invoices
+			});
+		}
+		return groups;
+	});
+
+	let paginatedGroups = $derived.by(() => {
 		const start = (casosPage - 1) * casosPageSize;
-		return filteredCasos.slice(start, start + casosPageSize);
+		return unifiedGroups.slice(start, start + casosPageSize);
+	});
+
+	let allGroupsCount = $derived.by(() => {
+		if (!showFinancial) return casos.length;
+		const orphanCaseIds = new Set(
+			clientInvoices
+				.filter((fac) => !casos.some((caso) => caso.id === fac.case_id))
+				.map((fac) => fac.case_id)
+		);
+		return casos.length + orphanCaseIds.size;
 	});
 
 	$effect(() => {
@@ -160,7 +200,7 @@
 	});
 
 	$effect(() => {
-		const totalPages = Math.max(1, Math.ceil(filteredCasos.length / casosPageSize));
+		const totalPages = Math.max(1, Math.ceil(unifiedGroups.length / casosPageSize));
 		if (casosPage > totalPages) {
 			casosPage = totalPages;
 		}
@@ -204,6 +244,37 @@
 		if (!client) return;
 		casos = getCasesByClient(clientId);
 		stats = getClientStats(clientId);
+	}
+
+	function invoiceMatchesQuery(fac: InvoiceListRow, q: string): boolean {
+		return (
+			fac.invoice_number.toLowerCase().includes(q) ||
+			getInvoiceEstadoLabel(fac.estado).toLowerCase().includes(q) ||
+			(fac.fe?.clave?.toLowerCase().includes(q) ?? false) ||
+			fac.notas.some(
+				(nota) =>
+					getFeTipoDocumentoLabel(nota.tipo_documento).toLowerCase().includes(q) ||
+					(nota.consecutivo?.toLowerCase().includes(q) ?? false) ||
+					(nota.clave?.toLowerCase().includes(q) ?? false) ||
+					getFeComprobanteEstadoLabel(nota.estado).toLowerCase().includes(q)
+			)
+		);
+	}
+
+	function caseTextMatchesInvoice(fac: InvoiceListRow, q: string): boolean {
+		return (
+			fac.case_number.toLowerCase().includes(q) || fac.paciente_name.toLowerCase().includes(q)
+		);
+	}
+
+	function notaMonto(nota: InvoiceListRow['notas'][number]): string {
+		return nota.moneda === 'CRC' ? formatColones(nota.total) : formatCurrency(nota.total);
+	}
+
+	function notaNumero(nota: InvoiceListRow['notas'][number]): string {
+		if (nota.consecutivo) return nota.consecutivo;
+		if (nota.clave) return `…${nota.clave.slice(-8)}`;
+		return '—';
 	}
 
 	function itemsLabel(caso: LabCase): string {
@@ -272,27 +343,6 @@
 			return result.error?.message?.trim() || fallback;
 		}
 		return fallback;
-	}
-
-	function clientListHref(
-		overrides: Partial<{ facturasPage: number; facturasPageSize: InvoiceListPageSize }> = {}
-	) {
-		const url = new URL(get(page).url);
-		url.searchParams.delete('tab');
-		const nextPage = overrides.facturasPage ?? clientInvoicesPage;
-		const nextPageSize = overrides.facturasPageSize ?? clientInvoicesPageSize;
-		if (nextPage <= 1) url.searchParams.delete('facturas_page');
-		else url.searchParams.set('facturas_page', String(nextPage));
-		if (nextPageSize === 15) url.searchParams.delete('facturas_size');
-		else url.searchParams.set('facturas_size', String(nextPageSize));
-		const search = url.searchParams.toString();
-		return `${url.pathname}${search ? `?${search}` : ''}`;
-	}
-
-	function goClientInvoicesList(
-		overrides: Partial<{ facturasPage: number; facturasPageSize: InvoiceListPageSize }> = {}
-	) {
-		void goto(clientListHref(overrides), { keepFocus: true, noScroll: true });
 	}
 
 	function openEmitModal(fac: InvoiceListRow) {
@@ -423,106 +473,23 @@
 			/>
 		{/if}
 
-		<section style="margin-top: var(--spacing-xxl);">
-				<div class="client-cases-section__head">
-					<h3 class="type-tagline" style="margin: 0;">Casos de este cliente</h3>
-					{#if casos.length > 0}
+		<section id="facturas" style="margin-top: var(--spacing-xxl);">
+			<div class="client-facturas-head">
+				<div class="client-cases-section__head" style="margin-bottom: 0;">
+					<h3 class="type-tagline" style="margin: 0;">
+						{showFinancial ? 'Casos y facturas' : 'Casos de este cliente'}
+					</h3>
+					{#if allGroupsCount > 0}
 						<span class="type-fine-print">
-							{#if searchQuery.trim() && filteredCasos.length !== casos.length}
-								{filteredCasos.length} de {casos.length} caso(s)
+							{#if searchQuery.trim() && unifiedGroups.length !== allGroupsCount}
+								{unifiedGroups.length} de {allGroupsCount} caso(s)
 							{:else}
-								{casos.length} caso(s)
+								{allGroupsCount} caso(s)
 							{/if}
 						</span>
 					{/if}
 				</div>
-				{#if casos.length === 0}
-					<p class="type-caption">Sin casos registrados</p>
-				{:else}
-					<div class="dash-toolbar client-cases-section__toolbar">
-						<input
-							type="search"
-							class="search-input"
-							bind:value={searchQuery}
-							placeholder="Buscar por número, paciente, doctor, trabajo, tono…"
-							aria-label="Buscar casos del cliente"
-						/>
-					</div>
-
-					{#if filteredCasos.length === 0}
-						<div class="dash-panel empty-state client-cases-section__empty">
-							<p>Ningún caso coincide con «{searchQuery.trim()}»</p>
-							<button type="button" class="btn-secondary-pill" onclick={() => (searchQuery = '')}>
-								Limpiar búsqueda
-							</button>
-						</div>
-					{:else}
-						<div class="data-table-wrap">
-							<table class="data-table">
-								<thead>
-									<tr>
-										<th>Caso</th>
-										<th>Paciente</th>
-										<th>Ítems</th>
-										{#if showFinancial}<th>Costo</th>{/if}
-										<th>Estado</th>
-										<th></th>
-									</tr>
-								</thead>
-								<tbody>
-									{#each paginatedCasos as caso}
-										<tr>
-											<td class="type-body-strong">{caso.case_number}</td>
-											<td>{caso.paciente_name}</td>
-											<td class="type-caption">{itemsLabel(caso)}</td>
-											{#if showFinancial}<td>{formatCurrency(caso.costo)}</td>{/if}
-											<td>
-												<span class={getEstadoBadgeClass(caso.estado)}>{getEstadoLabel(caso.estado)}</span>
-											</td>
-											<td>
-												<button type="button" class="text-link" onclick={() => openCasePreview(caso)}>
-													Ver
-												</button>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-						<TablePagination
-							page={casosPage}
-							pageSize={casosPageSize}
-							totalCount={filteredCasos.length}
-							ariaLabel="Paginación de casos"
-							onPageChange={(page) => (casosPage = page)}
-							onPageSizeChange={(size) => {
-								casosPageSize = size;
-								casosPage = 1;
-							}}
-						/>
-					{/if}
-				{/if}
-		</section>
-
-		{#if canManage}
-			<AdminClientDoctorsEditor clientId={client.id} />
-		{/if}
-
-		<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-lg);">
-			<DoctorProductionSummary stats={doctorProduction} />
-		</div>
-
-		{#if showFinancial}
-			<section id="facturas" style="margin-top: var(--spacing-xxl);">
-				<div class="client-facturas-head">
-					<div>
-						<h3 class="type-tagline" style="margin: 0 0 var(--spacing-sm);">Facturas</h3>
-						<p class="type-caption" style="margin: 0;">
-							Estado FE según ambiente
-							<strong>{$page.data.emitAmbiente === 'production' ? 'Producción' : 'Pruebas (staging)'}</strong>.
-							<a href="/admin/factura-electronica" class="text-link">Cambiar</a>
-						</p>
-					</div>
+				{#if showFinancial}
 					<button
 						type="button"
 						class="btn-primary"
@@ -534,9 +501,16 @@
 					>
 						Nueva factura directa
 					</button>
-				</div>
+				{/if}
+			</div>
+			{#if showFinancial}
+				<p class="type-caption" style="margin: 0 0 var(--spacing-md);">
+					Cada caso incluye sus facturas, notas de crédito y notas de débito. Estado FE según ambiente
+					<strong>{$page.data.emitAmbiente === 'production' ? 'Producción' : 'Pruebas (staging)'}</strong>.
+					<a href="/admin/factura-electronica" class="text-link">Cambiar</a>
+				</p>
 				{#if directInvoiceErrorMessage}
-					<div class="alert alert--error" style="margin-top: var(--spacing-md);" role="alert">
+					<div class="alert alert--error" style="margin-bottom: var(--spacing-md);" role="alert">
 						{directInvoiceErrorMessage}
 					</div>
 				{/if}
@@ -567,113 +541,230 @@
 						Emisor incompleto: complete datos fiscales del laboratorio para generar FE.
 					</p>
 				{/if}
-				{#if clientInvoicesTotal === 0}
-					<p class="type-caption">Sin facturas</p>
+			{/if}
+			{#if allGroupsCount === 0}
+				<p class="type-caption">Sin casos registrados</p>
+			{:else}
+				<div class="dash-toolbar client-cases-section__toolbar">
+					<input
+						type="search"
+						class="search-input"
+						bind:value={searchQuery}
+						placeholder={showFinancial
+							? 'Buscar por caso, paciente, factura, nota…'
+							: 'Buscar por número, paciente, doctor, trabajo, tono…'}
+						aria-label="Buscar casos y facturas del cliente"
+					/>
+				</div>
+
+				{#if unifiedGroups.length === 0}
+					<div class="dash-panel empty-state client-cases-section__empty">
+						<p>Nada coincide con «{searchQuery.trim()}»</p>
+						<button type="button" class="btn-secondary-pill" onclick={() => (searchQuery = '')}>
+							Limpiar búsqueda
+						</button>
+					</div>
 				{:else}
 					<div class="data-table-wrap">
 						<table class="data-table">
 							<thead>
 								<tr>
-									<th>Número</th>
 									<th>Caso</th>
-									<th>Total</th>
+									<th>Paciente</th>
+									<th>Ítems</th>
+									{#if showFinancial}
+										<th>Documento</th>
+										<th>Número</th>
+										<th>Monto</th>
+									{/if}
 									<th>Estado</th>
-									<th>FE Hacienda</th>
-									<th>Emisión</th>
-									<th>Acciones</th>
+									{#if showFinancial}
+										<th>FE Hacienda</th>
+										<th>Emisión</th>
+									{/if}
+									<th></th>
 								</tr>
 							</thead>
-							<tbody>
-								{#each clientInvoices as fac (fac.id)}
-									{@const fe = fac.fe}
-									<tr
-										class={getInvoiceRowClass(fac.estado, fe?.estado)}
-										class:fe-row-highlight={feActionInvoiceId === fac.id && feActionMessage}
-									>
-										<td class="type-body-strong">
-											<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">{fac.invoice_number}</a>
-										</td>
+							{#each paginatedGroups as group (group.key)}
+								<tbody class="client-case-group">
+									<tr class="client-doc-row--case">
+										<td class="type-body-strong">{group.caseNumber}</td>
+										<td>{group.paciente}</td>
+										<td class="type-caption">{group.items}</td>
+										{#if showFinancial}
+											<td class="type-caption">Caso</td>
+											<td></td>
+											<td>{group.costo == null ? '—' : formatCurrency(group.costo)}</td>
+										{/if}
 										<td>
-											<a href="/admin/casos/{fac.case_id}" class="text-link">{fac.case_number}</a>
-										</td>
-										<td>{formatCurrency(fac.total)}</td>
-										<td>
-											<span class={getInvoiceEstadoClass(fac.estado, fe?.estado)}>
-												{getInvoiceEstadoLabel(fac.estado)}
-											</span>
-										</td>
-										<td>
-											{#if fe}
-												<span class={getFeComprobanteEstadoClass(fe.estado)}>
-													{getFeComprobanteEstadoLabel(fe.estado)}
-												</span>
+											{#if group.estado}
+												<span class={getEstadoBadgeClass(group.estado)}>{getEstadoLabel(group.estado)}</span>
 											{:else}
-												<span class="type-caption">Sin enviar</span>
+												<span class="type-caption">—</span>
 											{/if}
 										</td>
-										<td>{formatDate(fac.fecha_emision)}</td>
-										<td class="client-fe-actions">
-											{#if hasActiveEmisor && facturadorOk && !feComprobanteBlocksEmit(fe?.estado)}
+										{#if showFinancial}
+											<td></td>
+											<td></td>
+										{/if}
+										<td>
+											{#if group.caso}
 												<button
 													type="button"
-													class="btn-primary client-fe-actions__btn"
-													disabled={emittingFe}
-													onclick={() => openEmitModal(fac)}
+													class="text-link"
+													onclick={() => group.caso && openCasePreview(group.caso)}
 												>
-													{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura'}
+													Ver caso
 												</button>
 											{/if}
-											{#if fe && feComprobanteCanConsultar(fe.estado) && fe.clave}
-												<form
-													method="POST"
-													action="?/consultar"
-													use:enhance={() =>
-														async ({ update }) => {
-															await update({ reset: false });
-															await invalidate('app:client-invoices');
-														}}
-												>
-													<input type="hidden" name="invoice_id" value={fac.id} />
-													<button
-														type="submit"
-														class="btn-secondary-pill client-fe-actions__btn"
-														disabled={emittingFe}
-													>
-														Consultar
-													</button>
-												</form>
-											{/if}
-											<button
-												type="button"
-												class="btn-secondary-pill client-fe-actions__btn"
-												onclick={() => {
-													pdfPreview = { id: fac.id, number: fac.invoice_number };
-													pdfPreviewOpen = true;
-												}}
-											>
-												PDF
-											</button>
-											<a href="/admin/facturas/{fac.id}?from=cliente" class="btn-secondary-pill client-fe-actions__btn">
-												Ver
-											</a>
 										</td>
 									</tr>
-								{/each}
-							</tbody>
+									{#if showFinancial && group.invoices.length === 0}
+										<tr class="client-doc-row--empty">
+											<td colspan="3"></td>
+											<td colspan="7" class="type-caption">Sin facturas</td>
+										</tr>
+									{/if}
+									{#if showFinancial}
+										{#each group.invoices as fac (fac.id)}
+											{@const fe = fac.fe}
+											<tr
+												class="client-doc-row--invoice {getInvoiceRowClass(fac.estado, fe?.estado)}"
+												class:fe-row-highlight={feActionInvoiceId === fac.id && feActionMessage}
+											>
+												<td></td>
+												<td></td>
+												<td></td>
+												<td>Factura</td>
+												<td class="type-body-strong">
+													<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">
+														{fac.invoice_number}
+													</a>
+													{#if fac.reemit?.correctionInvoiceId}
+														<br />
+														<a
+															href="/admin/facturas/{fac.reemit.correctionInvoiceId}?from=cliente"
+															class="type-fine-print text-link"
+														>
+															Corregida {fac.reemit.correctionInvoiceNumber ?? ''}
+														</a>
+													{/if}
+												</td>
+												<td>{formatCurrency(fac.total)}</td>
+												<td>
+													<span class={getInvoiceEstadoClass(fac.estado, fe?.estado)}>
+														{getInvoiceEstadoLabel(fac.estado)}
+													</span>
+												</td>
+												<td>
+													{#if fe}
+														<span class={getFeComprobanteEstadoClass(fe.estado)}>
+															{getFeComprobanteEstadoLabel(fe.estado)}
+														</span>
+													{:else}
+														<span class="type-caption">Sin enviar</span>
+													{/if}
+												</td>
+												<td>{formatDate(fac.fecha_emision)}</td>
+												<td class="client-fe-actions">
+													{#if hasActiveEmisor && facturadorOk && !feComprobanteBlocksEmit(fe?.estado)}
+														<button
+															type="button"
+															class="btn-primary client-fe-actions__btn"
+															disabled={emittingFe}
+															onclick={() => openEmitModal(fac)}
+														>
+															{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura'}
+														</button>
+													{/if}
+													{#if fe && feComprobanteCanConsultar(fe.estado) && fe.clave}
+														<form
+															method="POST"
+															action="?/consultar"
+															use:enhance={() =>
+																async ({ update }) => {
+																	await update({ reset: false });
+																	await invalidate('app:client-invoices');
+																}}
+														>
+															<input type="hidden" name="invoice_id" value={fac.id} />
+															<button
+																type="submit"
+																class="btn-secondary-pill client-fe-actions__btn"
+																disabled={emittingFe}
+															>
+																Consultar
+															</button>
+														</form>
+													{/if}
+													<button
+														type="button"
+														class="btn-secondary-pill client-fe-actions__btn"
+														onclick={() => {
+															pdfPreview = { id: fac.id, number: fac.invoice_number };
+															pdfPreviewOpen = true;
+														}}
+													>
+														PDF
+													</button>
+													<a
+														href="/admin/facturas/{fac.id}?from=cliente"
+														class="btn-secondary-pill client-fe-actions__btn"
+													>
+														Ver
+													</a>
+												</td>
+											</tr>
+											{#each fac.notas as nota (nota.id)}
+												<tr class="client-doc-row--nota">
+													<td></td>
+													<td></td>
+													<td></td>
+													<td class="client-doc-indent">{getFeTipoDocumentoLabel(nota.tipo_documento)}</td>
+													<td class="type-caption" title={nota.clave ?? ''}>{notaNumero(nota)}</td>
+													<td>{notaMonto(nota)}</td>
+													<td class="type-caption">—</td>
+													<td>
+														<span class={getFeComprobanteEstadoClass(nota.estado)}>
+															{getFeComprobanteEstadoLabel(nota.estado)}
+														</span>
+													</td>
+													<td>{nota.enviado_at ? formatDate(nota.enviado_at) : '—'}</td>
+													<td>
+														<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">Ver factura</a>
+													</td>
+												</tr>
+											{/each}
+										{/each}
+									{/if}
+								</tbody>
+							{/each}
 						</table>
 					</div>
 					<TablePagination
-						page={clientInvoicesPage}
-						pageSize={clientInvoicesPageSize}
-						totalCount={clientInvoicesTotal}
+						page={casosPage}
+						pageSize={casosPageSize}
+						totalCount={unifiedGroups.length}
 						disabled={emittingFe}
-						ariaLabel="Paginación de facturas"
-						onPageChange={(page) => goClientInvoicesList({ facturasPage: page })}
-						onPageSizeChange={(size) => goClientInvoicesList({ facturasPageSize: size, facturasPage: 1 })}
+						ariaLabel="Paginación de casos y facturas"
+						onPageChange={(nextPage) => (casosPage = nextPage)}
+						onPageSizeChange={(size) => {
+							casosPageSize = size;
+							casosPage = 1;
+						}}
 					/>
 				{/if}
-			</section>
+			{/if}
+		</section>
+
+		{#if canManage}
+			<AdminClientDoctorsEditor clientId={client.id} />
 		{/if}
+
+		<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-lg);">
+			<DoctorProductionSummary stats={doctorProduction} />
+		</div>
+
 	{/if}
 </div>
 
@@ -886,11 +977,20 @@
 		margin-top: 0;
 	}
 
-	.client-case-invoices {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0.35rem;
+	.client-case-group {
+		border-top: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.06));
+	}
+
+	.client-doc-row--case {
+		background: color-mix(in srgb, var(--color-accent, #8a7355) 6%, transparent);
+	}
+
+	.client-doc-row--nota td {
+		font-size: 13px;
+	}
+
+	.client-doc-indent {
+		padding-left: 1.25rem;
 	}
 
 	.client-fe-actions {
