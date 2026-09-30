@@ -212,14 +212,13 @@
 		<input
 			type="text"
 			inputmode="numeric"
+			autocomplete="off"
 			class="field-input cabys-picker__input"
 			class:cabys-picker__input--error={showError}
 			value={normalizedCodigo}
 			oninput={handleManualInput}
 			{placeholder}
 			maxlength="13"
-			pattern="[0-9]{13}"
-			title="13 dígitos numéricos"
 			{disabled}
 			aria-invalid={showError}
 		/>
@@ -233,7 +232,11 @@
 		</button>
 	</div>
 
-	{#if selectedProducto}
+	{#if normalizedCodigo.length > 0 && normalizedCodigo.length < 13}
+		<p class="type-caption cabys-picker__meta cabys-picker__meta--manual" id="cabys-format-hint">
+			Ingrese 13 dígitos numéricos ({normalizedCodigo.length}/13).
+		</p>
+	{:else if selectedProducto}
 		<p class="type-caption cabys-picker__meta">{selectedProducto}</p>
 	{:else if isManual && normalizedCodigo.length === 13}
 		<p class="type-caption cabys-picker__meta cabys-picker__meta--manual">

@@ -552,9 +552,12 @@
 			error = 'Indica el nombre del tratamiento.';
 			return;
 		}
-		const createCabys = form.fe_cabys.trim();
+		const createCabys = normalizeCabys(form.fe_cabys);
 		if (createCabys && !isValidFeCabys(createCabys)) {
-			error = 'CABYS debe tener exactamente 13 dígitos numéricos.';
+			error =
+				createCabys.length < 13
+					? `CABYS incompleto (${createCabys.length}/13 dígitos).`
+					: 'CABYS debe tener exactamente 13 dígitos numéricos.';
 			return;
 		}
 		if (isDiseno) {
@@ -591,7 +594,7 @@
 					precio_crc_fresado,
 					modo_seleccion_piezas: form.modo_seleccion_piezas,
 					sobre_implante: form.sobre_implante,
-					fe_cabys: createCabys || null,
+					fe_cabys: createCabys ? createCabys : null,
 					fe_unidad_medida: form.fe_unidad_medida || 'Sp',
 					impuesto_tarifa: form.impuesto_tarifa
 				},
@@ -1229,7 +1232,7 @@
 				</button>
 			</div>
 
-			<form class="case-file-modal__body" onsubmit={handleCreate}>
+			<form class="case-file-modal__body" novalidate onsubmit={handleCreate}>
 				<div class="case-file-modal__fields">
 					{#if error}
 						<p class="alert alert--error" role="alert">{error}</p>
