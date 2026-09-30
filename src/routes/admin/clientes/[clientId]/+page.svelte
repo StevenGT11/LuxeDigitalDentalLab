@@ -48,8 +48,6 @@
 	import type { InvoiceListPageSize, InvoiceListRow } from '$lib/lab/invoices-list';
 	import type { LabCase, LabClient } from '$lib/lab/types';
 
-	type ClientDetailTab = 'info' | 'casos' | 'facturas';
-
 	let clientId = $derived($page.params.clientId);
 	let client = $state<LabClient | null>(null);
 	let casos = $state<LabCase[]>([]);
@@ -178,8 +176,10 @@
 
 	afterNavigate(({ to }) => {
 		refresh();
-		if (to?.url.hash === '#facturas' && showFinancial) {
-			selectTab('facturas');
+		if (to?.url.hash === '#facturas' && browser) {
+			void tick().then(() => {
+				document.getElementById('facturas')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			});
 		}
 	});
 
@@ -274,44 +274,11 @@
 		return fallback;
 	}
 
-	let activeTab = $derived.by((): ClientDetailTab => {
-		const param = $page.url.searchParams.get('tab');
-		if (param === 'casos') return 'casos';
-		if (param === 'facturas' && showFinancial) return 'facturas';
-		if (param === 'info') return 'info';
-		if (
-			showFinancial &&
-			($page.form?.kind === 'directInvoice' ||
-				($page.form && 'invoiceId' in $page.form && $page.form.invoiceId))
-		) {
-			return 'facturas';
-		}
-		if ($page.form?.kind === 'fiscal' || $page.form?.kind === 'credentials') {
-			return 'info';
-		}
-		return 'info';
-	});
-
-	function selectTab(tab: ClientDetailTab) {
-		const url = new URL($page.url);
-		url.hash = '';
-		if (tab === 'info') {
-			url.searchParams.delete('tab');
-		} else {
-			url.searchParams.set('tab', tab);
-		}
-		const search = url.searchParams.toString();
-		void goto(`${url.pathname}${search ? `?${search}` : ''}`, {
-			replaceState: true,
-			keepFocus: true,
-			noScroll: true
-		});
-	}
-
 	function clientListHref(
 		overrides: Partial<{ facturasPage: number; facturasPageSize: InvoiceListPageSize }> = {}
 	) {
 		const url = new URL(get(page).url);
+		url.searchParams.delete('tab');
 		const nextPage = overrides.facturasPage ?? clientInvoicesPage;
 		const nextPageSize = overrides.facturasPageSize ?? clientInvoicesPageSize;
 		if (nextPage <= 1) url.searchParams.delete('facturas_page');
@@ -436,81 +403,27 @@
 			</div>
 		</section>
 
-		<div class="client-detail-tabs" role="tablist" aria-label="Secciones del cliente">
-			<button
-				type="button"
-				role="tab"
-				class="client-detail-tabs__tab"
-				class:client-detail-tabs__tab--active={activeTab === 'info'}
-				aria-selected={activeTab === 'info'}
-				onclick={() => selectTab('info')}
-			>
-				Información
-			</button>
-			<button
-				type="button"
-				role="tab"
-				class="client-detail-tabs__tab"
-				class:client-detail-tabs__tab--active={activeTab === 'casos'}
-				aria-selected={activeTab === 'casos'}
-				onclick={() => selectTab('casos')}
-			>
-				Casos
-				{#if stats.totalCasos > 0}
-					<span class="client-detail-tabs__count">{stats.totalCasos}</span>
-				{/if}
-			</button>
-			{#if showFinancial}
-				<button
-					type="button"
-					role="tab"
-					class="client-detail-tabs__tab"
-					class:client-detail-tabs__tab--active={activeTab === 'facturas'}
-					aria-selected={activeTab === 'facturas'}
-					onclick={() => selectTab('facturas')}
-				>
-					Facturas
-					{#if clientInvoicesTotal > 0}
-						<span class="client-detail-tabs__count">{clientInvoicesTotal}</span>
-					{/if}
-				</button>
-			{/if}
-		</div>
-
-		{#if activeTab === 'info'}
-			<div role="tabpanel" class="client-detail-tab-panel">
-				{#if canManage}
-					<AdminClientCredentialsEditor
-						email={client.email}
-						form={credentialsForm}
-						onSaved={(nextEmail) => {
-							if (client) client = { ...client, email: nextEmail };
-						}}
-					/>
-				{/if}
-
-				{#if showFinancial && $page.data.fiscal}
-					<AdminClientFiscalEditor
-						fiscal={$page.data.fiscal}
-						form={fiscalForm}
-						onSaved={(telefono) => {
-							if (client) client = { ...client, telefono };
-						}}
-					/>
-				{/if}
-
-				{#if canManage}
-					<AdminClientDoctorsEditor clientId={client.id} />
-				{/if}
-
-				<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-lg);">
-					<DoctorProductionSummary stats={doctorProduction} />
-				</div>
-			</div>
+		{#if canManage}
+			<AdminClientCredentialsEditor
+				email={client.email}
+				form={credentialsForm}
+				onSaved={(nextEmail) => {
+					if (client) client = { ...client, email: nextEmail };
+				}}
+			/>
 		{/if}
 
-		{#if activeTab === 'casos'}
-			<section role="tabpanel" class="client-detail-tab-panel">
+		{#if showFinancial && $page.data.fiscal}
+			<AdminClientFiscalEditor
+				fiscal={$page.data.fiscal}
+				form={fiscalForm}
+				onSaved={(telefono) => {
+					if (client) client = { ...client, telefono };
+				}}
+			/>
+		{/if}
+
+		<section style="margin-top: var(--spacing-xxl);">
 				<div class="client-cases-section__head">
 					<h3 class="type-tagline" style="margin: 0;">Casos de este cliente</h3>
 					{#if casos.length > 0}
@@ -589,11 +502,18 @@
 						/>
 					{/if}
 				{/if}
-			</section>
+		</section>
+
+		{#if canManage}
+			<AdminClientDoctorsEditor clientId={client.id} />
 		{/if}
 
-		{#if activeTab === 'facturas' && showFinancial}
-			<section role="tabpanel" class="client-detail-tab-panel" id="facturas">
+		<div class="dash-panel dash-panel--section" style="margin-top: var(--spacing-lg);">
+			<DoctorProductionSummary stats={doctorProduction} />
+		</div>
+
+		{#if showFinancial}
+			<section id="facturas" style="margin-top: var(--spacing-xxl);">
 				<div class="client-facturas-head">
 					<div>
 						<h3 class="type-tagline" style="margin: 0 0 var(--spacing-sm);">Facturas</h3>
@@ -711,7 +631,6 @@
 														async ({ update }) => {
 															await update({ reset: false });
 															await invalidate('app:client-invoices');
-															selectTab('facturas');
 														}}
 												>
 													<input type="hidden" name="invoice_id" value={fac.id} />
@@ -852,7 +771,6 @@
 			try {
 				await update({ reset: false });
 				await invalidate('app:client-invoices');
-				selectTab('facturas');
 			} finally {
 				emittingFe = false;
 				emittingLabel = '';
@@ -923,55 +841,6 @@
 </form>
 
 <style>
-	.client-detail-tabs {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.5rem;
-		margin-top: var(--spacing-xl);
-		margin-bottom: var(--spacing-lg);
-	}
-
-	.client-detail-tabs__tab {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		border: 1px solid var(--color-border, #e2e8f0);
-		background: transparent;
-		padding: 0.45rem 0.85rem;
-		border-radius: 999px;
-		font: inherit;
-		font-size: 0.875rem;
-		cursor: pointer;
-	}
-
-	.client-detail-tabs__tab--active {
-		background: var(--color-primary, #0f172a);
-		color: var(--color-primary-foreground, #fff);
-		border-color: transparent;
-	}
-
-	.client-detail-tabs__count {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 1.25rem;
-		height: 1.25rem;
-		padding: 0 0.35rem;
-		border-radius: 999px;
-		font-size: 0.6875rem;
-		font-weight: 600;
-		background: color-mix(in srgb, currentColor 12%, transparent);
-	}
-
-	.client-detail-tabs__tab--active .client-detail-tabs__count {
-		background: color-mix(in srgb, currentColor 22%, transparent);
-	}
-
-	.client-detail-tab-panel {
-		margin-top: 0;
-	}
-
 	.client-facturas-head {
 		display: flex;
 		flex-wrap: wrap;

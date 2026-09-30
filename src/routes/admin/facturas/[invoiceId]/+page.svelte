@@ -58,7 +58,7 @@
 	const fromCliente = $derived(page.url.searchParams.get('from') === 'cliente');
 	const fromCaso = $derived(page.url.searchParams.get('from') === 'caso');
 	const backHref = $derived(
-		fromCliente ? `/admin/clientes/${invoice.client_id}?tab=facturas` : '/admin/facturas'
+		fromCliente ? `/admin/clientes/${invoice.client_id}#facturas` : '/admin/facturas'
 	);
 	const backLabel = $derived(
 		fromCliente
