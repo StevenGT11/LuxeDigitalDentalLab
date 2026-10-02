@@ -13,7 +13,7 @@ export interface GuiaPrecioTier {
 	crc: number;
 }
 
-import { getCatalogSnapshot, isCatalogHydrated } from './catalog-cache';
+import { getCatalogSnapshot, isCatalogHydrated } from './catalog-cache.svelte';
 
 /** Tarifario guía quirúrgica por cantidad de implantes (fallback local) */
 export const GUIA_PRECIOS_POR_IMPLANTES: Record<ImplantesGuia, GuiaPrecioTier> = {

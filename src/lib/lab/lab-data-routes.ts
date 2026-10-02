@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 /** Rutas que pueden cargar el catálogo de tratamientos (Supabase treatments, etc.). */
 const TREATMENTS_CATALOG_PREFIXES = [
 	'/admin/tratamientos',
+	'/admin/casos',
 	'/admin/clientes/',
 	'/client/'
 ] as const;

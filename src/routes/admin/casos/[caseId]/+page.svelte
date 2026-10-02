@@ -2,7 +2,10 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
-	import { canViewFinancial } from '$lib/auth/roles';
+	import { canViewFinancial, isAdminRole } from '$lib/auth/roles';
+	import AdminDeleteCaseButton from '$lib/components/admin/AdminDeleteCaseButton.svelte';
+	import { removeCachedCase } from '$lib/lab/cases-cache';
+	import { fetchCaseHasIssuedInvoice } from '$lib/lab/case-issued';
 	import {
 		getCaseByIdAsync,
 		getInvoiceByCaseIdAsync,
@@ -35,6 +38,8 @@
 	const estadosAdmin = ESTADOS.filter((e) => e.value !== 'todos');
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
+	let isAdmin = $derived(isAdminRole($page.data.staffRole ?? $page.data.profile?.role));
+	let issuedInvoice = $state(true);
 	const fromCliente = $derived($page.url.searchParams.get('from') === 'cliente');
 	const backHref = $derived(
 		fromCliente && caso ? `/admin/clientes/${caso.client_id}#facturas` : '/admin/casos'
@@ -44,6 +49,19 @@
 	onMount(async () => {
 		await hydrateLabDataOnce();
 		await loadCase();
+	});
+
+	$effect(() => {
+		const id = caso?.id;
+		if (!id || !isAdmin) return;
+		let cancelled = false;
+		issuedInvoice = true;
+		void fetchCaseHasIssuedInvoice(id).then((issued) => {
+			if (!cancelled) issuedInvoice = issued;
+		});
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	async function loadCase() {
@@ -96,6 +114,22 @@
 				{/if}
 			</div>
 			<div class="case-detail-header__actions">
+				{#if isAdmin && !issuedInvoice}
+					<a
+						class="btn-secondary-pill"
+						href="/admin/casos/{caso.id}/editar{fromCliente ? '?from=cliente' : ''}"
+					>
+						Editar
+					</a>
+					<AdminDeleteCaseButton
+						caseId={caso.id}
+						caseNumber={caso.case_number}
+						onDeleted={() => {
+							removeCachedCase(caso.id);
+							void goto(backHref);
+						}}
+					/>
+				{/if}
 				<span class={getEstadoBadgeClass(caso.estado)}>{getEstadoLabel(caso.estado)}</span>
 				<select
 					class="field-select case-detail-header__select"

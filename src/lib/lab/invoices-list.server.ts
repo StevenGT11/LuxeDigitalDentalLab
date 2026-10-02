@@ -106,8 +106,7 @@ export function parseInvoiceListQuery(searchParams: URLSearchParams): InvoiceLis
 		rawEstado === 'pendiente' ||
 		rawEstado === 'facturado' ||
 		rawEstado === 'pagado' ||
-		rawEstado === 'pagada' ||
-		rawEstado === 'cancelada'
+		rawEstado === 'pagada'
 			? rawEstado === 'pagada'
 				? 'pagado'
 				: (rawEstado as InvoiceListQuery['estado'])

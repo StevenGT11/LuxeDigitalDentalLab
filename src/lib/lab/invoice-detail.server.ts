@@ -17,6 +17,7 @@ import {
 	normalizeInvoiceLineAmounts,
 	roundMoney
 } from '$lib/lab/invoice-line-amounts';
+import { normalizeArcadaScope, type ArcadaScope } from './arcada-scope';
 import type { InvoiceEstado, InvoiceLineDetail } from './types';
 
 export type { InvoiceLineDetail };
@@ -43,6 +44,18 @@ export type InvoiceDetail = {
 	lineas: InvoiceLineDetail[];
 	source_invoice_id: string | null;
 	notas: string;
+};
+
+/** Ítem del caso, en el mismo orden que las líneas, para tarifar en colones de catálogo. */
+export type CasePriceItem = {
+	tipo_trabajo: string;
+	material: string | null;
+	piezas: number;
+	incluye_diseno: boolean;
+	incluye_fresado: boolean;
+	implantes_guia: number | null;
+	alcance_arcada: ArcadaScope | null;
+	corona_sobre_implante: boolean;
 };
 
 export type ClientFiscalSnapshot = {
@@ -287,6 +300,7 @@ export async function loadInvoiceDetailPage(
 	} | null;
 	correctionInvoice: { id: string; invoice_number: string } | null;
 	reemitFacturaEligible: boolean;
+	casePriceItems: CasePriceItem[];
 } | null> {
 	const admin = createSupabaseAdminClient();
 
@@ -416,8 +430,34 @@ export async function loadInvoiceDetailPage(
 		lineAmountsNeedReconcile: invoiceAmountsNeedReconcile(lineas, invoice),
 		correctionContext,
 		correctionInvoice,
-		reemitFacturaEligible
+		reemitFacturaEligible,
+		casePriceItems: await loadCasePriceItems(admin, invoice.case_id)
 	};
+}
+
+async function loadCasePriceItems(
+	admin: ReturnType<typeof createSupabaseAdminClient>,
+	caseId: string | null
+): Promise<CasePriceItem[]> {
+	if (!caseId) return [];
+	const { data, error } = await admin
+		.from('case_items')
+		.select(
+			'tipo_trabajo, material, piezas, incluye_diseno, incluye_fresado, implantes_guia, alcance_arcada, corona_sobre_implante, sort_order'
+		)
+		.eq('case_id', caseId)
+		.order('sort_order', { ascending: true });
+	if (error) throw error;
+	return (data ?? []).map((row) => ({
+		tipo_trabajo: String(row.tipo_trabajo ?? ''),
+		material: row.material ? String(row.material) : null,
+		piezas: Math.max(1, Number(row.piezas) || 1),
+		incluye_diseno: row.incluye_diseno !== false,
+		incluye_fresado: row.incluye_fresado !== false,
+		implantes_guia: row.implantes_guia == null ? null : Number(row.implantes_guia),
+		alcance_arcada: normalizeArcadaScope(row.alcance_arcada),
+		corona_sobre_implante: Boolean(row.corona_sobre_implante)
+	}));
 }
 
 function invoiceAmountsNeedReconcile(
@@ -650,6 +690,26 @@ export function parseInvoiceLinesJson(raw: unknown): InvoiceLineWrite[] {
 		...line,
 		fe_unidad_medida: resolveFeUnidadMedidaForCabys(line.fe_cabys, line.fe_unidad_medida, cabysLookup)
 	}));
+}
+
+/** Precios unitarios en colones de catálogo, en el mismo orden que las líneas a emitir. */
+export function parseComprobanteUnitPrices(raw: string): number[] {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		throw new Error('Formato de líneas inválido.');
+	}
+	if (!Array.isArray(parsed) || parsed.length === 0) {
+		throw new Error('La factura debe tener al menos una línea.');
+	}
+	return parsed.map((row, index) => {
+		const precio = Number((row as { precio_fe?: unknown })?.precio_fe);
+		if (!Number.isFinite(precio) || precio < 0) {
+			throw new Error(`Precio en colones inválido en la línea ${index + 1}.`);
+		}
+		return roundMoney(precio);
+	});
 }
 
 /** Reemplaza las líneas de una factura (alta, baja y edición) y recalcula totales. */

@@ -14,6 +14,7 @@ import { getEmitAmbiente } from '$lib/fe/hacienda-settings.server';
 import {
 	duplicateInvoiceForCorrection,
 	findCorrectionInvoiceForSource,
+	parseComprobanteUnitPrices,
 	parseInvoiceLinesJson,
 	reconcileInvoiceAmounts,
 	replaceInvoiceLines,
@@ -163,11 +164,14 @@ export const actions: Actions = {
 				await replaceInvoiceLines(invoiceId, parseInvoiceLinesJson(rawLineas));
 			}
 			await updateInvoiceNotas(invoiceId, String(form.get('notas') ?? ''));
+			const comprobanteUnitPrices =
+				monedaEmit.moneda === 'CRC' && rawLineas ? parseComprobanteUnitPrices(rawLineas) : undefined;
 			const result = await emitirYConsultarFacturaElectronica(invoiceId, {
 				mediosPago,
 				...monedaEmit,
 				extraCorreos,
-				preserveInvoiceLines: Boolean(rawLineas)
+				preserveInvoiceLines: Boolean(rawLineas),
+				comprobanteUnitPrices
 			});
 			return {
 				success: true,

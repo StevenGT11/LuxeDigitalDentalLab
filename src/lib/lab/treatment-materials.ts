@@ -1,6 +1,10 @@
-import { getCatalogSnapshot } from './catalog-cache';
+import { getCatalogSnapshot } from './catalog-cache.svelte';
 import type { RestauracionPrecioOpciones } from './restoration-pricing';
 import { MATERIALES_RESTAURACION, normalizeRestauracionPrecio } from './restoration-pricing';
+import {
+	PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC,
+	PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD
+} from './treatment-catalog';
 import { slugifyTreatmentLabel } from './treatments-core';
 import { uniqueTreatmentSlug } from './treatments-core';
 
@@ -50,6 +54,15 @@ export function getTreatmentMaterialLabel(
 	return materialKey.replace(/_/g, ' ');
 }
 
+/** Recargo fijo al marcar «Sobre implante» (diseño + fresado del add-on). */
+export function getCoronaSobreImplanteAddonUsd(): number {
+	const addon = getCatalogSnapshot().addons.get('corona_sobre_implante');
+	return (
+		(addon?.precio_diseno_usd ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD) +
+		(addon?.precio_fresado_usd ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD)
+	);
+}
+
 export function getTreatmentMaterialPriceUsd(
 	treatmentSlug: string,
 	materialKey: string | null | undefined,
@@ -58,12 +71,30 @@ export function getTreatmentMaterialPriceUsd(
 	const row = getTreatmentMaterialOption(treatmentSlug, materialKey);
 	if (!row) return 0;
 	let usd = row.precio_usd;
-	if (opciones?.corona_sobre_implante) {
-		const addon = getCatalogSnapshot().addons.get('corona_sobre_implante');
-		usd +=
-			(addon?.precio_diseno_usd ?? 15) + (addon?.precio_fresado_usd ?? 15);
-	}
+	if (opciones?.corona_sobre_implante) usd += getCoronaSobreImplanteAddonUsd();
 	return usd;
+}
+
+/** Recargo fijo al marcar «Sobre implante», en colones de catálogo. */
+export function getCoronaSobreImplanteAddonCrc(): number {
+	const addon = getCatalogSnapshot().addons.get('corona_sobre_implante');
+	return (
+		(addon?.precio_diseno_crc ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC) +
+		(addon?.precio_fresado_crc ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC)
+	);
+}
+
+/** Precio en colones guardado en el tratamiento o su material. No convierte desde USD. */
+export function getTreatmentMaterialPriceCrc(
+	treatmentSlug: string,
+	materialKey: string | null | undefined,
+	opciones?: RestauracionPrecioOpciones
+): number {
+	const row = getTreatmentMaterialOption(treatmentSlug, materialKey);
+	if (!row) return 0;
+	let crc = row.precio_crc;
+	if (opciones?.corona_sobre_implante) crc += getCoronaSobreImplanteAddonCrc();
+	return crc;
 }
 
 export function slugifyMaterialKey(label: string, existing: Set<string>): string {

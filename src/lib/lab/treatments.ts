@@ -3,7 +3,7 @@ import {
 	getCatalogSnapshot,
 	isCatalogHydrated,
 	runCatalogHydrate
-} from './catalog-cache';
+} from './catalog-cache.svelte';
 import { isTreatmentsCatalogRouteAllowed } from './lab-data-routes';
 import { hydrateTreatmentsCatalog } from './treatments-db';
 import type { RestauracionPrecioOpciones } from './restoration-pricing';

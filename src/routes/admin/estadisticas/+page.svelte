@@ -209,16 +209,11 @@
 		};
 
 		invoicesDoughnut = {
-			labels: ['Pendientes', 'Facturadas', 'Pagadas', 'Canceladas'],
+			labels: ['Pendientes', 'Facturadas', 'Pagadas'],
 			datasets: [
 				{
-					data: [
-						invoiceSummary.pendiente,
-						invoiceSummary.facturado,
-						invoiceSummary.pagado,
-						invoiceSummary.cancelada
-					],
-					backgroundColor: ['#f87171', '#fbbf24', '#34d399', '#cbd5e1']
+					data: [invoiceSummary.pendiente, invoiceSummary.facturado, invoiceSummary.pagado],
+					backgroundColor: ['#f87171', '#fbbf24', '#34d399']
 				}
 			]
 		};

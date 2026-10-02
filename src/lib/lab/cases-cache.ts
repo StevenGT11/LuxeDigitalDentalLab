@@ -35,6 +35,10 @@ export function mergeCachedCases(fetched: LabCase[]): void {
 	hydrated = true;
 }
 
+export function removeCachedCase(caseId: string): void {
+	cases = cases.filter((caso) => caso.id !== caseId);
+}
+
 export function upsertCachedCase(caso: LabCase): void {
 	const idx = cases.findIndex((c) => c.id === caso.id);
 	if (idx >= 0) cases[idx] = caso;

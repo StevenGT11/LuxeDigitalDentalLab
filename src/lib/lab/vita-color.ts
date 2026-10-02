@@ -1,4 +1,4 @@
-import { getCatalogSnapshot } from './catalog-cache';
+import { getCatalogSnapshot } from './catalog-cache.svelte';
 
 /** Tratamientos que no requieren tono VITA al crear el caso */
 export const TREATMENTS_WITHOUT_VITA_COLOR = [

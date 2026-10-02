@@ -297,7 +297,30 @@ export type EmitFeOptions = FeMonedaEmitOptions & {
 	extraCorreos?: string | null;
 	/** No reescribe CABYS/IVA desde tratamientos; respeta las líneas editadas al emitir. */
 	preserveInvoiceLines?: boolean;
+	/**
+	 * Precio unitario ya en colones de catálogo, alineado con las líneas.
+	 * Si viene, el comprobante CRC no multiplica el libro USD por el tipo de cambio.
+	 */
+	comprobanteUnitPrices?: number[];
 };
+
+function applyComprobanteUnitPrices(invoice: InvoiceRow, prices: number[]): InvoiceRow {
+	const invoice_lines = [...(invoice.invoice_lines ?? [])]
+		.sort((a, b) => a.sort_order - b.sort_order)
+		.map((line, index) => {
+			const precio = prices[index];
+			if (precio == null || !Number.isFinite(precio)) return line;
+			const amounts = invoiceLineAmounts(line.cantidad, precio);
+			return { ...line, precio_unitario: amounts.precio_unitario, subtotal: amounts.subtotal };
+		});
+	const totals = computeInvoiceTaxTotals(
+		invoice_lines.map((line) => ({
+			subtotal: line.subtotal,
+			impuesto_tarifa: line.impuesto_tarifa
+		}))
+	);
+	return { ...invoice, ...totals, invoice_lines };
+}
 
 export async function emitirFacturaElectronica(
 	invoiceId: string,
@@ -339,6 +362,15 @@ export async function emitirFacturaElectronica(
 	}
 
 	const isReemit = fe && feComprobanteCanReemit(fe.estado);
+	const moneda = options?.moneda ?? 'USD';
+	const tipoCambio = options?.tipoCambio ?? 1;
+	const catalogCrc =
+		moneda === 'CRC' &&
+		options?.comprobanteUnitPrices &&
+		options.comprobanteUnitPrices.length > 0
+			? applyComprobanteUnitPrices(invoiceFresh, options.comprobanteUnitPrices)
+			: null;
+	const invoiceForFe = catalogCrc ?? scaleInvoiceForFeMoneda(invoiceFresh, moneda, tipoCambio);
 
 	let feId = fe?.id;
 	let consecutivoNum = fe?.consecutivo_num;
@@ -348,25 +380,22 @@ export async function emitirFacturaElectronica(
 		await resetFeComprobanteForReemit(fe.id, {
 			consecutivo_num: consecutivoNum,
 			ambiente: emitAmbiente,
-			subtotal: Number(invoiceFresh.subtotal),
-			impuesto: Number(invoiceFresh.impuesto),
-			total: Number(invoiceFresh.total)
+			subtotal: Number(invoiceForFe.subtotal),
+			impuesto: Number(invoiceForFe.impuesto),
+			total: Number(invoiceForFe.total)
 		});
 		feId = fe.id;
 	} else if (fe?.clave && fe.estado !== 'pendiente_envio') {
 		throw new Error('Ya existe un envío con clave. Use «Consultar» para actualizar el estado.');
 	} else if (!feId || !consecutivoNum) {
 		consecutivoNum = await reserveNextFeConsecutivo('01', emitAmbiente);
-		const moneda = options?.moneda ?? 'USD';
-		const tipoCambio = options?.tipoCambio ?? 1;
-		const scaled = scaleInvoiceForFeMoneda(invoiceFresh, moneda, tipoCambio);
 		feId = await insertFeComprobanteDraft({
 			invoice_id: invoiceId,
 			consecutivo_num: consecutivoNum,
 			ambiente: emitAmbiente,
-			subtotal: Number(scaled.subtotal),
-			impuesto: Number(scaled.impuesto),
-			total: Number(scaled.total),
+			subtotal: Number(invoiceForFe.subtotal),
+			impuesto: Number(invoiceForFe.impuesto),
+			total: Number(invoiceForFe.total),
 			moneda,
 			tipo_cambio: feTipoCambioForPayload(moneda, tipoCambio)
 		});
@@ -377,10 +406,11 @@ export async function emitirFacturaElectronica(
 	}
 
 	const config = emisorRowToFacturadorConfig(emisor);
-	const payload = buildPayload(config, client, invoiceFresh, consecutivoNum, {
+	const payload = buildPayload(config, client, catalogCrc ?? invoiceFresh, consecutivoNum, {
 		mediosPago: options?.mediosPago,
-		moneda: options?.moneda ?? 'USD',
-		tipoCambio: options?.tipoCambio ?? 1
+		moneda,
+		tipoCambio,
+		amountSource: catalogCrc ? 'fe' : 'ledger'
 	});
 
 	logFeEmitFiscalDebug({
@@ -421,9 +451,9 @@ export async function emitirFacturaElectronica(
 		hacienda_status: haciendaStatus,
 		xml_firmado: data.xml ?? '',
 		fecha_emision: data.fecha_emision ?? new Date().toISOString(),
-		subtotal: Number(data.subtotal ?? invoiceFresh.subtotal),
-		impuesto: Number(data.impuesto ?? invoiceFresh.impuesto),
-		total: Number(data.total ?? invoiceFresh.total),
+		subtotal: Number(data.subtotal ?? invoiceForFe.subtotal),
+		impuesto: Number(data.impuesto ?? invoiceForFe.impuesto),
+		total: Number(data.total ?? invoiceForFe.total),
 		estado
 	});
 

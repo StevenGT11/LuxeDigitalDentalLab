@@ -5,7 +5,8 @@
 	import EstadoProgress from '$lib/components/admin/EstadoProgress.svelte';
 	import VitaColorChip from '$lib/components/admin/VitaColorChip.svelte';
 	import CaseFilesList from '$lib/components/lab/CaseFilesList.svelte';
-	import { canViewFinancial } from '$lib/auth/roles';
+	import { canViewFinancial, isAdminRole } from '$lib/auth/roles';
+	import AdminDeleteCaseButton from '$lib/components/admin/AdminDeleteCaseButton.svelte';
 	import {
 		ESTADOS,
 		getCaseItemTipoLabel,
@@ -24,6 +25,7 @@
 		formatDeliveryCountdown,
 		formatLastEditedLine
 	} from '$lib/lab/helpers';
+	import { fetchCaseHasIssuedInvoice } from '$lib/lab/case-issued';
 	import { getInvoiceByCaseIdAsync, updateCaseStatus } from '$lib/lab/store';
 	import type { Invoice, LabCase, LabCaseEstado } from '$lib/lab/types';
 	import { requestCaseFinalizedClientNotification } from '$lib/lab/notify-client';
@@ -34,18 +36,34 @@
 		detailed?: boolean;
 		returnToClient?: boolean;
 		onUpdated?: (caso: LabCase) => void;
+		onDeleted?: (caseId: string) => void;
 		onClose: () => void;
 	}
 
-	let { caso, detailed = false, returnToClient = false, onUpdated, onClose }: Props = $props();
+	let { caso, detailed = false, returnToClient = false, onUpdated, onDeleted, onClose }: Props = $props();
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
+	let isAdmin = $derived(isAdminRole($page.data.staffRole ?? $page.data.profile?.role));
+	let issuedInvoice = $state(true);
 	let factura = $state<Invoice | null>(null);
 	let saved = $state<LabCase | null>(null);
 	let view = $derived(saved && caso && saved.id === caso.id ? saved : caso);
 	const estadosAdmin = ESTADOS.filter((estado) => estado.value !== 'todos');
 
 	const modalTitleId = 'case-preview-title';
+
+	$effect(() => {
+		const id = view?.id;
+		if (!id || !isAdmin) return;
+		let cancelled = false;
+		issuedInvoice = true;
+		void fetchCaseHasIssuedInvoice(id).then((issued) => {
+			if (!cancelled) issuedInvoice = issued;
+		});
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	$effect(() => {
 		const current = view;
@@ -300,6 +318,22 @@
 		</div>
 
 		<footer class="case-file-modal__footer case-preview-modal__footer">
+			{#if isAdmin && !issuedInvoice}
+				<a
+					class="btn-secondary-pill"
+					href="/admin/casos/{view.id}/editar{returnToClient ? '?from=cliente' : ''}"
+				>
+					Editar
+				</a>
+				<AdminDeleteCaseButton
+					caseId={view.id}
+					caseNumber={view.case_number}
+					onDeleted={() => {
+						onDeleted?.(view.id);
+						onClose();
+					}}
+				/>
+			{/if}
 			<button type="button" class="btn-pearl-capsule" onclick={onClose}>Cerrar</button>
 			<button type="button" class="btn-primary case-preview-modal__go" onclick={goToCase}>
 				{detailed ? 'Abrir caso completo' : 'Ir al caso'}

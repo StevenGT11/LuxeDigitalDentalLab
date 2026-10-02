@@ -7,6 +7,9 @@
 	import ImplantCrownFields from '$lib/components/lab/ImplantCrownFields.svelte';
 	import TreatmentCategoryPicker from '$lib/components/lab/TreatmentCategoryPicker.svelte';
 	import { validateCaseFileBatch } from '$lib/lab/attachments';
+	import { uploadCaseFilesFromInputs } from '$lib/lab/case-files-db';
+	import { upsertCachedCase } from '$lib/lab/cases-cache';
+	import { fetchCaseByIdFromDb } from '$lib/lab/cases-db';
 	import {
 		ARCADA_SCOPE_OPTIONS,
 		COLORES_VITA,
@@ -21,12 +24,14 @@
 		treatmentRequiresVitaColor,
 		treatmentUsesOdontogram
 	} from '$lib/lab/constants';
+	import { getCoronaSobreImplanteAddonUsd } from '$lib/lab/treatment-materials';
 	import { getTreatmentByValue, type TreatmentCategory } from '$lib/lab/treatments';
 	import {
 		getCachedDoctors,
 		hydrateClientSession,
 		reloadDoctors
 	} from '$lib/lab/client-session';
+	import { fetchDoctorsForClient } from '$lib/lab/clients-db';
 	import {
 		createCase,
 		getClientId,
@@ -56,9 +61,11 @@
 	interface Props {
 		mode?: 'create' | 'edit';
 		editCase?: LabCase;
+		audience?: 'client' | 'admin';
+		returnTo?: string;
 	}
 
-	let { mode = 'create', editCase }: Props = $props();
+	let { mode = 'create', editCase, audience = 'client', returnTo }: Props = $props();
 
 	type DraftItem = CaseDraftItem;
 
@@ -223,6 +230,21 @@
 	}
 
 	onMount(async () => {
+		if (audience === 'admin') {
+			initializeLabStorage({ treatments: true });
+			try {
+				if (editCase) {
+					doctors = await fetchDoctorsForClient(editCase.client_id);
+					populateFromCase(editCase);
+				}
+			} catch {
+				if (editCase) populateFromCase(editCase);
+			} finally {
+				sessionReady = true;
+			}
+			return;
+		}
+
 		initializeLabStorage({ linkClientPortal: true, treatments: true });
 		try {
 			await hydrateClientSession();
@@ -337,14 +359,16 @@
 			});
 		}
 
-		const profile = getClientProfile();
-		if (!profile.nombre.trim()) {
-			showFormError(
-				isEdit
-					? 'Completa tu perfil antes de guardar cambios'
-					: 'Completa tu perfil antes de enviar un caso'
-			);
-			return;
+		if (audience !== 'admin') {
+			const profile = getClientProfile();
+			if (!profile.nombre.trim()) {
+				showFormError(
+					isEdit
+						? 'Completa tu perfil antes de guardar cambios'
+						: 'Completa tu perfil antes de enviar un caso'
+				);
+				return;
+			}
 		}
 		if (!selectedDoctorId) {
 			showFormError('Selecciona el doctor responsable del caso');
@@ -363,7 +387,7 @@
 		try {
 			const fechaISO = dateTimeLocalToISO(fecha_entrega);
 			const payload = {
-				client_id: getClientId(),
+				client_id: audience === 'admin' && editCase ? editCase.client_id : getClientId(),
 				doctor_id: selectedDoctorId,
 				paciente_name: paciente_name.trim(),
 				items: payloadItems,
@@ -375,6 +399,33 @@
 			};
 
 			if (isEdit && editCase) {
+				if (audience === 'admin') {
+					const res = await fetch(`/api/admin/casos/${editCase.id}`, {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({
+							client_id: editCase.client_id,
+							doctor_id: payload.doctor_id,
+							paciente_name: payload.paciente_name,
+							items: payload.items,
+							fecha_entrega: payload.fecha_entrega,
+							notas: payload.notas,
+							costo: payload.costo
+						})
+					});
+					if (!res.ok) {
+						const data = (await res.json().catch(() => null)) as { message?: string } | null;
+						throw new Error(data?.message || 'No se pudo guardar el caso.');
+					}
+					if (escaneoFiles.length > 0 || disenoFiles.length > 0) {
+						await uploadCaseFilesFromInputs(editCase.id, escaneoFiles, disenoFiles);
+					}
+					const saved = await fetchCaseByIdFromDb(editCase.id);
+					if (saved) upsertCachedCase(saved);
+					await goto(returnTo ?? `/admin/casos/${editCase.id}`, { invalidateAll: true });
+					return;
+				}
+
 				const updated = await updateCase(editCase.id, payload);
 				await goto(`/client?updated=${encodeURIComponent(updated.case_number)}`, {
 					invalidateAll: true
@@ -397,8 +448,15 @@
 </script>
 
 <div class="dash-page">
+	{#if audience === 'admin' && editCase}
+		<button type="button" class="text-link dash-back" onclick={() => goto(returnTo ?? `/admin/casos/${editCase.id}`)}>
+			← Volver al caso
+		</button>
+	{/if}
 	<div class="alert alert--info" role="status">
-		{#if isEdit}
+		{#if audience === 'admin' && isEdit}
+			Editas el caso {editCase?.case_number} como administrador. Solo mientras su factura no se haya emitido.
+		{:else if isEdit}
 			Modifica los datos del caso {editCase?.case_number}. Solo puedes editar casos en estado pendiente.
 		{:else}
 			Indica el tratamiento de cada ítem. El odontograma es opcional cuando el servicio no requiere piezas concretas.
@@ -445,7 +503,11 @@
 						<p class="type-fine-print">Cargando doctores…</p>
 					{:else if doctors.length === 0}
 						<p class="type-fine-print">
-							<a href="/client/perfil" class="text-link">Agrega doctores en tu perfil</a> antes de enviar el caso.
+							{#if audience === 'admin'}
+								Esta clínica no tiene doctores activos.
+							{:else}
+								<a href="/client/perfil" class="text-link">Agrega doctores en tu perfil</a> antes de enviar el caso.
+							{/if}
 						</p>
 					{:else}
 						<select
@@ -601,6 +663,11 @@
 								<div class="case-item-draft__subtotal case-item-draft__subtotal--wide">
 									<span class="type-fine-print">Subtotal ítem</span>
 									<span class="case-item-draft__subtotal-value">{formatCurrency(itemCost(row))}</span>
+									{#if row.corona_sobre_implante}
+										<span class="case-item-draft__subtotal-detail">
+											Incluye {formatCurrency(getCoronaSobreImplanteAddonUsd() * itemPiezas(row))} por ir sobre implante
+										</span>
+									{/if}
 								</div>
 							{/if}
 						</div>

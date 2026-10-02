@@ -4,18 +4,17 @@
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { onMount, tick } from 'svelte';
-	import { Trash2 } from '@lucide/svelte';
-	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
+	import { ChevronRight, Trash2 } from '@lucide/svelte';
+	import { canManageClients, canViewFinancial, isAdminRole } from '$lib/auth/roles';
+	import AdminDeleteCaseButton from '$lib/components/admin/AdminDeleteCaseButton.svelte';
+	import { removeCachedCase } from '$lib/lab/cases-cache';
+	import { invoicesIncludeIssuedFe } from '$lib/lab/case-issued';
 	import AdminClientDoctorsEditor from '$lib/components/admin/AdminClientDoctorsEditor.svelte';
 	import AdminClientFiscalEditor from '$lib/components/admin/AdminClientFiscalEditor.svelte';
 	import AdminClientCredentialsEditor from '$lib/components/admin/AdminClientCredentialsEditor.svelte';
 	import AdminDirectInvoiceModal from '$lib/components/admin/AdminDirectInvoiceModal.svelte';
 	import CasePreviewModal from '$lib/components/admin/CasePreviewModal.svelte';
-	import FeMediosPagoModal, {
-		type FeMediosPagoConfirm
-	} from '$lib/components/fe/FeMediosPagoModal.svelte';
 	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
-	import FeProcessingBanner from '$lib/components/fe/FeProcessingBanner.svelte';
 	import DoctorProductionSummary from '$lib/components/lab/DoctorProductionSummary.svelte';
 	import { getDoctorProductionStats } from '$lib/lab/analytics';
 	import { loadClientForAdmin } from '$lib/lab/client-session';
@@ -29,15 +28,12 @@
 	import {
 		getEstadoBadgeClass,
 		getEstadoLabel,
-		getInvoiceEstadoClass,
-		getInvoiceEstadoLabel,
 		getInvoiceRowClass,
 		getMaterialLabel,
 		getTipoTrabajoLabel
 	} from '$lib/lab/constants';
+	import { getInvoiceEstadoLabel, invoiceCobroSelectOptions } from '$lib/lab/invoice-estado';
 	import {
-		feComprobanteBlocksEmit,
-		feComprobanteCanReemit,
 		feComprobanteCanConsultar,
 		getFeComprobanteEstadoClass,
 		getFeComprobanteEstadoLabel,
@@ -61,13 +57,13 @@
 	let searchQuery = $state('');
 	let casosPage = $state(1);
 	let casosPageSize = $state<InvoiceListPageSize>(15);
+	let openCaseInvoices = $state<Record<string, boolean>>({});
 
 	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
 	let canManage = $derived(canManageClients($page.data.staffRole ?? $page.data.profile?.role));
+	let isAdmin = $derived(isAdminRole($page.data.staffRole ?? $page.data.profile?.role));
 	let doctorProduction = $derived(getDoctorProductionStats(casos));
 	let clientInvoices = $derived(($page.data.clientInvoices ?? []) as InvoiceListRow[]);
-	let hasActiveEmisor = $derived(Boolean($page.data.hasActiveEmisor));
-	let facturadorOk = $derived(Boolean($page.data.facturadorOk));
 	let fiscalForm = $derived($page.form?.kind === 'fiscal' ? $page.form : undefined);
 	let credentialsForm = $derived($page.form?.kind === 'credentials' ? $page.form : undefined);
 	let feActionMessage = $derived(
@@ -194,9 +190,59 @@
 		return casos.length + orphanCaseIds.size;
 	});
 
+	function caseInvoicesOpen(key: string) {
+		return openCaseInvoices[key] === true;
+	}
+
+	function toggleCaseInvoices(key: string) {
+		openCaseInvoices[key] = !openCaseInvoices[key];
+	}
+
+	function expandAllCaseInvoices() {
+		for (const group of paginatedGroups) {
+			if (group.invoices.length > 0) openCaseInvoices[group.key] = true;
+		}
+	}
+
+	function collapseAllCaseInvoices() {
+		for (const group of paginatedGroups) openCaseInvoices[group.key] = false;
+	}
+
+	function cobroSelectTone(estado: string): string {
+		if (estado === 'pagado' || estado === 'pagada') return 'pagado';
+		if (estado === 'facturado') return 'facturado';
+		if (estado === 'cancelada') return 'cancelada';
+		return 'pendiente';
+	}
+
+	function onCaseRowClick(event: MouseEvent, key: string, invoiceCount: number) {
+		if (!showFinancial || invoiceCount === 0) return;
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		if (target.closest('a, button, select, input, label')) return;
+		toggleCaseInvoices(key);
+	}
+
 	$effect(() => {
 		searchQuery;
 		casosPage = 1;
+	});
+
+	$effect(() => {
+		const q = searchQuery.trim();
+		if (!q) return;
+		for (const group of unifiedGroups) {
+			if (group.invoices.length > 0) openCaseInvoices[group.key] = true;
+		}
+	});
+
+	$effect(() => {
+		const id = feActionInvoiceId;
+		if (!id) return;
+		const fac = clientInvoices.find((item) => item.id === id);
+		if (!fac) return;
+		const key = casos.some((caso) => caso.id === fac.case_id) ? fac.case_id : `orphan-${fac.case_id}`;
+		if (!openCaseInvoices[key]) openCaseInvoices[key] = true;
 	});
 
 	$effect(() => {
@@ -296,16 +342,15 @@
 		casos = casos.map((caso) => (caso.id === updated.id ? updated : caso));
 	}
 
+	function onCaseDeleted(caseId: string) {
+		removeCachedCase(caseId);
+		casos = casos.filter((caso) => caso.id !== caseId);
+		if (previewCase?.id === caseId) previewCase = null;
+		void invalidate('app:client-invoices');
+	}
+
 	let pdfPreviewOpen = $state(false);
 	let pdfPreview = $state<{ id: string; number: string } | null>(null);
-	let emitModalOpen = $state(false);
-	let emitTarget = $state<{ id: string; label: string; total: number } | null>(null);
-	let emitFormEl = $state<HTMLFormElement | null>(null);
-	let mediosPagoJson = $state('');
-	let emitMoneda = $state('USD');
-	let emitTipoCambio = $state('1');
-	let emittingFe = $state(false);
-	let emittingLabel = $state('');
 	let directInvoiceOpen = $state(false);
 	let creatingDirectInvoice = $state(false);
 	let directInvoiceFormEl = $state<HTMLFormElement | null>(null);
@@ -345,12 +390,6 @@
 		return fallback;
 	}
 
-	function openEmitModal(fac: InvoiceListRow) {
-		emitTarget = { id: fac.id, label: fac.invoice_number, total: fac.total };
-		mediosPagoJson = '';
-		emitModalOpen = true;
-	}
-
 	async function onDirectInvoiceConfirm(payload: {
 		paciente_name: string;
 		notas: string;
@@ -363,17 +402,6 @@
 		creatingDirectInvoice = true;
 		await tick();
 		directInvoiceFormEl?.requestSubmit();
-	}
-
-	async function onMediosConfirm(result: FeMediosPagoConfirm) {
-		mediosPagoJson = JSON.stringify(result.medios);
-		emitMoneda = result.moneda;
-		emitTipoCambio = String(result.tipoCambio);
-		emittingLabel = emitTarget?.label ?? '';
-		emittingFe = true;
-		emitModalOpen = false;
-		await tick();
-		emitFormEl?.requestSubmit();
 	}
 </script>
 
@@ -514,13 +542,6 @@
 						{directInvoiceErrorMessage}
 					</div>
 				{/if}
-				{#if emittingFe}
-					<FeProcessingBanner
-						title="Generando factura electrónica"
-						subtitle={emittingLabel}
-						detail="Firmando XML, enviando y consultando en Hacienda…"
-					/>
-				{/if}
 				{#if feActionMessage}
 					<div
 						class="store-utility-card"
@@ -531,15 +552,6 @@
 					>
 						<p>{feActionMessage}</p>
 					</div>
-				{/if}
-				{#if !facturadorOk && $page.data.facturadorUrl}
-					<p class="type-caption" style="margin-bottom: var(--spacing-md); color: var(--color-danger, #c0392b);">
-						Facturador no disponible. No se puede generar FE desde aquí.
-					</p>
-				{:else if !hasActiveEmisor}
-					<p class="type-caption" style="margin-bottom: var(--spacing-md); color: var(--color-warning, #b8860b);">
-						Emisor incompleto: complete datos fiscales del laboratorio para generar FE.
-					</p>
 				{/if}
 			{/if}
 			{#if allGroupsCount === 0}
@@ -555,6 +567,13 @@
 							: 'Buscar por número, paciente, doctor, trabajo, tono…'}
 						aria-label="Buscar casos y facturas del cliente"
 					/>
+					{#if showFinancial}
+						<div class="client-case-fold-all">
+							<button type="button" class="text-link" onclick={expandAllCaseInvoices}>Expandir facturas</button>
+							<span aria-hidden="true">·</span>
+							<button type="button" class="text-link" onclick={collapseAllCaseInvoices}>Contraer facturas</button>
+						</div>
+					{/if}
 				</div>
 
 				{#if unifiedGroups.length === 0}
@@ -565,7 +584,7 @@
 						</button>
 					</div>
 				{:else}
-					<div class="data-table-wrap">
+					<div class="data-table-wrap client-cases-table">
 						<table class="data-table">
 							<thead>
 								<tr>
@@ -586,14 +605,44 @@
 								</tr>
 							</thead>
 							{#each paginatedGroups as group (group.key)}
+								{@const invoicesOpen = caseInvoicesOpen(group.key)}
 								<tbody class="client-case-group">
-									<tr class="client-doc-row--case">
-										<td class="type-body-strong">{group.caseNumber}</td>
+									<tr
+										class="client-doc-row--case"
+										class:client-doc-row--case-toggle={showFinancial && group.invoices.length > 0}
+										onclick={(event) => onCaseRowClick(event, group.key, group.invoices.length)}
+									>
+										<td class="type-body-strong">
+											<div class="client-case-id">
+												{#if showFinancial && group.invoices.length > 0}
+													<button
+														type="button"
+														class="client-case-fold"
+														aria-expanded={invoicesOpen}
+														aria-label="{invoicesOpen ? 'Ocultar' : 'Mostrar'} facturas de {group.caseNumber}"
+														onclick={() => toggleCaseInvoices(group.key)}
+													>
+														<span
+															class="client-case-fold__icon"
+															class:client-case-fold__icon--open={invoicesOpen}
+														>
+															<ChevronRight size={16} />
+														</span>
+													</button>
+												{/if}
+												<span>{group.caseNumber}</span>
+											</div>
+										</td>
 										<td>{group.paciente}</td>
 										<td class="type-caption">{group.items}</td>
 										{#if showFinancial}
 											<td class="type-caption">Caso</td>
-											<td></td>
+											<td class="type-caption">
+												{#if group.invoices.length > 0 && !invoicesOpen}
+													{group.invoices.length}
+													{group.invoices.length === 1 ? 'factura' : 'facturas'}
+												{/if}
+											</td>
 											<td>{group.costo == null ? '—' : formatCurrency(group.costo)}</td>
 										{/if}
 										<td>
@@ -609,13 +658,26 @@
 										{/if}
 										<td>
 											{#if group.caso}
-												<button
-													type="button"
-													class="text-link"
-													onclick={() => group.caso && openCasePreview(group.caso)}
-												>
-													Ver caso
-												</button>
+												<div class="client-case-row-actions">
+													<button
+														type="button"
+														class="text-link"
+														onclick={() => group.caso && openCasePreview(group.caso)}
+													>
+														Ver caso
+													</button>
+													{#if isAdmin && !invoicesIncludeIssuedFe(group.invoices)}
+														<a class="text-link" href="/admin/casos/{group.caso.id}/editar?from=cliente">
+															Editar
+														</a>
+														<AdminDeleteCaseButton
+															compact
+															caseId={group.caso.id}
+															caseNumber={group.caseNumber}
+															onDeleted={() => group.caso && onCaseDeleted(group.caso.id)}
+														/>
+													{/if}
+												</div>
 											{/if}
 										</td>
 									</tr>
@@ -625,7 +687,7 @@
 											<td colspan="7" class="type-caption">Sin facturas</td>
 										</tr>
 									{/if}
-									{#if showFinancial}
+									{#if showFinancial && invoicesOpen}
 										{#each group.invoices as fac (fac.id)}
 											{@const fe = fac.fe}
 											<tr
@@ -652,9 +714,29 @@
 												</td>
 												<td>{formatCurrency(fac.total)}</td>
 												<td>
-													<span class={getInvoiceEstadoClass(fac.estado, fe?.estado)}>
-														{getInvoiceEstadoLabel(fac.estado)}
-													</span>
+													<form
+														method="POST"
+														action="?/updateEstado"
+														class="client-cobro-form"
+														use:enhance={() =>
+															async ({ update }) => {
+																await update({ reset: false });
+																await invalidate('app:client-invoices');
+															}}
+													>
+														<input type="hidden" name="invoice_id" value={fac.id} />
+														<select
+															class="field-select client-cobro-form__select client-cobro-form__select--{cobroSelectTone(fac.estado)}"
+															name="estado"
+															value={fac.estado}
+															onchange={(e) => e.currentTarget.form?.requestSubmit()}
+															aria-label="Estado de cobro de {fac.invoice_number}"
+														>
+															{#each invoiceCobroSelectOptions(fac.estado, fe?.estado) as option (option.value)}
+																<option value={option.value}>{option.label}</option>
+															{/each}
+														</select>
+													</form>
 												</td>
 												<td>
 													{#if fe}
@@ -667,16 +749,6 @@
 												</td>
 												<td>{formatDate(fac.fecha_emision)}</td>
 												<td class="client-fe-actions">
-													{#if hasActiveEmisor && facturadorOk && !feComprobanteBlocksEmit(fe?.estado)}
-														<button
-															type="button"
-															class="btn-primary client-fe-actions__btn"
-															disabled={emittingFe}
-															onclick={() => openEmitModal(fac)}
-														>
-															{fe && feComprobanteCanReemit(fe.estado) ? 'Reemitir FE' : 'Generar factura'}
-														</button>
-													{/if}
 													{#if fe && feComprobanteCanConsultar(fe.estado) && fe.clave}
 														<form
 															method="POST"
@@ -691,7 +763,6 @@
 															<button
 																type="submit"
 																class="btn-secondary-pill client-fe-actions__btn"
-																disabled={emittingFe}
 															>
 																Consultar
 															</button>
@@ -745,7 +816,6 @@
 						page={casosPage}
 						pageSize={casosPageSize}
 						totalCount={unifiedGroups.length}
-						disabled={emittingFe}
 						ariaLabel="Paginación de casos y facturas"
 						onPageChange={(nextPage) => (casosPage = nextPage)}
 						onPageSizeChange={(size) => {
@@ -847,49 +917,14 @@
 	detailed
 	returnToClient
 	onUpdated={onCaseUpdated}
+	onDeleted={onCaseDeleted}
 	onClose={closeCasePreview}
 />
-
-<form
-	bind:this={emitFormEl}
-	method="POST"
-	action="?/emitir"
-	class="fe-emit-form-hidden"
-	aria-hidden="true"
-	use:enhance={() => {
-		return async ({ update }) => {
-			emittingFe = true;
-			try {
-				await update({ reset: false });
-				await invalidate('app:client-invoices');
-			} finally {
-				emittingFe = false;
-				emittingLabel = '';
-				emitTarget = null;
-			}
-		};
-	}}
->
-	<input type="hidden" name="invoice_id" value={emitTarget?.id ?? ''} />
-	<input type="hidden" name="medios_pago" value={mediosPagoJson} />
-	<input type="hidden" name="moneda" value={emitMoneda} />
-	<input type="hidden" name="tipo_cambio" value={emitTipoCambio} />
-</form>
 
 <InvoicePdfPreview
 	bind:open={pdfPreviewOpen}
 	invoiceId={pdfPreview?.id ?? ''}
 	invoiceNumber={pdfPreview?.number ?? ''}
-/>
-
-<FeMediosPagoModal
-	bind:open={emitModalOpen}
-	total={emitTarget?.total ?? 0}
-	subtitle={emitTarget ? `Factura ${emitTarget.label}` : ''}
-	onCancel={() => {
-		emitTarget = null;
-	}}
-	onConfirm={onMediosConfirm}
 />
 
 <AdminDirectInvoiceModal
@@ -982,7 +1017,66 @@
 	}
 
 	.client-doc-row--case {
-		background: color-mix(in srgb, var(--color-accent, #8a7355) 6%, transparent);
+		background: transparent;
+	}
+
+	:global(
+		.dash-content .client-cases-table .data-table tbody tr.client-doc-row--invoice.invoice-row--danger
+	),
+	:global(
+		.dash-content .client-cases-table .data-table tbody tr.client-doc-row--invoice.invoice-row--warning
+	),
+	:global(
+		.dash-content .client-cases-table .data-table tbody tr.client-doc-row--invoice.invoice-row--success
+	) {
+		background: var(--dash-card-solid);
+		box-shadow: none;
+	}
+
+	:global(
+		.dash-content
+			.client-cases-table
+			.data-table
+			tbody
+			tr.client-doc-row--invoice.invoice-row--danger:hover
+	),
+	:global(
+		.dash-content
+			.client-cases-table
+			.data-table
+			tbody
+			tr.client-doc-row--invoice.invoice-row--warning:hover
+	),
+	:global(
+		.dash-content
+			.client-cases-table
+			.data-table
+			tbody
+			tr.client-doc-row--invoice.invoice-row--success:hover
+	) {
+		background: var(--dash-table-hover);
+	}
+
+	:global(
+		.dash-content .client-cases-table .data-table tbody tr.client-doc-row--invoice.invoice-row--danger td
+	),
+	:global(
+		.dash-content
+			.client-cases-table
+			.data-table
+			tbody
+			tr.client-doc-row--invoice.invoice-row--warning
+			td
+	),
+	:global(
+		.dash-content
+			.client-cases-table
+			.data-table
+			tbody
+			tr.client-doc-row--invoice.invoice-row--success
+			td
+	) {
+		border-bottom-color: var(--dash-table-row-border);
 	}
 
 	.client-doc-row--nota td {
@@ -991,6 +1085,136 @@
 
 	.client-doc-indent {
 		padding-left: 1.25rem;
+	}
+
+	.client-case-fold-all {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-left: auto;
+		font-size: 0.8125rem;
+		white-space: nowrap;
+	}
+
+	.client-case-fold-all button {
+		background: none;
+		border: 0;
+		padding: 0;
+		cursor: pointer;
+		font: inherit;
+	}
+
+	.client-case-id {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	:global(.dash-content .data-table tbody tr.client-doc-row--case-toggle) {
+		cursor: pointer;
+	}
+
+	.client-case-fold {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		padding: 0;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--dash-text, #0f172a);
+		cursor: pointer;
+		flex: 0 0 auto;
+	}
+
+	.client-case-fold:hover {
+		background: color-mix(in srgb, var(--dash-text, #0f172a) 8%, transparent);
+	}
+
+	.client-case-fold__icon {
+		display: inline-flex;
+		transition: transform 0.15s ease;
+	}
+
+	.client-case-fold__icon--open {
+		transform: rotate(90deg);
+	}
+
+	.client-case-row-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.65rem 0.9rem;
+		align-items: center;
+	}
+
+	.client-cobro-form {
+		margin: 0;
+	}
+
+	.client-cobro-form__select {
+		width: 100%;
+		min-width: 7.5rem;
+		padding: 6px 10px;
+		font-size: 13px;
+		font-weight: 600;
+	}
+
+	:global(.dash-content .client-cobro-form__select.client-cobro-form__select--pendiente) {
+		background: color-mix(in srgb, #dc2626 16%, var(--dash-card-solid));
+		color: #b91c1c;
+		border-color: color-mix(in srgb, #dc2626 45%, var(--dash-border-strong));
+	}
+
+	:global(.dash-content .client-cobro-form__select.client-cobro-form__select--facturado) {
+		background: color-mix(in srgb, #ca8a04 20%, var(--dash-card-solid));
+		color: #a16207;
+		border-color: color-mix(in srgb, #ca8a04 50%, var(--dash-border-strong));
+	}
+
+	:global(.dash-content .client-cobro-form__select.client-cobro-form__select--pagado) {
+		background: color-mix(in srgb, #16a34a 18%, var(--dash-card-solid));
+		color: #15803d;
+		border-color: color-mix(in srgb, #16a34a 45%, var(--dash-border-strong));
+	}
+
+	:global(.dash-content .client-cobro-form__select.client-cobro-form__select--cancelada) {
+		background: var(--dash-table-head);
+		color: var(--dash-text-secondary);
+		border-color: var(--dash-border-strong);
+	}
+
+	:global([data-theme='dark'] .dash-content .client-cobro-form__select.client-cobro-form__select--pendiente) {
+		color: #fca5a5;
+	}
+
+	:global([data-theme='dark'] .dash-content .client-cobro-form__select.client-cobro-form__select--facturado) {
+		color: #facc15;
+	}
+
+	:global([data-theme='dark'] .dash-content .client-cobro-form__select.client-cobro-form__select--pagado) {
+		color: #86efac;
+	}
+
+	:global(.dash-content .client-cobro-form__select option[value='pendiente']) {
+		background: #fee2e2;
+		color: #b91c1c;
+	}
+
+	:global(.dash-content .client-cobro-form__select option[value='facturado']) {
+		background: #fef3c7;
+		color: #a16207;
+	}
+
+	:global(.dash-content .client-cobro-form__select option[value='pagado']) {
+		background: #dcfce7;
+		color: #15803d;
+	}
+
+	:global(.dash-content .client-cobro-form__select option[value='cancelada']) {
+		background: #f8fafc;
+		color: #64748b;
 	}
 
 	.client-fe-actions {

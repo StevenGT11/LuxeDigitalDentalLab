@@ -1,7 +1,7 @@
 import type { MaterialRestauracion, RestauracionPrecio } from './restoration-pricing';
 import type { TreatmentMaterialOption } from './treatment-materials';
 import type { GuiaPrecioTier, ImplantesGuia } from './surgical-guide';
-import type { LabTreatment, TreatmentCategory } from './treatments';
+import type { LabTreatment } from './treatments';
 import { DEFAULT_TREATMENTS, sortTreatmentsList } from './treatments-core';
 
 export interface CatalogAddon {
@@ -23,7 +23,7 @@ export interface CatalogSnapshot {
 	addons: Map<string, CatalogAddon>;
 }
 
-let snapshot: CatalogSnapshot | null = null;
+let snapshot = $state<CatalogSnapshot | null>(null);
 let hydratePromise: Promise<CatalogSnapshot> | null = null;
 
 function emptySnapshot(): CatalogSnapshot {

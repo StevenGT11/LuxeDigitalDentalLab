@@ -9,12 +9,14 @@ import {
 import {
 	formatArcadaScopeLabel,
 	getArcadaScopePriceMultiplier,
-	isArcadaScopeTreatment
+	isArcadaScopeTreatment,
+	type ArcadaScope
 } from './arcada-scope';
 import { isSobreImplanteTreatment } from './sobre-implante';
-import { treatmentHasMaterials, getTreatmentMaterialPriceUsd, findTreatmentMaterialLabelGlobally, getTreatmentMaterialLabel } from './treatment-materials';
+import { treatmentHasMaterials, getCoronaSobreImplanteAddonCrc, getCoronaSobreImplanteAddonUsd, getTreatmentMaterialPriceCrc, getTreatmentMaterialPriceUsd, findTreatmentMaterialLabelGlobally, getTreatmentMaterialLabel } from './treatment-materials';
 import {
 	getMaterialRestauracionLabel,
+	getRestauracionPrecioUnitarioCrc,
 	getRestauracionPrecioUnitarioUsd,
 	isRestauracionTipoTrabajo,
 	normalizeRestauracionItem
@@ -26,8 +28,6 @@ import { getPrecioDiseno,
 	getTipoTrabajoLabel,
 	getTiposTrabajo
 } from './treatments';
-import { getCatalogSnapshot } from './catalog-cache';
-import { PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD } from './treatment-catalog';
 
 export {
 	GUIA_QUIRURGICA_VALUE,
@@ -214,19 +214,23 @@ export function getMaterialLabel(value: string | null, treatmentSlug?: string | 
 	return MATERIALES.find((m) => m.value === value)?.label ?? value;
 }
 
-export function calcularCostoItem(input: {
+export type CostoItemInput = {
 	tipo_trabajo: string;
 	material: string | null;
 	piezas: number;
 	incluye_diseno: boolean;
 	incluye_fresado: boolean;
 	implantes_guia?: number | null;
-	alcance_arcada?: import('./arcada-scope').ArcadaScope | null;
+	alcance_arcada?: ArcadaScope | null;
 	corona_sobre_implante?: boolean | null;
-}): number {
+};
+
+/** Total del ítem. `crc` usa el precio en colones del catálogo, sin tipo de cambio. */
+export function calcularCostoItem(input: CostoItemInput, moneda: 'USD' | 'CRC' = 'USD'): number {
+	const crc = moneda === 'CRC';
 	if (isGuiaQuirurgica(input.tipo_trabajo)) {
 		if (!input.incluye_diseno) return 0;
-		return getGuiaPrecioUsd(input.implantes_guia ?? 0);
+		return crc ? getGuiaPrecioCrc(input.implantes_guia ?? 0) : getGuiaPrecioUsd(input.implantes_guia ?? 0);
 	}
 
 	const rest = normalizeRestauracionItem({
@@ -242,21 +246,24 @@ export function calcularCostoItem(input: {
 	let porPieza = 0;
 
 	if (treatmentHasMaterials(tipo) && material) {
-		porPieza = getTreatmentMaterialPriceUsd(tipo, material, restOpts);
+		porPieza = crc
+			? getTreatmentMaterialPriceCrc(tipo, material, restOpts)
+			: getTreatmentMaterialPriceUsd(tipo, material, restOpts);
 	} else if (isRestauracionTipoTrabajo(input.tipo_trabajo) || isRestauracionTipoTrabajo(tipo)) {
-		porPieza = getRestauracionPrecioUnitarioUsd(tipo, material, restOpts);
+		porPieza = crc
+			? getRestauracionPrecioUnitarioCrc(tipo, material, restOpts)
+			: getRestauracionPrecioUnitarioUsd(tipo, material, restOpts);
 	} else {
-		if (input.incluye_diseno) porPieza += getPrecioDiseno(tipo, material, restOpts);
-		if (input.incluye_fresado) porPieza += getPrecioFresado(tipo, material, restOpts);
-		if (
-			rest.corona_sobre_implante &&
-			isSobreImplanteTreatment(input.tipo_trabajo)
-		) {
-			const addon = getCatalogSnapshot().addons.get('corona_sobre_implante');
-			const addonUsd =
-				(addon?.precio_diseno_usd ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD) +
-				(addon?.precio_fresado_usd ?? PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD);
-			porPieza += addonUsd;
+		if (input.incluye_diseno) {
+			porPieza += crc ? getPrecioDisenoCrc(tipo, material, restOpts) : getPrecioDiseno(tipo, material, restOpts);
+		}
+		if (input.incluye_fresado) {
+			porPieza += crc
+				? getPrecioFresadoCrc(tipo, material, restOpts)
+				: getPrecioFresado(tipo, material, restOpts);
+		}
+		if (rest.corona_sobre_implante && isSobreImplanteTreatment(input.tipo_trabajo)) {
+			porPieza += crc ? getCoronaSobreImplanteAddonCrc() : getCoronaSobreImplanteAddonUsd();
 		}
 	}
 	if (isArcadaScopeTreatment(tipo)) {

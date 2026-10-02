@@ -1,6 +1,7 @@
-import { getCatalogSnapshot, isCatalogHydrated } from './catalog-cache';
+import { getCatalogSnapshot, isCatalogHydrated } from './catalog-cache.svelte';
 import { isSobreImplanteTreatment } from './sobre-implante';
 import {
+	getTreatmentMaterialPriceCrc,
 	getTreatmentMaterialPriceUsd,
 	getTreatmentMaterials,
 	treatmentHasMaterials
@@ -8,8 +9,6 @@ import {
 import {
 	PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC,
 	PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD,
-	PRECIO_DISENO_UNIDAD_RESTAURACION_CRC,
-	PRECIO_DISENO_UNIDAD_RESTAURACION_USD,
 	PRECIO_FRESADO_RESTAURACION_CRC,
 	PRECIO_FRESADO_RESTAURACION_USD
 } from './treatment-catalog';
@@ -134,6 +133,9 @@ export function getRestauracionPrecioUnitarioCrc(
 	material: string | null | undefined,
 	opciones?: RestauracionPrecioOpciones
 ): number {
+	if (treatmentHasMaterials(tipoTrabajo) && material) {
+		return getTreatmentMaterialPriceCrc(tipoTrabajo, material, opciones);
+	}
 	return getRestauracionPrecio(tipoTrabajo, material, opciones)?.precio_crc_fresado ?? 0;
 }
 
@@ -144,10 +146,7 @@ function getMatrixRow(tipo: string): Partial<Record<MaterialRestauracion, Restau
 	return MATRIX[tipo];
 }
 
-const ZIRCONIO = soloFresado(
-	PRECIO_DISENO_UNIDAD_RESTAURACION_USD + PRECIO_FRESADO_RESTAURACION_USD,
-	PRECIO_DISENO_UNIDAD_RESTAURACION_CRC + PRECIO_FRESADO_RESTAURACION_CRC
-);
+const ZIRCONIO = soloFresado(PRECIO_FRESADO_RESTAURACION_USD, PRECIO_FRESADO_RESTAURACION_CRC);
 
 const DISILICATO = soloFresado(108, 54_000);
 

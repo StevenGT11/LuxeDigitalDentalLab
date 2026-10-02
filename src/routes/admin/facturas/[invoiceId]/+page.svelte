@@ -33,7 +33,9 @@
 	import { formatCurrency, formatDate } from '$lib/lab/helpers';
 	import { clientFeAddressRowToForm, formatClientFeAddressLabel } from '$lib/fe/client-fiscal-address';
 	import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
-	import type { InvoiceLineDetail } from '$lib/lab/invoice-detail.server';
+	import type { CasePriceItem, InvoiceLineDetail } from '$lib/lab/invoice-detail.server';
+	import { calcularCostoItem } from '$lib/lab/constants';
+	import { hydrateTreatmentsCatalog } from '$lib/lab/treatments';
 	import FeProcessingBanner from '$lib/components/fe/FeProcessingBanner.svelte';
 	import FeRechazoDetail from '$lib/components/fe/FeRechazoDetail.svelte';
 	import { parseFeRechazoFromStored, parseFeRechazoObject } from '$lib/fe/format-rechazo';
@@ -334,16 +336,46 @@
 	const receptorAddress = $derived(formatClientFeAddressLabel(clientFeAddressRowToForm(client)));
 	const receptorCorreo = $derived(formatFeCorreosLabel(client.fe_correo_facturacion, client.email));
 
-	function openEmitReview() {
+	function crcUnitPrice(item: CasePriceItem | undefined, cantidad: number): number | null {
+		if (!item?.tipo_trabajo) return null;
+		const total = calcularCostoItem(
+			{
+				tipo_trabajo: item.tipo_trabajo,
+				material: item.material,
+				piezas: item.piezas,
+				incluye_diseno: item.incluye_diseno,
+				incluye_fresado: item.incluye_fresado,
+				implantes_guia: item.implantes_guia,
+				alcance_arcada: item.alcance_arcada,
+				corona_sobre_implante: item.corona_sobre_implante
+			},
+			'CRC'
+		);
+		const piezas = Math.max(1, item.piezas || cantidad);
+		if (total <= 0) return null;
+		return roundMoney(total / piezas);
+	}
+
+	async function openEmitReview() {
 		feFeedback = null;
-		emitReviewLines = computedLineRows.map((line: InvoiceLineDetail) => ({
+		try {
+			await hydrateTreatmentsCatalog();
+		} catch {
+			feFeedback = {
+				kind: 'error',
+				message: 'No se pudieron cargar los precios en colones del catálogo.'
+			};
+		}
+		const items = (data.casePriceItems ?? []) as CasePriceItem[];
+		emitReviewLines = computedLineRows.map((line: InvoiceLineDetail, index: number) => ({
 			id: line.id,
 			descripcion: line.descripcion,
 			cantidad: line.cantidad,
 			unidad: line.fe_unidad_medida,
 			cabys: line.fe_cabys ?? '',
 			impuesto_tarifa: line.impuesto_tarifa,
-			precio_unitario: line.precio_unitario
+			precio_unitario: line.precio_unitario,
+			precio_unitario_crc: crcUnitPrice(items[index], line.cantidad)
 		}));
 		emitReviewOpen = true;
 	}
@@ -919,7 +951,7 @@
 					<input type="hidden" name="notas" value={emitNotas} />
 					<input type="hidden" name="lineas_json" value={emitLineasJson} />
 				</form>
-				<button type="button" class="btn-primary" onclick={openEmitReview} disabled={feBusy}>
+				<button type="button" class="btn-primary" onclick={() => void openEmitReview()} disabled={feBusy}>
 					{emittingFe ? 'Enviando…' : emitFeLabel}
 				</button>
 			{/if}

@@ -1,4 +1,4 @@
-import { getCatalogSnapshot } from './catalog-cache';
+import { getCatalogSnapshot } from './catalog-cache.svelte';
 
 /** Tratamientos del catálogo que pueden ir sobre implante (checkbox + datos del implante). */
 export function isSobreImplanteTreatment(tipoTrabajo: string): boolean {

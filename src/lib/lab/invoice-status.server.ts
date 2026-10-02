@@ -19,6 +19,9 @@ export async function updateInvoiceStatusServer(
 	options?: { fromFeAceptada?: boolean }
 ): Promise<InvoiceEstado> {
 	const estado = parseInvoiceEstado(estadoRaw);
+	if (estado === 'cancelada') {
+		throw new Error('El estado Cancelada ya no está disponible.');
+	}
 	if (estado === 'facturado' && !options?.fromFeAceptada) {
 		throw new Error(
 			'El estado Facturado se asigna solo cuando Hacienda acepta la factura electrónica.'

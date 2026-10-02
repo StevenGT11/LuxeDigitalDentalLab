@@ -892,28 +892,67 @@
 	background: var(--dash-table-hover);
 }
 
+.dash-content .data-table tbody tr.invoice-row--danger,
+.dash-content .data-table tbody tr.invoice-row--warning,
+.dash-content .data-table tbody tr.invoice-row--success {
+	box-shadow: inset 3px 0 0 var(--invoice-row-accent);
+}
+
+.dash-content .data-table tbody tr.invoice-row--danger td,
+.dash-content .data-table tbody tr.invoice-row--warning td,
+.dash-content .data-table tbody tr.invoice-row--success td {
+	border-bottom-color: color-mix(in srgb, var(--invoice-row-accent) 16%, var(--dash-table-row-border));
+}
+
 .dash-content .data-table tbody tr.invoice-row--danger {
-	background: color-mix(in srgb, #dc2626 10%, var(--dash-card-solid));
+	--invoice-row-accent: #e11d48;
+	background: color-mix(in srgb, #fb7185 16%, var(--dash-card-solid));
 }
 
 .dash-content .data-table tbody tr.invoice-row--danger:hover {
-	background: color-mix(in srgb, #dc2626 16%, var(--dash-card-solid));
+	background: color-mix(in srgb, #fb7185 24%, var(--dash-card-solid));
 }
 
 .dash-content .data-table tbody tr.invoice-row--warning {
-	background: color-mix(in srgb, #ca8a04 12%, var(--dash-card-solid));
+	--invoice-row-accent: #d97706;
+	background: color-mix(in srgb, #fbbf24 22%, var(--dash-card-solid));
 }
 
 .dash-content .data-table tbody tr.invoice-row--warning:hover {
-	background: color-mix(in srgb, #ca8a04 18%, var(--dash-card-solid));
+	background: color-mix(in srgb, #fbbf24 32%, var(--dash-card-solid));
 }
 
 .dash-content .data-table tbody tr.invoice-row--success {
-	background: color-mix(in srgb, #16a34a 10%, var(--dash-card-solid));
+	--invoice-row-accent: #059669;
+	background: color-mix(in srgb, #34d399 18%, var(--dash-card-solid));
 }
 
 .dash-content .data-table tbody tr.invoice-row--success:hover {
-	background: color-mix(in srgb, #16a34a 16%, var(--dash-card-solid));
+	background: color-mix(in srgb, #34d399 26%, var(--dash-card-solid));
+}
+
+[data-theme='dark'] .dash-content .data-table tbody tr.invoice-row--danger {
+	background: color-mix(in srgb, #fb7185 22%, var(--dash-card-solid));
+}
+
+[data-theme='dark'] .dash-content .data-table tbody tr.invoice-row--danger:hover {
+	background: color-mix(in srgb, #fb7185 30%, var(--dash-card-solid));
+}
+
+[data-theme='dark'] .dash-content .data-table tbody tr.invoice-row--warning {
+	background: color-mix(in srgb, #fbbf24 20%, var(--dash-card-solid));
+}
+
+[data-theme='dark'] .dash-content .data-table tbody tr.invoice-row--warning:hover {
+	background: color-mix(in srgb, #fbbf24 28%, var(--dash-card-solid));
+}
+
+[data-theme='dark'] .dash-content .data-table tbody tr.invoice-row--success {
+	background: color-mix(in srgb, #34d399 20%, var(--dash-card-solid));
+}
+
+[data-theme='dark'] .dash-content .data-table tbody tr.invoice-row--success:hover {
+	background: color-mix(in srgb, #34d399 28%, var(--dash-card-solid));
 }
 
 .dash-content .data-table tfoot td {

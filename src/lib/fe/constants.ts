@@ -74,6 +74,17 @@ export function getFeComprobanteEstadoClass(estado: FeComprobanteEstado | string
 	}
 }
 
+/** La FE ya salió del laboratorio (enviada, aceptada, rechazada o con error). */
+export function feComprobanteFueEmitido(estado: FeComprobanteEstado | string | null | undefined): boolean {
+	return (
+		estado === 'aceptado' ||
+		estado === 'enviado' ||
+		estado === 'procesando' ||
+		estado === 'rechazado' ||
+		estado === 'error'
+	);
+}
+
 /** Estados en los que no se debe volver a emitir tipo 01. */
 export function feComprobanteBlocksEmit(estado: FeComprobanteEstado | null | undefined): boolean {
 	return estado === 'aceptado' || estado === 'enviado' || estado === 'procesando';

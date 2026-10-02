@@ -4,8 +4,7 @@ import type { InvoiceEstado } from './types';
 export const INVOICE_ESTADOS = [
 	{ value: 'pendiente', label: 'Pendiente' },
 	{ value: 'facturado', label: 'Facturado' },
-	{ value: 'pagado', label: 'Pagado' },
-	{ value: 'cancelada', label: 'Cancelada' }
+	{ value: 'pagado', label: 'Pagado' }
 ] as const;
 
 /** Estados que el usuario puede elegir a mano (Facturado solo lo pone Hacienda). */
@@ -16,24 +15,31 @@ export const INVOICE_ESTADOS_MANUAL = INVOICE_ESTADOS.filter((e) => e.value !== 
  * cuando ya está facturado y Hacienda aceptó la FE.
  */
 export function invoiceCobroSelectOptions(estado: string, feEstado?: string | null) {
-	if (estado === 'facturado' && feEstado === 'aceptado') return [...INVOICE_ESTADOS];
-	if (estado === 'facturado') {
+	let options: { value: string; label: string }[];
+	if (estado === 'facturado' && feEstado === 'aceptado') options = [...INVOICE_ESTADOS];
+	else if (estado === 'facturado') {
 		const facturado = INVOICE_ESTADOS.find((e) => e.value === 'facturado');
-		return facturado ? [facturado, ...INVOICE_ESTADOS_MANUAL] : [...INVOICE_ESTADOS_MANUAL];
+		options = facturado ? [facturado, ...INVOICE_ESTADOS_MANUAL] : [...INVOICE_ESTADOS_MANUAL];
+	} else options = [...INVOICE_ESTADOS_MANUAL];
+
+	if (estado === 'cancelada') {
+		return [{ value: 'cancelada', label: 'Cancelada' }, ...options];
 	}
-	return [...INVOICE_ESTADOS_MANUAL];
+	return options;
 }
 
 export type InvoiceTrafficTone = 'danger' | 'warning' | 'success' | 'muted';
 
 export function parseInvoiceEstado(raw: string): InvoiceEstado {
 	const value = raw === 'pagada' ? 'pagado' : raw;
+	if (value === 'cancelada') return 'cancelada';
 	if (INVOICE_ESTADOS.some((e) => e.value === value)) return value as InvoiceEstado;
 	throw new Error('Estado de cobro no válido.');
 }
 
 export function getInvoiceEstadoLabel(estado: string): string {
 	if (estado === 'pagada') return 'Pagado';
+	if (estado === 'cancelada') return 'Cancelada';
 	return INVOICE_ESTADOS.find((e) => e.value === estado)?.label ?? estado;
 }
 

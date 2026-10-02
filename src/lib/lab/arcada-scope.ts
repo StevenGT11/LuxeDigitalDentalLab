@@ -6,8 +6,8 @@ export const ARCADA_SCOPE_OPTIONS: { value: ArcadaScope; label: string }[] = [
 	{ value: 'ambas', label: 'Ambas arcadas' }
 ];
 
-/** Las tarifas del catálogo corresponden a ambas arcadas */
-export const ARCADA_UNA_PRICE_MULTIPLIER = 0.5;
+/** La tarifa del catálogo es una arcada. Ambas arcadas la duplican. */
+export const ARCADA_AMBAS_PRICE_MULTIPLIER = 2;
 
 export { isArcadaScopeTreatment } from './tooth-selection-mode';
 
@@ -19,9 +19,7 @@ export function normalizeArcadaScope(value: unknown): ArcadaScope | null {
 }
 
 export function getArcadaScopePriceMultiplier(scope: ArcadaScope | null | undefined): number {
-	if (scope === 'superior' || scope === 'inferior' || scope === 'una') {
-		return ARCADA_UNA_PRICE_MULTIPLIER;
-	}
+	if (scope === 'ambas') return ARCADA_AMBAS_PRICE_MULTIPLIER;
 	return 1;
 }
 

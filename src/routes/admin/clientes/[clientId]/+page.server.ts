@@ -20,6 +20,7 @@ import {
 	createDirectInvoiceForClient,
 	parseDirectInvoiceLinesJson
 } from '$lib/lab/direct-invoice.server';
+import { updateInvoiceStatusServer } from '$lib/lab/invoice-status.server';
 import { fetchClientInvoices } from '$lib/lab/invoices-list.server';
 import type { InvoiceListRow } from '$lib/lab/invoices-list';
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
@@ -115,6 +116,43 @@ export const actions: Actions = {
 			return fail(400, {
 				message: actionErrorMessage(err, 'No se pudo crear la factura.'),
 				kind: 'directInvoice' as const
+			});
+		}
+	},
+
+	updateEstado: async ({ params, request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		if (!user) return fail(401, { message: 'Debe iniciar sesión.' });
+
+		const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+		if (!canViewFinancial(profile?.role)) {
+			return fail(403, { message: 'Sin permiso para cambiar el estado de cobro.' });
+		}
+
+		const clientId = params.clientId;
+		const form = await request.formData();
+		const invoiceId = String(form.get('invoice_id') ?? '').trim();
+		const estado = String(form.get('estado') ?? '').trim();
+		if (!clientId || !invoiceId || !estado) return fail(400, { message: 'Datos inválidos.', invoiceId });
+
+		const admin = createSupabaseAdminClient();
+		const { data: invoice, error } = await admin
+			.from('invoices')
+			.select('id, client_id')
+			.eq('id', invoiceId)
+			.maybeSingle();
+		if (error) return fail(400, { message: error.message, invoiceId });
+		if (!invoice || invoice.client_id !== clientId) {
+			return fail(404, { message: 'Factura no encontrada.', invoiceId });
+		}
+
+		try {
+			await updateInvoiceStatusServer(invoiceId, estado);
+			return { success: true, message: 'Estado de cobro actualizado.', invoiceId };
+		} catch (err) {
+			return fail(400, {
+				message: err instanceof Error ? err.message : 'No se pudo actualizar.',
+				invoiceId
 			});
 		}
 	},

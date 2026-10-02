@@ -325,7 +325,23 @@ export async function updateCaseInDb(
 	const supabase = createSupabaseBrowserClient();
 	const existing = await fetchCaseByIdFromDb(caseId);
 	if (!existing) throw new Error('Caso no encontrado');
-	if (existing.estado !== 'pendiente') {
+
+	const { data: authData } = await supabase.auth.getUser();
+	const userId = authData.user?.id ?? null;
+	let isAdmin = false;
+	let editorName = 'Administrador';
+	if (userId) {
+		const { data: profile } = await supabase
+			.from('profiles')
+			.select('role, nombre')
+			.eq('id', userId)
+			.maybeSingle();
+		isAdmin = profile?.role === 'admin';
+		const nombre = profile?.nombre?.trim();
+		if (nombre) editorName = nombre;
+	}
+
+	if (!isAdmin && existing.estado !== 'pendiente') {
 		throw new Error('Solo se pueden editar casos en estado pendiente');
 	}
 	if (existing.client_id !== input.client_id) {
@@ -352,7 +368,10 @@ export async function updateCaseInDb(
 			piezas,
 			costo,
 			fecha_entrega: input.fecha_entrega,
-			notas: input.notas
+			notas: input.notas,
+			last_edited_at: new Date().toISOString(),
+			last_edited_by: userId,
+			last_edited_by_name: isAdmin ? editorName : null
 		})
 		.eq('id', caseId);
 

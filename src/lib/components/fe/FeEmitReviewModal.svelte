@@ -5,12 +5,7 @@
 		FE_IMPUESTO_TARIFA_OPTIONS,
 		FE_UNIDAD_MEDIDA_OPTIONS
 	} from '$lib/fe/constants';
-	import {
-		FE_MONEDA_OPTIONS,
-		computeFeComprobanteTotalsFromLedgerLines,
-		feComprobanteAmountFromLedger,
-		type FeMoneda
-	} from '$lib/fe/fe-moneda';
+	import { FE_MONEDA_OPTIONS, type FeMoneda } from '$lib/fe/fe-moneda';
 	import {
 		FE_MEDIO_PAGO_OPTIONS,
 		reconcileMediosPagoToTotal,
@@ -29,6 +24,8 @@
 		cabys: string;
 		impuesto_tarifa: number;
 		precio_unitario: number;
+		/** Precio unitario en colones del catálogo. Null si la línea no tiene tratamiento. */
+		precio_unitario_crc?: number | null;
 	};
 
 	export type FeEmitReviewReceptor = {
@@ -48,6 +45,7 @@
 			descripcion: string;
 			cantidad: number;
 			precio_unitario: number;
+			precio_fe?: number;
 			fe_cabys: string;
 			fe_unidad_medida: string;
 			impuesto_tarifa: number;
@@ -66,6 +64,8 @@
 		cabys: string;
 		impuesto_tarifa: number;
 		precio_unitario: string;
+		precioUsd: string;
+		precioCrc: string | null;
 	};
 
 	type PagoRow = {
@@ -108,7 +108,6 @@
 	let tipoCambioHint = $state('');
 	let pagoRows = $state<PagoRow[]>([]);
 	let tipoCambioLoadId = 0;
-	let pricesMoneda = $state<FeMoneda>('USD');
 
 	const missingReceptor = $derived.by(() => {
 		const gaps: string[] = [];
@@ -134,7 +133,15 @@
 	}
 
 	function patchDraft(key: string, patch: Partial<DraftLine>) {
-		const next = drafts.map((d) => (d.key === key ? { ...d, ...patch } : d));
+		const next = drafts.map((d) => {
+			if (d.key !== key) return d;
+			const merged = { ...d, ...patch };
+			if (patch.precio_unitario !== undefined) {
+				if (moneda === 'CRC') merged.precioCrc = patch.precio_unitario;
+				else merged.precioUsd = patch.precio_unitario;
+			}
+			return merged;
+		});
 		drafts = next;
 		refreshPagos(totalFromDrafts(next));
 	}
@@ -189,65 +196,32 @@
 		return Number.isFinite(n) && n > 0 ? roundMoney(n) : 0;
 	});
 
-	function ledgerLinesFromDrafts() {
-		return computedDrafts.map((d) => ({
-			cantidad: d.cantidadN,
-			precio_unitario: precioToLedgerUsd(d.precioN),
-			impuesto_tarifa: d.impuesto_tarifa
-		}));
-	}
-
-	const comprobanteTotals = $derived.by(() => {
-		if (tipoCambio <= 0 || computedDrafts.length === 0) {
-			return ledgerTotals;
-		}
-		return computeFeComprobanteTotalsFromLedgerLines(
-			ledgerLinesFromDrafts(),
-			moneda,
-			tipoCambio
-		);
-	});
-
-	const totalRounded = $derived(roundMoney(comprobanteTotals.total));
+	const totalRounded = $derived(roundMoney(ledgerTotals.total));
 
 	function formatAmount(amount: number): string {
 		return moneda === 'CRC' ? formatColones(amount) : formatCurrency(amount);
 	}
 
-	function convertUnitPrice(amount: number, from: FeMoneda, to: FeMoneda, tc: number): number {
-		if (from === to) return roundMoney(amount);
-		if (from === 'USD' && to === 'CRC') return feComprobanteAmountFromLedger(amount, 'CRC', tc);
-		return roundMoney(amount / tc);
-	}
-
-	function convertDraftPrices(from: FeMoneda, to: FeMoneda, tc: number) {
-		if (from === to || tc <= 0) return;
-		drafts = drafts.map((d) => {
-			const n = Number(String(d.precio_unitario).replace(',', '.'));
-			if (!Number.isFinite(n)) return d;
-			return { ...d, precio_unitario: String(convertUnitPrice(n, from, to, tc)) };
-		});
-		pricesMoneda = to;
-	}
-
 	function onMonedaChange(next: FeMoneda) {
 		if (next === moneda) return;
-		convertDraftPrices(pricesMoneda, next, tipoCambio);
+		const from = moneda;
+		const nextDrafts = drafts.map((d) => {
+			const shown = d.precio_unitario;
+			const precioUsd = from === 'USD' ? shown : d.precioUsd;
+			const precioCrc = from === 'CRC' ? shown : d.precioCrc;
+			const display = next === 'CRC' && precioCrc != null && precioCrc !== '' ? precioCrc : precioUsd;
+			return { ...d, precioUsd, precioCrc, precio_unitario: display };
+		});
+		drafts = nextDrafts;
 		moneda = next;
 		if (next === 'CRC' && tipoCambio <= 0 && tipoCambioStatus !== 'loading') {
 			void loadTipoCambio();
 		}
-		refreshPagos();
+		refreshPagos(totalFromDrafts(nextDrafts));
 	}
 
 	function onTipoCambioInput(raw: string) {
 		tipoCambioInput = raw;
-		const n = Number(String(raw).replace(',', '.'));
-		const tc = Number.isFinite(n) && n > 0 ? roundMoney(n) : 0;
-		if (moneda === 'CRC' && pricesMoneda === 'USD' && tc > 0) {
-			convertDraftPrices('USD', 'CRC', tc);
-		}
-		if (tc > 0) refreshPagos();
 	}
 
 	const assigned = $derived(
@@ -273,7 +247,6 @@
 
 	function syncPagosToTotal(forTotal: number) {
 		if (forTotal <= 0) return;
-		if (moneda === 'CRC' && tipoCambio <= 0) return;
 
 		const active = pagoRows.filter((r) => r.active);
 		if (active.length === 1) {
@@ -302,22 +275,26 @@
 		syncPagosToTotal(forTotal);
 	}
 
-	function precioToLedgerUsd(precio: number): number {
-		if (pricesMoneda !== 'CRC' || tipoCambio <= 0) return roundMoney(precio);
-		return roundMoney(precio / tipoCambio);
-	}
-
 	function cloneLines(source: FeEmitReviewLine[]): DraftLine[] {
-		return source.map((line) => ({
-			key: line.id || crypto.randomUUID(),
-			id: line.id,
-			descripcion: line.descripcion,
-			cantidad: String(line.cantidad),
-			unidad: line.unidad || 'Sp',
-			cabys: line.cabys === '—' ? '' : line.cabys,
-			impuesto_tarifa: line.impuesto_tarifa,
-			precio_unitario: String(line.precio_unitario)
-		}));
+		return source.map((line) => {
+			const usd = String(line.precio_unitario);
+			const crc =
+				line.precio_unitario_crc != null && Number(line.precio_unitario_crc) > 0
+					? String(roundMoney(line.precio_unitario_crc))
+					: null;
+			return {
+				key: line.id || crypto.randomUUID(),
+				id: line.id,
+				descripcion: line.descripcion,
+				cantidad: String(line.cantidad),
+				unidad: line.unidad || 'Sp',
+				cabys: line.cabys === '—' ? '' : line.cabys,
+				impuesto_tarifa: line.impuesto_tarifa,
+				precio_unitario: usd,
+				precioUsd: usd,
+				precioCrc: crc
+			};
+		});
 	}
 
 	async function loadTipoCambio() {
@@ -335,9 +312,6 @@
 			tipoCambioInput = String(venta);
 			tipoCambioStatus = 'ok';
 			tipoCambioHint = '';
-			if (moneda === 'CRC' && pricesMoneda === 'USD') {
-				convertDraftPrices('USD', 'CRC', roundMoney(venta));
-			}
 			refreshPagos();
 		} catch {
 			if (loadId !== tipoCambioLoadId) return;
@@ -355,7 +329,6 @@
 				drafts = cloneLines(seedLines);
 				formError = '';
 				moneda = 'USD';
-				pricesMoneda = 'USD';
 				tipoCambioInput = '';
 				pagoRows = defaultPagoRows(0);
 				void loadTipoCambio();
@@ -372,10 +345,7 @@
 	$effect(() => {
 		if (!open) return;
 		const total = totalRounded;
-		const tc = tipoCambio;
-		const currency = moneda;
 		if (total <= 0) return;
-		if (currency === 'CRC' && tc <= 0) return;
 		untrack(() => syncPagosToTotal(total));
 	});
 
@@ -390,7 +360,9 @@
 				unidad: 'Sp',
 				cabys: '',
 				impuesto_tarifa: 13,
-				precio_unitario: '0'
+				precio_unitario: '0',
+				precioUsd: '0',
+				precioCrc: null
 			}
 		];
 		drafts = next;
@@ -483,15 +455,19 @@
 		onConfirm({
 			notas: notas.trim(),
 			extraCorreos: extraCorreos.trim(),
-			lineas: computedDrafts.map((d) => ({
-				id: d.id || undefined,
-				descripcion: d.descripcion.trim(),
-				cantidad: d.cantidadN,
-				precio_unitario: precioToLedgerUsd(d.precioN),
-				fe_cabys: d.cabys.trim(),
-				fe_unidad_medida: d.unidad,
-				impuesto_tarifa: d.impuesto_tarifa
-			})),
+			lineas: computedDrafts.map((d) => {
+				const usd = roundMoney(Number(String(d.precioUsd).replace(',', '.')));
+				return {
+					id: d.id || undefined,
+					descripcion: d.descripcion.trim(),
+					cantidad: d.cantidadN,
+					precio_unitario: Number.isFinite(usd) ? usd : d.precioN,
+					...(moneda === 'CRC' ? { precio_fe: d.precioN } : {}),
+					fe_cabys: d.cabys.trim(),
+					fe_unidad_medida: d.unidad,
+					impuesto_tarifa: d.impuesto_tarifa
+				};
+			}),
 			medios: mediosFinal,
 			moneda,
 			tipoCambio
@@ -688,10 +664,10 @@
 								<td colspan="6" class="fe-review-dialog__totals-label">
 									Subtotal / IVA / Total ({moneda})
 								</td>
-								<td class="fe-review-dialog__num">{formatAmount(comprobanteTotals.subtotal)}</td>
+								<td class="fe-review-dialog__num">{formatAmount(ledgerTotals.subtotal)}</td>
 								<td class="fe-review-dialog__num fe-review-dialog__total">
-									{formatAmount(comprobanteTotals.total)}
-									<span class="type-caption">IVA {formatAmount(comprobanteTotals.impuesto)}</span>
+									{formatAmount(ledgerTotals.total)}
+									<span class="type-caption">IVA {formatAmount(ledgerTotals.impuesto)}</span>
 								</td>
 								<td></td>
 							</tr>

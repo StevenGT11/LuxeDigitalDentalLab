@@ -5,7 +5,7 @@ import {
 	applyCatalogToSnapshot,
 	type CatalogAddon,
 	type CatalogSnapshot
-} from './catalog-cache';
+} from './catalog-cache.svelte';
 import type { MaterialRestauracion, RestauracionPrecio } from './restoration-pricing';
 import {
 	materialOptionToDbPrecio,

@@ -1,4 +1,4 @@
-import { getCatalogSnapshot } from './catalog-cache';
+import { getCatalogSnapshot } from './catalog-cache.svelte';
 import type { TreatmentCategory } from './treatment-catalog';
 
 export type ToothSelectionMode = 'arcadas' | 'odontograma' | 'ninguno';

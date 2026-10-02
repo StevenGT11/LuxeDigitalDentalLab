@@ -3,6 +3,7 @@
 	import TreatmentCategoryPicker from '$lib/components/lab/TreatmentCategoryPicker.svelte';
 	import {
 		calcularCostoItem,
+		getGuiaPrecioUsd,
 		IMPLANTES_GUIA_OPTIONS,
 		isGuiaQuirurgica,
 		getTipoTrabajoLabel
@@ -331,8 +332,10 @@
 												}}
 											>
 												<option value="">—</option>
-												{#each IMPLANTES_GUIA_OPTIONS as opt}
-													<option value={opt.value}>{opt.label}</option>
+												{#each IMPLANTES_GUIA_OPTIONS as n (n)}
+													<option value={n}>
+														{n} {n === 1 ? 'implante' : 'implantes'} · {formatCurrency(getGuiaPrecioUsd(n))}
+													</option>
 												{/each}
 											</select>
 										</label>
@@ -546,7 +549,7 @@
 
 	.direct-invoice-modal__guia-field .field-select {
 		width: auto;
-		min-width: 5.5rem;
+		min-width: 13.5rem;
 		padding: 0.35rem 0.5rem;
 		font-size: 0.8125rem;
 	}
