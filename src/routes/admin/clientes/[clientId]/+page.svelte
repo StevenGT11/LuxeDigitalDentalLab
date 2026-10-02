@@ -12,6 +12,7 @@
 	import AdminClientDoctorsEditor from '$lib/components/admin/AdminClientDoctorsEditor.svelte';
 	import AdminClientFiscalEditor from '$lib/components/admin/AdminClientFiscalEditor.svelte';
 	import AdminClientCredentialsEditor from '$lib/components/admin/AdminClientCredentialsEditor.svelte';
+	import AdminClientProfileEditor from '$lib/components/admin/AdminClientProfileEditor.svelte';
 	import AdminDirectInvoiceModal from '$lib/components/admin/AdminDirectInvoiceModal.svelte';
 	import CasePreviewModal from '$lib/components/admin/CasePreviewModal.svelte';
 	import InvoicePdfPreview from '$lib/components/lab/InvoicePdfPreview.svelte';
@@ -66,6 +67,8 @@
 	let clientInvoices = $derived(($page.data.clientInvoices ?? []) as InvoiceListRow[]);
 	let fiscalForm = $derived($page.form?.kind === 'fiscal' ? $page.form : undefined);
 	let credentialsForm = $derived($page.form?.kind === 'credentials' ? $page.form : undefined);
+	let profileForm = $derived($page.form?.kind === 'profile' ? $page.form : undefined);
+	let profileNotice = $state('');
 	let feActionMessage = $derived(
 		$page.form && 'invoiceId' in $page.form && $page.form.invoiceId ? ($page.form.message ?? '') : ''
 	);
@@ -481,7 +484,31 @@
 			</div>
 		</section>
 
-		{#if canManage}
+		{#if canManage && client}
+			{#key `${client.nombre}|${client.clinica}|${client.telefono}`}
+			{#if profileNotice}
+				<p class="type-caption" style="margin: var(--spacing-lg) 0 0; color: var(--color-success);" role="status">
+					{profileNotice}
+				</p>
+			{/if}
+			<AdminClientProfileEditor
+				nombre={client.nombre}
+				clinica={client.clinica}
+				telefono={client.telefono}
+				form={profileForm}
+				onSaved={(next) => {
+					if (!client) return;
+					profileNotice = 'Datos del cliente actualizados.';
+					client = { ...client, ...next };
+					casos = casos.map((caso) => ({
+						...caso,
+						client_name: next.nombre,
+						client_clinica: next.clinica
+					}));
+					void invalidate('app:client-invoices');
+				}}
+			/>
+			{/key}
 			<AdminClientCredentialsEditor
 				email={client.email}
 				form={credentialsForm}

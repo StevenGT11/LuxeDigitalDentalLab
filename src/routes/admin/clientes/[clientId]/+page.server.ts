@@ -208,7 +208,7 @@ export const actions: Actions = {
 				fe_numero_identificacion: idCheck.normalized,
 				fe_codigo_actividad: fe_codigo_actividad || null,
 				fe_correo_facturacion,
-				telefono: telCheck.normalized || null,
+				telefono: telCheck.normalized,
 				fe_provincia: feAddress.fe_provincia,
 				fe_canton: feAddress.fe_canton || null,
 				fe_distrito: feAddress.fe_distrito || null,
@@ -219,6 +219,87 @@ export const actions: Actions = {
 		if (error) return fail(400, { message: error.message, kind: 'fiscal' as const });
 
 		return { success: true, message: 'Datos fiscales guardados.', kind: 'fiscal' as const };
+	},
+
+	updateProfile: async ({ params, request, locals: { supabase, safeGetSession } }) => {
+		const { user } = await safeGetSession();
+		const gate = await requireStaff(
+			supabase,
+			user?.id,
+			'Solo el equipo puede editar los datos del cliente.'
+		);
+		if (!gate.ok) return fail(gate.status, { message: gate.message, kind: 'profile' as const });
+
+		const clientId = params.clientId;
+		if (!clientId) return fail(400, { message: 'Cliente no válido.', kind: 'profile' as const });
+
+		const form = await request.formData();
+		const nombre = String(form.get('nombre') ?? '').trim();
+		const clinica = String(form.get('clinica') ?? '').trim();
+		const telefonoRaw = String(form.get('telefono') ?? '').trim();
+		if (nombre.length < 2) {
+			return fail(400, {
+				message: 'El nombre debe tener al menos 2 caracteres.',
+				kind: 'profile' as const
+			});
+		}
+		const telCheck = validateClientTelefono(telefonoRaw);
+		if (!telCheck.ok) {
+			return fail(400, { message: telCheck.message, kind: 'profile' as const });
+		}
+
+		const admin = createSupabaseAdminClient();
+		const { data: row, error: loadError } = await admin
+			.from('clients')
+			.select('id, profile_id')
+			.eq('id', clientId)
+			.maybeSingle();
+		if (loadError) return fail(400, { message: loadError.message, kind: 'profile' as const });
+		if (!row) return fail(404, { message: 'Cliente no encontrado.', kind: 'profile' as const });
+
+		const { error } = await admin
+			.from('clients')
+			.update({
+				nombre,
+				clinica,
+				telefono: telCheck.normalized
+			})
+			.eq('id', clientId);
+		if (error) return fail(400, { message: error.message, kind: 'profile' as const });
+
+		if (row.profile_id) {
+			const { error: profileError } = await admin
+				.from('profiles')
+				.update({
+					nombre,
+					clinica,
+					telefono: telCheck.normalized
+				})
+				.eq('id', row.profile_id);
+			if (profileError) {
+				return fail(400, { message: profileError.message, kind: 'profile' as const });
+			}
+		}
+
+		const { error: casesError } = await admin
+			.from('cases')
+			.update({ client_name: nombre, client_clinica: clinica })
+			.eq('client_id', clientId);
+		if (casesError) return fail(400, { message: casesError.message, kind: 'profile' as const });
+
+		const { error: invoicesError } = await admin
+			.from('invoices')
+			.update({ client_name: nombre, client_clinica: clinica })
+			.eq('client_id', clientId);
+		if (invoicesError) {
+			return fail(400, { message: invoicesError.message, kind: 'profile' as const });
+		}
+
+		return {
+			success: true,
+			kind: 'profile' as const,
+			message: 'Datos del cliente actualizados.'
+		};
 	},
 
 	updateCredentials: async ({ params, request, locals: { supabase, safeGetSession } }) => {
