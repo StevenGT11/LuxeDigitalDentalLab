@@ -38,6 +38,21 @@ export async function uploadCaseFilesFromInputs(
 	escaneoFiles: File[],
 	disenosFiles: File[]
 ): Promise<CaseFile[]> {
+	if (escaneoFiles.length > 0 || disenosFiles.length > 0) {
+		const incomingBytes = [...escaneoFiles, ...disenosFiles].reduce((sum, file) => sum + file.size, 0);
+		try {
+			const response = await fetch('/api/lab/storage/headroom', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ incomingBytes })
+			});
+			if (!response.ok) {
+				console.error('[storage] No se pudo liberar espacio antes de subir', response.status);
+			}
+		} catch (err) {
+			console.error('[storage] No se pudo liberar espacio antes de subir', err);
+		}
+	}
 	const uploaded: CaseFile[] = [];
 	for (const file of escaneoFiles) {
 		const row = await uploadSingleCaseFile(caseId, file, 'escaneo');

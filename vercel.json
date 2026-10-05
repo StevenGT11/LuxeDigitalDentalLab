@@ -1,3 +1,9 @@
 {
-	"installCommand": "node scripts/prepare-github-packages-auth.mjs && npm install"
+	"installCommand": "node scripts/prepare-github-packages-auth.mjs && npm install",
+	"crons": [
+		{
+			"path": "/api/cron/purge-storage",
+			"schedule": "0 12 * * *"
+		}
+	]
 }

@@ -533,7 +533,22 @@ export async function updateCase(caseId: string, input: CreateCaseInput): Promis
 export async function updateCaseStatus(id: string, estado: LabCaseEstado): Promise<LabCase | null> {
 	if (!browser) return null;
 	if (isCasesHydrated()) {
-		return updateCaseStatusInDb(id, estado);
+		const updated = await updateCaseStatusInDb(id, estado);
+		if (updated?.estado === 'finalizado') {
+			try {
+				const response = await fetch('/api/lab/storage/case-finalized', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ caseId: id })
+				});
+				if (!response.ok) {
+					console.error('[storage] No se pudieron borrar los archivos del caso finalizado', response.status);
+				}
+			} catch (err) {
+				console.error('[storage] No se pudieron borrar los archivos del caso finalizado', err);
+			}
+		}
+		return updated;
 	}
 	const cases = loadCasesLocal();
 	const index = cases.findIndex((c) => c.id === id);
