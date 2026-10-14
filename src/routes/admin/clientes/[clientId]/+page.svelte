@@ -33,7 +33,11 @@
 		getMaterialLabel,
 		getTipoTrabajoLabel
 	} from '$lib/lab/constants';
-	import { getInvoiceEstadoLabel, invoiceCobroSelectOptions } from '$lib/lab/invoice-estado';
+	import {
+		getInvoiceEstadoLabel,
+		getInvoiceTrafficTone,
+		invoiceCobroSelectOptions
+	} from '$lib/lab/invoice-estado';
 	import {
 		feComprobanteCanConsultar,
 		getFeComprobanteEstadoClass,
@@ -211,11 +215,17 @@
 		for (const group of paginatedGroups) openCaseInvoices[group.key] = false;
 	}
 
-	function cobroSelectTone(estado: string): string {
-		if (estado === 'pagado' || estado === 'pagada') return 'pagado';
-		if (estado === 'facturado') return 'facturado';
-		if (estado === 'cancelada') return 'cancelada';
-		return 'pendiente';
+	function cobroSelectTone(estado: string, feEstado?: string | null): string {
+		switch (getInvoiceTrafficTone(estado, feEstado)) {
+			case 'success':
+				return 'pagado';
+			case 'warning':
+				return 'facturado';
+			case 'muted':
+				return 'cancelada';
+			default:
+				return 'pendiente';
+		}
 	}
 
 	function onCaseRowClick(event: MouseEvent, key: string, invoiceCount: number) {
@@ -753,7 +763,7 @@
 													>
 														<input type="hidden" name="invoice_id" value={fac.id} />
 														<select
-															class="field-select client-cobro-form__select client-cobro-form__select--{cobroSelectTone(fac.estado)}"
+															class="field-select client-cobro-form__select client-cobro-form__select--{cobroSelectTone(fac.estado, fe?.estado)}"
 															name="estado"
 															value={fac.estado}
 															onchange={(e) => e.currentTarget.form?.requestSubmit()}

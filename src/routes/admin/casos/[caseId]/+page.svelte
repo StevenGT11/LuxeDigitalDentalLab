@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
@@ -6,6 +7,8 @@
 	import AdminDeleteCaseButton from '$lib/components/admin/AdminDeleteCaseButton.svelte';
 	import { removeCachedCase } from '$lib/lab/cases-cache';
 	import { fetchCaseHasIssuedInvoice } from '$lib/lab/case-issued';
+	import { fetchCaseByIdFromDb } from '$lib/lab/cases-db';
+	import { fetchInvoiceByCaseId } from '$lib/lab/invoices-db';
 	import {
 		getCaseByIdAsync,
 		getInvoiceByCaseIdAsync,
@@ -34,6 +37,8 @@
 	let caso = $state<LabCase | null>(null);
 	let factura = $state<Invoice | null>(null);
 	let costoEdit = $state(0);
+	let applyingGarantia = $state(false);
+	let garantiaError = $state('');
 
 	const estadosAdmin = ESTADOS.filter((e) => e.value !== 'todos');
 
@@ -91,6 +96,15 @@
 		const updated = await updateCaseCost(caso.id, costoEdit);
 		if (updated) caso = updated;
 	}
+
+	async function refreshAfterGarantia(id: string) {
+		const fresh = await fetchCaseByIdFromDb(id);
+		if (fresh) {
+			caso = fresh;
+			costoEdit = fresh.costo;
+		}
+		if (showFinancial) factura = await fetchInvoiceByCaseId(id);
+	}
 </script>
 
 <div class="dash-page">
@@ -121,6 +135,44 @@
 					>
 						Editar
 					</a>
+					{#if caso.costo > 0}
+						{@const garantiaCaseId = caso.id}
+						{@const garantiaCaseNumber = caso.case_number}
+						<form
+							method="POST"
+							action="?/garantia"
+							class="case-detail-header__garantia"
+							use:enhance={({ cancel }) => {
+								if (
+									!confirm(
+										`¿Marcar el caso ${garantiaCaseNumber} como garantía? Todos los montos del caso y su factura quedarán en $0.`
+									)
+								) {
+									cancel();
+									return;
+								}
+								applyingGarantia = true;
+								garantiaError = '';
+								return async ({ result }) => {
+									try {
+										if (result.type === 'success') {
+											await refreshAfterGarantia(garantiaCaseId);
+										} else {
+											const message =
+												result.type === 'failure' ? String(result.data?.message ?? '').trim() : '';
+											garantiaError = message || 'No se pudo aplicar la garantía.';
+										}
+									} finally {
+										applyingGarantia = false;
+									}
+								};
+							}}
+						>
+							<button type="submit" class="btn-secondary-pill" disabled={applyingGarantia}>
+								{applyingGarantia ? 'Aplicando…' : 'Garantía'}
+							</button>
+						</form>
+					{/if}
 					<AdminDeleteCaseButton
 						caseId={caso.id}
 						caseNumber={caso.case_number}
@@ -142,6 +194,10 @@
 				</select>
 			</div>
 		</header>
+
+		{#if garantiaError}
+			<div class="alert alert--error" style="margin-top: 1rem;" role="alert">{garantiaError}</div>
+		{/if}
 
 		<section class="dash-panel dash-panel--section" style="margin-top: 1rem;">
 			<h3 class="dash-panel__section-title">Cliente</h3>
@@ -308,3 +364,9 @@
 		{/if}
 	{/if}
 </div>
+
+<style>
+	.case-detail-header__garantia {
+		margin: 0;
+	}
+</style>

@@ -64,7 +64,7 @@ export function getInvoiceTrafficTone(
 ): InvoiceTrafficTone {
 	if (estado === 'cancelada') return 'muted';
 	const pagado = isInvoicePagado(estado);
-	const electronica = invoiceHasElectronica(feEstado);
+	const electronica = estado === 'facturado' || invoiceHasElectronica(feEstado);
 	if (pagado && electronica) return 'success';
 	if (electronica && !pagado) return 'warning';
 	if (!pagado && !electronica) return 'danger';
