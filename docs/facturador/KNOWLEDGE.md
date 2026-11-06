@@ -67,7 +67,7 @@ Typical flow:
 
 ### `config` required fields
 
-- `cedula` (9–12 digits), `razon_social`, `codigo_actividad`, `tipo_cedula` (`01`–`04`)
+- `cedula` (física 9 digits, jurídica 10 alphanumeric, DIMEX 11–12, NITE 10), `razon_social`, `codigo_actividad`, `tipo_cedula` (`01`–`04`)
 - `certificado_p12` (base64 .p12), `pin`
 - `casa_matriz` (e.g. `001`), `terminal` (e.g. `00001`)
 - For **enviar**: `hacienda_usuario`, `hacienda_password`, optional `hacienda_ambiente` (`staging`|`production`)
@@ -98,6 +98,14 @@ Typical flow:
 - **01 FE / 04 Tiquete:** standard sale
 - **02 ND / 03 NC:** need `referencia` (`tipoDoc`, `numero`, `fechaEmision`, `codigo`, `razon`)
 - **08 FEC:** you are buyer; API swaps Emisor/Receptor; `condicion_venta` must be `"13"`; seller may use `tipo_cedula: "06"`
+
+## Hacienda 1 Nov 2026 (Anexos v4.4, bitácora 22 Apr 2026)
+
+Full log: `HACIENDA_CAMBIOS.md`.
+
+- Jurídica (`tipo_cedula` `02`): **10 alphanumeric** characters, no dashes (`3101234567` or `3101A00001`). The clave keeps the letter and pads two leading zeros.
+- `referencia.codigo` (Nota 9): `12` exoneración posterior (NC only, effect in the NC period); `13` anula por error material; `14` corrige monto por error material (both affect the **original** period); `15` sustituye por error material (on the new comprobante); `16` sustituye un rechazado. `17` is REP-only and is rejected.
+- `referencia.tipoDoc` (Nota 10): `19` factura de exportación, `20` recibo electrónico de pago. `15` here means “sustituye una factura de compra”, which is a different field from `codigo` `15`.
 
 ## IVA quick map
 

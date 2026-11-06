@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { installFacturadorExemptDesglosePatch } from './facturador-patch.server';
 import {
 	assertExemptDesglosePresent,
 	patchFacturaXmlExemptDesglose
@@ -18,6 +19,7 @@ type LibraryResult = {
  * Recarga factura.js en cada envío para que use generarFacturaXML parcheado (no depende de import ESM).
  */
 export async function enviarFacturaConDesgloseExento(payload: object): Promise<LibraryResult> {
+	installFacturadorExemptDesglosePatch();
 	const require = createRequire(import.meta.url);
 	const pkgRoot = join(dirname(require.resolve('@happy-prod/facturador')), '..');
 	const xmlPath = join(pkgRoot, 'services', 'xml.js');

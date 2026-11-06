@@ -12,6 +12,7 @@ import {
 	updateFeComprobanteError,
 	assertNotaCreditoAceptadaParaFeCorregida
 } from './comprobantes.server';
+import { normalizeFeNumeroIdentificacion } from './client-fiscal-validation';
 import { buildReferenciaFromFe, type FeReferenciaPayload } from './fe-referencia';
 import {
 	emisorRowToConsultaConfig,
@@ -201,7 +202,10 @@ function buildPayload(
 	});
 
 	const cliente: Record<string, string> = {
-		cedula: client.fe_numero_identificacion.trim(),
+		cedula: normalizeFeNumeroIdentificacion(
+			client.fe_numero_identificacion,
+			client.fe_tipo_identificacion
+		),
 		nombre_completo: client.nombre.trim(),
 		tipo_cedula: client.fe_tipo_identificacion.trim()
 	};

@@ -4,6 +4,8 @@ Package: **`@happy-prod/facturador`** (library + optional HTTP API in the same r
 
 This guide is for apps that integrate Facturador (POS, ERP, `facturador-ui`, other backends).
 
+Regulatory changes and where the code enforces them are logged in [HACIENDA_CAMBIOS.md](./HACIENDA_CAMBIOS.md). The 1 November 2026 annex update (new reference codes and alphanumeric cédulas jurídicas) is implemented.
+
 ---
 
 ## Choose how to integrate
@@ -672,7 +674,7 @@ curl -X POST http://localhost:3000/api/factura/enviar \
   -H "X-Facturador-Password: your-password" \
   -d '{
     "config": {
-      "cedula": "310123456789",
+      "cedula": "3101234567",
       "razon_social": "MI EMPRESA SA",
       "codigo_actividad": "4773.0",
       "tipo_cedula": "02",
@@ -744,7 +746,7 @@ See **PAYLOAD_COMPLETO_EJEMPLO.json** for a full example. Summary:
 ```json
 {
   "config": {
-    "cedula": "310123456789",
+    "cedula": "3101234567",
     "razon_social": "MI EMPRESA SA",
     "codigo_actividad": "4773.0",
     "tipo_cedula": "01|02|03|04",
@@ -809,6 +811,7 @@ See **PAYLOAD_COMPLETO_EJEMPLO.json** for a full example. Summary:
 - **`medios_pago`** (optional): array of `{ "tipo", "monto" }`. When omitted, Facturador builds one `MedioPago` from `medio_pago` and the invoice total. When provided, each `monto` should match the payable total (same currency units as the line math).
 - **`cabys`**: optional per line in the validator, but Hacienda expects a valid 13-digit CABYS on the XML — always send it in production.
 - **`unidad_medida`**: drives **servicios gravados** vs **mercancías gravadas** in `ResumenFactura`. Units treated as **servicio** in this API: `Sp`, `Spe`, `OS`, `STE`, `STN`. Any other value (e.g. `Unid`, `kg`) is treated as **mercancía**. Pick the unit that matches how Hacienda classifies the CABYS line.
+- **`config.cedula` / `cliente.cedula`**: no dashes. Física `01` is 9 digits. Jurídica `02` is **10 alphanumeric characters** (for example `3101234567` or, once the Registro Nacional assigns them, `3101A00001`). The 50-character clave pads a jurídica with two leading zeros and keeps any letter. DIMEX `03` is 11 or 12 digits. NITE `04` is 10 digits.
 - **`config.codigo_actividad`**: non-empty string as registered (e.g. `6201.0`, `4773.0`); the server trims whitespace and passes it through to the XML as **`CodigoActividadEmisor`**.
 - **`cliente.codigo_actividad`** (optional): when present, emitted as **`CodigoActividadReceptor`** (Hacienda v4.4). Optional for FE/NC/ND until DGT makes it mandatory; omit if the client has no code. Use the exact RUT code (e.g. `6201.0`).
 
@@ -1077,9 +1080,15 @@ Both use the same `/api/factura/enviar` endpoint. The key difference from a regu
 | `03` | Nota de Crédito Electrónica |
 | `04` | Tiquete Electrónico |
 | `08` | Comprobante emitido en contingencia |
+| `15` | Sustituye una Factura Electrónica de Compra |
+| `16` | Comprobante de proveedor no domiciliado (FEC only) |
 | `17` | Nota de Crédito a Factura Electrónica de Compra |
 | `18` | Nota de Débito a Factura Electrónica de Compra |
+| `19` | Factura Electrónica de Exportación (desde el 1 de noviembre de 2026) |
+| `20` | Recibo Electrónico de Pago (desde el 1 de noviembre de 2026) |
 | `99` | Otros (free text required in `razon`) |
+
+`tipoDoc` `15` is Nota 10 (a purchase-invoice document). It is not the same field as `codigo` `15` below.
 
 #### `referencia.codigo` — reason code (Nota 9)
 
@@ -1091,11 +1100,16 @@ Both use the same `/api/factura/enviar` endpoint. The key difference from a regu
 | `07` | Sustituye comprobante electrónico | Same period as the new comprobante |
 | `09` | Nota de crédito financiera | No `lineas` or `Descuento` required |
 | `10` | Nota de débito financiera | No `lineas` or `Descuento` required |
-| `13` | Anula por error material | Same period as the **original** comprobante |
+| `12` | Nota de crédito financiera por exoneración posterior a la facturación | Same period as the **NC**. NC only. Local-tax exemption approved after the sale |
+| `13` | Anula documento de referencia por error material | Same period as the **original** comprobante |
 | `14` | Corrige monto por error material | Same period as the **original** comprobante |
+| `15` | Sustituye comprobante electrónico por error material | Put this on the **new** comprobante after a code `13` cancellation |
+| `16` | Sustituye comprobante electrónico rechazado | The new comprobante replaces one Hacienda rejected |
 | `99` | Otros | Free text in `razon` |
 
-> **Accounting rule (Hacienda):** Codes `01`, `02`, `06` → effect in the **current period** (when the NC/ND is issued). Codes `13`, `14` → effect in the **original document's period**. If using `01` or `13` and you need to reissue, the replacement comprobante should use code `07` or `15` respectively.
+Code `17` (pago a comprobante electrónico) exists in Nota 9 and is exclusive to the Recibo Electrónico de Pago. This API does not emit that document, so `codigo: "17"` is rejected.
+
+> **Accounting rule (Hacienda, vigente desde el 1 de noviembre de 2026):** Codes `01`, `02`, `06`, and `12` → effect in the period the NC/ND is issued. Codes `13` and `14` → effect in the original document's period. If you cancel with `01` and reissue, the new comprobante uses code `07`. If you cancel with `13` and reissue, the new comprobante uses code `15`.
 
 ---
 

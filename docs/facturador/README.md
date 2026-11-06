@@ -1,4 +1,4 @@
-# Facturador docs (from @happy-prod/facturador@2.0.2)
+# Facturador docs (from @happy-prod/facturador@2.0.4)
 
 Installed by: `npx @happy-prod/facturador install-mcp`
 
@@ -29,6 +29,7 @@ const sent = await enviarFactura(payload);
 |------|---------|
 | `KNOWLEDGE.md` | Condensed AI / human usage rules |
 | `INTEGRATION_GUIDE.md` | Full guide (library + HTTP) |
+| `HACIENDA_CAMBIOS.md` | Log of Hacienda rules this package implements |
 | `PAYLOAD_COMPLETO_EJEMPLO.json` | Example payload |
 
 ## Cursor MCP

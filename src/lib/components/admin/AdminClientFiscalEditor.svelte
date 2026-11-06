@@ -6,6 +6,8 @@
 	import type { ClientFeAddress } from '$lib/fe/client-fiscal-address';
 	import { FE_TIPO_IDENTIFICACION_OPTIONS } from '$lib/fe/constants';
 	import {
+		feIdentificacionAllowsLetters,
+		feIdentificacionFieldMaxLength,
 		feIdentificacionInputHint,
 		feIdentificacionMaxLength,
 		normalizeFeNumeroIdentificacion,
@@ -36,12 +38,14 @@
 	let fieldError = $state('');
 
 	const identificacionHint = $derived(feIdentificacionInputHint(draft.fe_tipo_identificacion));
-	const identificacionMaxLen = $derived(feIdentificacionMaxLength(draft.fe_tipo_identificacion));
+	const identificacionAllowsLetters = $derived(
+		feIdentificacionAllowsLetters(draft.fe_tipo_identificacion)
+	);
 
-	function onIdentificacionInput(raw: string) {
-		draft.fe_numero_identificacion = normalizeFeNumeroIdentificacion(raw).slice(
+	function applyIdentificacion(raw: string, tipo = draft.fe_tipo_identificacion) {
+		draft.fe_numero_identificacion = normalizeFeNumeroIdentificacion(raw, tipo).slice(
 			0,
-			identificacionMaxLen
+			feIdentificacionMaxLength(tipo)
 		);
 		fieldError = '';
 	}
@@ -110,7 +114,12 @@
 		<div class="fiscal-grid">
 			<label class="field">
 				<span class="field-label">Tipo identificación</span>
-				<select class="field-select" name="fe_tipo_identificacion" bind:value={draft.fe_tipo_identificacion}>
+				<select
+					class="field-select"
+					name="fe_tipo_identificacion"
+					bind:value={draft.fe_tipo_identificacion}
+					onchange={(e) => applyIdentificacion(draft.fe_numero_identificacion, e.currentTarget.value)}
+				>
 					<option value="">— Seleccionar —</option>
 					{#each FE_TIPO_IDENTIFICACION_OPTIONS as opt}
 						<option value={opt.value}>{opt.label}</option>
@@ -122,11 +131,13 @@
 				<input
 					class="field-input"
 					name="fe_numero_identificacion"
-					inputmode="numeric"
+					inputmode={identificacionAllowsLetters ? 'text' : 'numeric'}
+					autocapitalize={identificacionAllowsLetters ? 'characters' : 'off'}
+					spellcheck="false"
 					autocomplete="off"
-					maxlength={identificacionMaxLen}
+					maxlength={feIdentificacionFieldMaxLength(draft.fe_tipo_identificacion)}
 					value={draft.fe_numero_identificacion}
-					oninput={(e) => onIdentificacionInput(e.currentTarget.value)}
+					oninput={(e) => applyIdentificacion(e.currentTarget.value)}
 					required
 				/>
 				<span class="type-caption fiscal-field-hint">{identificacionHint}</span>
