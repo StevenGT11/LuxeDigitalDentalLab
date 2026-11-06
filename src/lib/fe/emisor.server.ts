@@ -4,6 +4,10 @@ import type { FeAmbiente, FeEmisorConfigInput, FeEmisorConfigPublic, FeEmisorCon
 import { getFacturadorProjectName } from './facturador.server';
 import { getEmitAmbiente } from './hacienda-settings.server';
 import {
+	normalizeFeNumeroIdentificacion,
+	validateFeNumeroIdentificacion
+} from './client-fiscal-validation';
+import {
 	normalizeCodigoActividadForFe,
 	normalizeEmisorTelefonoForFe,
 	normalizeHaciendaCantonDistrito,
@@ -205,10 +209,19 @@ export function mergeEmisorProfilePublic(
 	)[0]!;
 }
 
+function requireNumeroIdentificacion(tipo: string, raw: string): string {
+	const idCheck = validateFeNumeroIdentificacion(tipo.trim(), raw);
+	if (!idCheck.ok) throw new Error(idCheck.message);
+	return idCheck.normalized;
+}
+
 function fiscalPatchFromProfile(profile: FeEmisorProfileInput): Record<string, unknown> {
 	return {
 		tipo_identificacion: profile.tipo_identificacion.trim(),
-		numero_identificacion: profile.numero_identificacion.trim(),
+		numero_identificacion: requireNumeroIdentificacion(
+			profile.tipo_identificacion,
+			profile.numero_identificacion
+		),
 		razon_social: profile.razon_social.trim(),
 		nombre_comercial: profile.nombre_comercial.trim() || null,
 		codigo_actividad: normalizeCodigoActividadForFe(profile.codigo_actividad),
@@ -362,7 +375,10 @@ function parseInput(form: FeEmisorConfigInput): Partial<FeEmisorConfigRow> {
 		ambiente: form.ambiente,
 		activo: form.activo,
 		tipo_identificacion: form.tipo_identificacion.trim(),
-		numero_identificacion: form.numero_identificacion.trim(),
+		numero_identificacion: requireNumeroIdentificacion(
+			form.tipo_identificacion,
+			form.numero_identificacion
+		),
 		razon_social: form.razon_social.trim(),
 		nombre_comercial: form.nombre_comercial.trim() || null,
 		codigo_actividad: normalizeCodigoActividadForFe(form.codigo_actividad),
@@ -446,7 +462,7 @@ export async function upsertFeEmisorConfig(input: FeEmisorConfigInput): Promise<
 export function emisorRowToFacturadorConfig(row: FeEmisorConfigRow): Record<string, unknown> {
 	return {
 		project_name: getFacturadorProjectName(),
-		cedula: row.numero_identificacion,
+		cedula: normalizeFeNumeroIdentificacion(row.numero_identificacion, row.tipo_identificacion),
 		tipo_cedula: row.tipo_identificacion,
 		razon_social: row.razon_social,
 		nombre_comercial: row.nombre_comercial ?? undefined,

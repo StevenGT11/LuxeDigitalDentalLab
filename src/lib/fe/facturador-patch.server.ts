@@ -34,6 +34,83 @@ function patchXmlModule(require: NodeRequire, pkgRoot: string): void {
 	xmlMod.__exemptDesglosePatched = true;
 }
 
+type HaciendaSendParams = {
+	emisorNumeroIdentificacion?: string;
+	receptorNumeroIdentificacion?: string;
+	comprobanteXml?: string;
+};
+
+function decodeComprobanteXml(raw: string | undefined): string | null {
+	if (!raw?.trim()) return null;
+	if (raw.includes('<')) return raw;
+	try {
+		return Buffer.from(raw, 'base64').toString('utf8');
+	} catch {
+		return null;
+	}
+}
+
+function firstTagBlock(xml: string, tagName: string): string | null {
+	const match = xml.match(
+		new RegExp(`<(?:\\w+:)?${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:\\w+:)?${tagName}>`, 'i')
+	);
+	return match?.[1] ?? null;
+}
+
+function identificacionNumero(xml: string, party: 'Emisor' | 'Receptor'): string | null {
+	const partyXml = firstTagBlock(xml, party);
+	if (!partyXml) return null;
+	const ident = firstTagBlock(partyXml, 'Identificacion');
+	if (!ident) return null;
+	return firstTagBlock(ident, 'Numero')?.trim() || null;
+}
+
+/** Facturador 2.0.4 keeps letters in the XML, then strips them in the Hacienda API body. */
+export function preferXmlAlphanumeric(
+	passed: string | undefined,
+	xmlNumero: string | null
+): string | undefined {
+	if (!passed || !xmlNumero || !/[A-Z]/i.test(xmlNumero)) return passed;
+	const canonical = xmlNumero.replace(/[\s-]/g, '').toUpperCase();
+	const digitsOnly = canonical.replace(/[^0-9]/g, '');
+	if (passed.toUpperCase() === canonical || passed === digitsOnly) return canonical;
+	return passed;
+}
+
+export function alignHaciendaIdentificacionWithXml<T extends HaciendaSendParams>(params: T): T {
+	const xml = decodeComprobanteXml(params.comprobanteXml);
+	if (!xml) return params;
+	const emisorNumero = identificacionNumero(xml, 'Emisor');
+	const receptorNumero = identificacionNumero(xml, 'Receptor');
+	return {
+		...params,
+		emisorNumeroIdentificacion: preferXmlAlphanumeric(params.emisorNumeroIdentificacion, emisorNumero),
+		...(params.receptorNumeroIdentificacion != null
+			? {
+					receptorNumeroIdentificacion: preferXmlAlphanumeric(
+						params.receptorNumeroIdentificacion,
+						receptorNumero
+					)
+				}
+			: {})
+	};
+}
+
+function patchHaciendaIdentificacion(require: NodeRequire, pkgRoot: string): void {
+	const haciendaPath = join(pkgRoot, 'services', 'hacienda.js');
+	// eslint-disable-next-line @typescript-eslint/no-require-imports
+	const haciendaMod = require(haciendaPath) as {
+		enviarComprobante: (params: HaciendaSendParams, credentials: unknown) => Promise<unknown>;
+		__cedulaAlnumPatched?: boolean;
+	};
+	if (haciendaMod.__cedulaAlnumPatched) return;
+
+	const original = haciendaMod.enviarComprobante.bind(haciendaMod);
+	haciendaMod.enviarComprobante = (params, credentials) =>
+		original(alignHaciendaIdentificacionWithXml(params), credentials);
+	haciendaMod.__cedulaAlnumPatched = true;
+}
+
 /** Drop factura/index bindings so they re-require patched services/xml.js */
 function bustFacturadorEntryCache(require: NodeRequire, pkgRoot: string): void {
 	const paths = [
@@ -70,5 +147,6 @@ export function installFacturadorExemptDesglosePatch(): void {
 	installed = true;
 	bustFacturadorEntryCache(require, pkgRoot);
 	patchXmlModule(require, pkgRoot);
+	patchHaciendaIdentificacion(require, pkgRoot);
 	bustFacturadorEntryCache(require, pkgRoot);
 }

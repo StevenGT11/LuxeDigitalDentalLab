@@ -1,3 +1,4 @@
+import { normalizeFeNumeroIdentificacion } from './client-fiscal-validation';
 import type { ParsedRecibidoXml } from './fe-recibidos.types';
 
 const ROOT_TIPO: Record<string, string> = {
@@ -55,8 +56,8 @@ export function parseRecibidoXml(xmlRaw: string): ParsedRecibidoXml {
 
 	const tipo_documento = detectTipoDocumento(xml);
 	const clave = firstTagContent(xml, 'Clave');
-	if (!clave || !/^\d{50}$/.test(clave)) {
-		throw new Error('No se encontró una clave válida de 50 dígitos en el XML.');
+	if (!clave || !/^[0-9A-Z]{50}$/i.test(clave)) {
+		throw new Error('No se encontró una clave válida de 50 caracteres en el XML.');
 	}
 
 	const emisorBlock = firstTagContent(xml, 'Emisor');
@@ -64,8 +65,10 @@ export function parseRecibidoXml(xmlRaw: string): ParsedRecibidoXml {
 
 	const identBlock = firstTagContent(emisorBlock, 'Identificacion');
 	const emisor_tipo_identificacion = firstTagContent(identBlock ?? emisorBlock, 'Tipo') ?? '01';
-	const emisor_numero_identificacion =
-		firstTagContent(identBlock ?? emisorBlock, 'Numero')?.replace(/\D/g, '') ?? '';
+	const emisor_numero_identificacion = normalizeFeNumeroIdentificacion(
+		firstTagContent(identBlock ?? emisorBlock, 'Numero'),
+		emisor_tipo_identificacion
+	);
 	if (!emisor_numero_identificacion) {
 		throw new Error('No se encontró la identificación del emisor.');
 	}

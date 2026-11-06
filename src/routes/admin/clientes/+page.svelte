@@ -8,6 +8,8 @@
 	import { canManageClients, canViewFinancial } from '$lib/auth/roles';
 	import { FE_TIPO_IDENTIFICACION_OPTIONS } from '$lib/fe/constants';
 	import {
+		feIdentificacionAllowsLetters,
+		feIdentificacionFieldMaxLength,
 		feIdentificacionInputHint,
 		feIdentificacionMaxLength,
 		normalizeFeNumeroIdentificacion,
@@ -66,10 +68,15 @@
 	});
 
 	const identificacionHint = $derived(feIdentificacionInputHint(form.fe_tipo_identificacion));
-	const identificacionMaxLen = $derived(feIdentificacionMaxLength(form.fe_tipo_identificacion));
+	const identificacionAllowsLetters = $derived(
+		feIdentificacionAllowsLetters(form.fe_tipo_identificacion)
+	);
 
-	function onIdentificacionInput(raw: string) {
-		form.fe_numero_identificacion = normalizeFeNumeroIdentificacion(raw).slice(0, identificacionMaxLen);
+	function applyIdentificacion(raw: string, tipo = form.fe_tipo_identificacion) {
+		form.fe_numero_identificacion = normalizeFeNumeroIdentificacion(raw, tipo).slice(
+			0,
+			feIdentificacionMaxLength(tipo)
+		);
 	}
 
 	function validateCreateForm(): boolean {
@@ -408,6 +415,7 @@
 						name="fe_tipo_identificacion"
 						class="field-select"
 						bind:value={form.fe_tipo_identificacion}
+						onchange={(e) => applyIdentificacion(form.fe_numero_identificacion, e.currentTarget.value)}
 					>
 						<option value="">— Después —</option>
 						{#each FE_TIPO_IDENTIFICACION_OPTIONS as opt}
@@ -422,11 +430,13 @@
 						name="fe_numero_identificacion"
 						class="field-input"
 						type="text"
-						inputmode="numeric"
+						inputmode={identificacionAllowsLetters ? 'text' : 'numeric'}
+						autocapitalize={identificacionAllowsLetters ? 'characters' : 'off'}
+						spellcheck="false"
 						autocomplete="off"
-						maxlength={identificacionMaxLen}
+						maxlength={feIdentificacionFieldMaxLength(form.fe_tipo_identificacion)}
 						value={form.fe_numero_identificacion}
-						oninput={(e) => onIdentificacionInput(e.currentTarget.value)}
+						oninput={(e) => applyIdentificacion(e.currentTarget.value)}
 					/>
 					<span class="type-caption">{identificacionHint}</span>
 				</div>

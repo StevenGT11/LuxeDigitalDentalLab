@@ -5,6 +5,14 @@
 	import { pickerValuesFromHacienda } from '$lib/components/addressPicker/hacienda-location';
 	import ActividadEconomica from '$lib/components/actividadEconomica/components/actividadEconomica.svelte';
 	import { FE_TIPO_IDENTIFICACION_OPTIONS } from '$lib/fe/constants';
+	import {
+		feIdentificacionAllowsLetters,
+		feIdentificacionFieldMaxLength,
+		feIdentificacionInputHint,
+		feIdentificacionMaxLength,
+		normalizeFeNumeroIdentificacion,
+		validateFeNumeroIdentificacion
+	} from '$lib/fe/client-fiscal-validation';
 	import type { FeEmisorConfigPublic } from '$lib/fe/types';
 
 	let {
@@ -39,6 +47,7 @@
 
 	let draft = $state(emptyProfile());
 	let saving = $state(false);
+	let fieldError = $state('');
 	let pickProvince = $state(1);
 	let pickCanton = $state(1);
 	let pickDistrict = $state(1);
@@ -92,6 +101,7 @@
 		pickProvince = pick.province;
 		pickCanton = pick.canton;
 		pickDistrict = pick.district;
+		fieldError = '';
 	}
 
 	$effect(() => {
@@ -100,6 +110,28 @@
 		hydratedKey = key;
 		hydrateFromProfile(profile);
 	});
+
+	const identificacionHint = $derived(feIdentificacionInputHint(draft.tipo_identificacion));
+	const identificacionAllowsLetters = $derived(feIdentificacionAllowsLetters(draft.tipo_identificacion));
+
+	function applyIdentificacion(raw: string, tipo = draft.tipo_identificacion) {
+		draft.numero_identificacion = normalizeFeNumeroIdentificacion(raw, tipo).slice(
+			0,
+			feIdentificacionMaxLength(tipo)
+		);
+		fieldError = '';
+	}
+
+	function validateIdentificacion(): boolean {
+		const idCheck = validateFeNumeroIdentificacion(draft.tipo_identificacion, draft.numero_identificacion);
+		if (!idCheck.ok) {
+			fieldError = idCheck.message;
+			return false;
+		}
+		draft.numero_identificacion = idCheck.normalized;
+		fieldError = '';
+		return true;
+	}
 
 	$effect(() => {
 		if (pickProvince > 0) draft.provincia = pickProvince;
@@ -124,7 +156,11 @@
 	<form
 		method="POST"
 		action="?/saveProfile"
-		use:enhance={() => {
+		use:enhance={({ cancel }) => {
+			if (!validateIdentificacion()) {
+				cancel();
+				return;
+			}
 			saving = true;
 			return async ({ update }) => {
 				saving = false;
@@ -136,7 +172,12 @@
 		<div class="form-grid">
 			<label class="field">
 				<span class="field-label">Tipo identificación</span>
-				<select class="field-select" name="tipo_identificacion" bind:value={draft.tipo_identificacion}>
+				<select
+					class="field-select"
+					name="tipo_identificacion"
+					bind:value={draft.tipo_identificacion}
+					onchange={(e) => applyIdentificacion(draft.numero_identificacion, e.currentTarget.value)}
+				>
 					{#each FE_TIPO_IDENTIFICACION_OPTIONS as opt (opt.value)}
 						<option value={opt.value}>{opt.label}</option>
 					{/each}
@@ -144,7 +185,22 @@
 			</label>
 			<label class="field">
 				<span class="field-label">Número identificación</span>
-				<input class="field-input" name="numero_identificacion" required bind:value={draft.numero_identificacion} />
+				<input
+					class="field-input"
+					name="numero_identificacion"
+					required
+					inputmode={identificacionAllowsLetters ? 'text' : 'numeric'}
+					autocapitalize={identificacionAllowsLetters ? 'characters' : 'off'}
+					spellcheck="false"
+					autocomplete="off"
+					maxlength={feIdentificacionFieldMaxLength(draft.tipo_identificacion)}
+					value={draft.numero_identificacion}
+					oninput={(e) => applyIdentificacion(e.currentTarget.value)}
+				/>
+				<span class="type-caption" style="margin-top: 0.25rem; opacity: 0.75;">{identificacionHint}</span>
+				{#if fieldError}
+					<span class="type-caption hacienda-profile__field-error" role="alert">{fieldError}</span>
+				{/if}
 			</label>
 			<label class="field field--full">
 				<span class="field-label">Razón social</span>
@@ -223,6 +279,11 @@
 	.hacienda-profile__hint {
 		margin: 0 0 0.5rem;
 		opacity: 0.75;
+	}
+	.hacienda-profile__field-error {
+		display: block;
+		margin-top: 0.25rem;
+		color: var(--color-danger);
 	}
 	.hacienda-profile__inline {
 		display: grid;

@@ -21,6 +21,7 @@ import {
 	getFeEmisorConfigForEmit
 } from './emisor.server';
 import { facturadorConsultar } from './facturador.server';
+import { normalizeFeNumeroIdentificacion } from './client-fiscal-validation';
 import { buildMensajeReceptorXml } from './mensaje-receptor-xml';
 import { getEmitAmbiente } from './hacienda-settings.server';
 import type { FeComprobanteEstado } from './types';
@@ -30,6 +31,7 @@ async function getFacturadorLowLevel() {
 	return mod as {
 		generarClave: (params: {
 			cedula: string;
+			tipoCedula?: string;
 			tipoDocumento: string;
 			consecutivoNum: number;
 			casaMatriz?: string;
@@ -141,6 +143,7 @@ export async function enviarMensajeReceptorParaRecibido(
 		const config = emisorRowToFacturadorConfig(emisor);
 		const { clave, consecutivo } = facturador.generarClave({
 			cedula: emisor.numero_identificacion,
+			tipoCedula: emisor.tipo_identificacion,
 			tipoDocumento: '05',
 			consecutivoNum,
 			casaMatriz: emisor.casa_matriz,
@@ -152,14 +155,20 @@ export async function enviarMensajeReceptorParaRecibido(
 		const xmlUnsigned = buildMensajeReceptorXml({
 			claveOriginal: recibido.clave,
 			emisorTipoIdentificacion: recibido.emisor_tipo_identificacion,
-			emisorNumeroIdentificacion: recibido.emisor_numero_identificacion,
+			emisorNumeroIdentificacion: normalizeFeNumeroIdentificacion(
+				recibido.emisor_numero_identificacion,
+				recibido.emisor_tipo_identificacion
+			),
 			fechaEmisionDoc,
 			mensaje: codigoMensaje,
 			detalleMensaje,
 			montoTotalImpuesto: recibido.impuesto,
 			totalFactura: recibido.total,
 			receptorTipoIdentificacion: emisor.tipo_identificacion,
-			receptorNumeroIdentificacion: emisor.numero_identificacion.replace(/\D/g, ''),
+			receptorNumeroIdentificacion: normalizeFeNumeroIdentificacion(
+				emisor.numero_identificacion,
+				emisor.tipo_identificacion
+			),
 			consecutivoReceptor: consecutivo
 		});
 
@@ -175,9 +184,15 @@ export async function enviarMensajeReceptorParaRecibido(
 				clave,
 				fecha: fechaEnvio,
 				emisorTipoIdentificacion: emisor.tipo_identificacion,
-				emisorNumeroIdentificacion: emisor.numero_identificacion.replace(/\D/g, ''),
+				emisorNumeroIdentificacion: normalizeFeNumeroIdentificacion(
+					emisor.numero_identificacion,
+					emisor.tipo_identificacion
+				),
 				receptorTipoIdentificacion: recibido.emisor_tipo_identificacion,
-				receptorNumeroIdentificacion: recibido.emisor_numero_identificacion,
+				receptorNumeroIdentificacion: normalizeFeNumeroIdentificacion(
+					recibido.emisor_numero_identificacion,
+					recibido.emisor_tipo_identificacion
+				),
 				comprobanteXml: Buffer.from(xmlSigned).toString('base64')
 			},
 			{
