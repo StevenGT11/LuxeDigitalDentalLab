@@ -104,7 +104,8 @@
 			saving = true;
 			return async ({ result, update }) => {
 				saving = false;
-				await update();
+				// Default reset restores the inputs to their initial empty values.
+				await update({ reset: false });
 				if (result.type === 'success') {
 					onSaved?.(draft.telefono);
 				}
