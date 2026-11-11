@@ -59,12 +59,15 @@
 			: []
 	);
 
-	function onProvinceChange() {
+	function onProvinceChange(event: Event) {
+		// Ignore programmatic updates. Those fire while hydrating a saved address and would wipe cantón and distrito.
+		if (!event.isTrusted) return;
 		canton = 0;
 		district = 0;
 	}
 
-	function onCantonChange() {
+	function onCantonChange(event: Event) {
+		if (!event.isTrusted) return;
 		district = 0;
 	}
 </script>

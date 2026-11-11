@@ -20,6 +20,7 @@
 	let pickCanton = $state(0);
 	let pickDistrict = $state(0);
 	let hydratedKey = $state('');
+	let hydrated = $state(false);
 
 	function syncPickerFromAddress() {
 		const key = [
@@ -48,12 +49,14 @@
 
 	$effect(() => {
 		syncPickerFromAddress();
+		hydrated = true;
 	});
 
 	$effect(() => {
-		if (pickProvince > 0) address.fe_provincia = pickProvince;
-		if (pickCanton > 0) address.fe_canton = String(pickCanton).padStart(2, '0');
-		if (pickDistrict > 0) address.fe_distrito = String(pickDistrict).padStart(2, '0');
+		if (!hydrated) return;
+		address.fe_provincia = pickProvince > 0 ? pickProvince : null;
+		address.fe_canton = pickCanton > 0 ? String(pickCanton).padStart(2, '0') : '';
+		address.fe_distrito = pickDistrict > 0 ? String(pickDistrict).padStart(2, '0') : '';
 	});
 </script>
 
@@ -69,10 +72,22 @@
 		{required}
 	/>
 	{#if showHiddenInputs}
-		<input type="hidden" name="{inputPrefix}_provincia" value={address.fe_provincia ?? ''} />
-		<input type="hidden" name="{inputPrefix}_canton" value={address.fe_canton} />
-		<input type="hidden" name="{inputPrefix}_distrito" value={address.fe_distrito} />
-		<input type="hidden" name="{inputPrefix}_otras_senas" value={address.fe_otras_senas} />
+		<input
+			type="hidden"
+			name="{inputPrefix}_provincia"
+			value={pickProvince > 0 ? String(pickProvince) : ''}
+		/>
+		<input
+			type="hidden"
+			name="{inputPrefix}_canton"
+			value={pickCanton > 0 ? String(pickCanton).padStart(2, '0') : ''}
+		/>
+		<input
+			type="hidden"
+			name="{inputPrefix}_distrito"
+			value={pickDistrict > 0 ? String(pickDistrict).padStart(2, '0') : ''}
+		/>
+		<input type="hidden" name="{inputPrefix}_otras_senas" bind:value={address.fe_otras_senas} />
 	{/if}
 </div>
 

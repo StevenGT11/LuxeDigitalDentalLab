@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { untrack } from 'svelte';
 	import ActividadEconomica from '$lib/components/actividadEconomica/components/actividadEconomica.svelte';
 	import ClientFeAddressFields from '$lib/components/admin/ClientFeAddressFields.svelte';
 	import FeCorreosField from '$lib/components/fe/FeCorreosField.svelte';
@@ -33,9 +34,24 @@
 		onSaved?: (telefono: string) => void;
 	} = $props();
 
-	let draft = $state({ ...fiscal });
+	function fiscalSnapshot(value: ClientFiscalForm): string {
+		return [
+			value.fe_tipo_identificacion,
+			value.fe_numero_identificacion,
+			value.fe_codigo_actividad,
+			value.fe_correo_facturacion,
+			value.telefono,
+			value.fe_provincia ?? '',
+			value.fe_canton,
+			value.fe_distrito,
+			value.fe_otras_senas
+		].join('\u001f');
+	}
+
+	let draft = $state(untrack(() => ({ ...fiscal })));
 	let saving = $state(false);
 	let fieldError = $state('');
+	let appliedFiscalKey = $state(untrack(() => fiscalSnapshot(fiscal)));
 
 	const identificacionHint = $derived(feIdentificacionInputHint(draft.fe_tipo_identificacion));
 	const identificacionAllowsLetters = $derived(
@@ -48,6 +64,15 @@
 			feIdentificacionMaxLength(tipo)
 		);
 		fieldError = '';
+	}
+
+	function draftHasBillingInfo(): boolean {
+		return Boolean(
+			draft.fe_numero_identificacion.trim() ||
+				draft.fe_correo_facturacion.trim() ||
+				draft.fe_otras_senas.trim() ||
+				draft.fe_provincia
+		);
 	}
 
 	function validateDraft(): boolean {
@@ -72,6 +97,16 @@
 	}
 
 	$effect(() => {
+		const key = fiscalSnapshot(fiscal);
+		if (key === appliedFiscalKey) return;
+		const incomingEmpty =
+			!fiscal.fe_numero_identificacion.trim() &&
+			!fiscal.fe_correo_facturacion.trim() &&
+			!fiscal.fe_otras_senas.trim() &&
+			!fiscal.fe_provincia;
+		// A reload that comes back empty must not wipe the address the user just saved.
+		if (incomingEmpty && draftHasBillingInfo()) return;
+		appliedFiscalKey = key;
 		draft = { ...fiscal };
 		fieldError = '';
 	});
@@ -96,11 +131,20 @@
 	<form
 		method="POST"
 		action="?/saveFiscal"
-		use:enhance={({ cancel }) => {
+		use:enhance={({ formData, cancel }) => {
 			if (!validateDraft()) {
 				cancel();
 				return;
 			}
+			formData.set('fe_tipo_identificacion', draft.fe_tipo_identificacion);
+			formData.set('fe_numero_identificacion', draft.fe_numero_identificacion);
+			formData.set('telefono', draft.telefono);
+			formData.set('fe_codigo_actividad', draft.fe_codigo_actividad ?? '');
+			formData.set('fe_correo_facturacion', draft.fe_correo_facturacion ?? '');
+			formData.set('fe_provincia', draft.fe_provincia ? String(draft.fe_provincia) : '');
+			formData.set('fe_canton', draft.fe_canton ?? '');
+			formData.set('fe_distrito', draft.fe_distrito ?? '');
+			formData.set('fe_otras_senas', draft.fe_otras_senas ?? '');
 			saving = true;
 			return async ({ result, update }) => {
 				saving = false;
