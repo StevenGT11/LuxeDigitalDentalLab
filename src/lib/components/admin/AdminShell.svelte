@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
-	import { page } from '$app/stores';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
+	import type { Pathname } from '$app/types';
 	import { signOut } from '$lib/auth/auth';
 	import { canViewFinancial, getStaffPanelLabel } from '$lib/auth/roles';
 	import LuxeLogo from '$lib/components/ui/LuxeLogo.svelte';
@@ -9,6 +11,7 @@
 		BarChart3,
 		CalendarDays,
 		ClipboardList,
+		FileBarChart,
 		FileInput,
 		FileText,
 		HardDrive,
@@ -20,7 +23,7 @@
 	} from '@lucide/svelte';
 
 	interface NavItem {
-		href: string;
+		href: Pathname;
 		label: string;
 		exact?: boolean;
 		icon: typeof LayoutDashboard;
@@ -42,6 +45,12 @@
 		},
 		{ href: '/admin/factura-electronica', label: 'Factura electrónica', icon: Settings, financialOnly: true },
 		{ href: '/admin/almacenamiento', label: 'Almacenamiento', icon: HardDrive, financialOnly: true },
+		{
+			href: '/admin/reportes-ventas',
+			label: 'Reportes de ventas',
+			icon: FileBarChart,
+			financialOnly: true
+		},
 		{ href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3, financialOnly: true }
 	];
 
@@ -55,24 +64,25 @@
 		'/admin/facturas-recibidas': 'Gastos recibidos',
 		'/admin/factura-electronica': 'Factura electrónica',
 		'/admin/almacenamiento': 'Gestión de almacenamiento',
+		'/admin/reportes-ventas': 'Reportes de ventas',
 		'/admin/estadisticas': 'Estadísticas de producción'
 	};
 
 	let { children } = $props();
 
-	let showFinancial = $derived(canViewFinancial($page.data.staffRole ?? $page.data.profile?.role));
+	let showFinancial = $derived(canViewFinancial(page.data.staffRole ?? page.data.profile?.role));
 	let navItems = $derived(allNavItems.filter((item) => showFinancial || !item.financialOnly));
-	let panelLabel = $derived(getStaffPanelLabel($page.data.staffRole ?? $page.data.profile?.role));
+	let panelLabel = $derived(getStaffPanelLabel(page.data.staffRole ?? page.data.profile?.role));
 
 	let pageTitle = $derived(
 		Object.entries(pageTitles).find(([path]) => {
-			if (path === '/admin') return $page.url.pathname === '/admin';
-			return $page.url.pathname.startsWith(path);
+			if (path === '/admin') return page.url.pathname === '/admin';
+			return page.url.pathname.startsWith(path);
 		})?.[1] ?? (showFinancial ? 'Administración' : 'Taller')
 	);
 
 	function isActive(href: string, exact = false): boolean {
-		const path = $page.url.pathname;
+		const path = page.url.pathname;
 		if (exact) return path === href || path === href + '/';
 		return path === href || path.startsWith(href + '/');
 	}
@@ -89,10 +99,10 @@
 		</div>
 
 		<nav class="dash-sidebar__nav">
-			{#each navItems as item}
+			{#each navItems as item (item.href)}
 				{@const Icon = item.icon}
 				<a
-					href={item.href}
+					href={resolve(item.href)}
 					class="dash-sidebar__link"
 					class:is-active={isActive(item.href, item.exact)}
 					data-sveltekit-preload-data="off"
@@ -110,7 +120,7 @@
 				onclick={async () => {
 					await signOut();
 					await invalidateAll();
-					goto('/');
+					goto(resolve('/'));
 				}}
 			>
 				<LogOut size={16} strokeWidth={1.75} />

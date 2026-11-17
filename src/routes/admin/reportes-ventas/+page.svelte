@@ -1,0 +1,229 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+	import { formatCurrency, formatDate } from '$lib/lab/helpers';
+	import { getInvoiceEstadoLabel } from '$lib/lab/invoice-estado';
+	import {
+		MONTH_NAMES_FULL,
+		salesReportPeriodLabel,
+		salesReportToSheetRows
+	} from '$lib/lab/sales-report';
+	import { Download } from '@lucide/svelte';
+
+	let { data } = $props();
+
+	let year = $derived(data.year);
+	let month = $derived(data.month);
+	let rows = $derived(data.rows);
+	let totals = $derived(data.totals);
+	let yearsAvailable = $derived(data.yearsAvailable);
+	let periodLabel = $derived(salesReportPeriodLabel(year, month));
+	let exporting = $state(false);
+
+	function onFilterChange(event: Event) {
+		const el = event.currentTarget as HTMLSelectElement;
+		el.form?.requestSubmit();
+	}
+
+	async function downloadExcel() {
+		if (exporting || rows.length === 0) return;
+		exporting = true;
+		try {
+			const XLSX = await import('xlsx');
+			const sheetRows = salesReportToSheetRows(rows, totals);
+			const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+			worksheet['!cols'] = [
+				{ wch: 12 },
+				{ wch: 14 },
+				{ wch: 12 },
+				{ wch: 24 },
+				{ wch: 22 },
+				{ wch: 20 },
+				{ wch: 12 },
+				{ wch: 12 },
+				{ wch: 12 },
+				{ wch: 12 }
+			];
+			const workbook = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(workbook, worksheet, 'Ventas');
+			const suffix = month != null ? `${year}-${String(month).padStart(2, '0')}` : String(year);
+			XLSX.writeFile(workbook, `reporte-ventas-${suffix}.xlsx`);
+		} finally {
+			exporting = false;
+		}
+	}
+</script>
+
+<div class="dash-page">
+	<p class="dash-lead">
+		Detalle de ventas facturadas y pagadas — cada factura con subtotal, IVA y total. Filtre por mes
+		y exporte a Excel.
+	</p>
+
+	<div class="dash-toolbar reportes-ventas-toolbar">
+		<form
+			method="GET"
+			action={resolve('/admin/reportes-ventas')}
+			class="reportes-ventas-toolbar__filters"
+			data-sveltekit-keepfocus
+			data-sveltekit-noscroll
+		>
+			<label class="reportes-ventas-toolbar__field">
+				<span class="type-caption">Año</span>
+				<select
+					class="field-select"
+					name="year"
+					value={year}
+					onchange={onFilterChange}
+					aria-label="Año del reporte"
+				>
+					{#each yearsAvailable as y (y)}
+						<option value={y}>{y}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="reportes-ventas-toolbar__field">
+				<span class="type-caption">Mes</span>
+				<select
+					class="field-select"
+					name="month"
+					value={month == null ? 'all' : month}
+					onchange={onFilterChange}
+					aria-label="Mes del reporte"
+				>
+					<option value="all">Todo el año</option>
+					{#each MONTH_NAMES_FULL as label, i (label)}
+						<option value={i + 1}>{label}</option>
+					{/each}
+				</select>
+			</label>
+		</form>
+		<button
+			type="button"
+			class="btn-secondary-pill"
+			onclick={downloadExcel}
+			disabled={rows.length === 0 || exporting}
+		>
+			<Download size={16} strokeWidth={1.75} />
+			{exporting ? 'Exportando…' : 'Exportar Excel'}
+		</button>
+	</div>
+
+	<section class="dash-stat-grid dash-stat-grid--compact">
+		<div class="dash-stat">
+			<p class="dash-stat__label">Subtotal — {periodLabel}</p>
+			<p class="dash-stat__value dash-stat__value--currency">{formatCurrency(totals.subtotal)}</p>
+		</div>
+		<div class="dash-stat">
+			<p class="dash-stat__label">IVA — {periodLabel}</p>
+			<p class="dash-stat__value dash-stat__value--currency">{formatCurrency(totals.impuesto)}</p>
+		</div>
+		<div class="dash-stat dash-stat--accent">
+			<p class="dash-stat__label">Total — {periodLabel}</p>
+			<p class="dash-stat__value dash-stat__value--currency">{formatCurrency(totals.total)}</p>
+			<p class="dash-stat__hint">{totals.count} factura{totals.count === 1 ? '' : 's'}</p>
+		</div>
+	</section>
+
+	<section class="dash-panel dash-panel--section">
+		<h2 class="dash-panel__section-title">Detalle de facturas</h2>
+		{#if rows.length === 0}
+			<p class="type-caption reportes-ventas-empty">
+				No hay facturas facturadas o pagadas en este periodo.
+			</p>
+		{:else}
+			<div class="data-table-wrap">
+				<table class="data-table">
+					<thead>
+						<tr>
+							<th>Fecha</th>
+							<th>Factura</th>
+							<th>Caso</th>
+							<th>Cliente</th>
+							<th>Paciente</th>
+							<th>Estado</th>
+							<th class="reportes-ventas-num">Subtotal</th>
+							<th class="reportes-ventas-num">IVA</th>
+							<th class="reportes-ventas-num">Total</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each rows as row (row.id)}
+							<tr>
+								<td>{formatDate(row.fecha_emision)}</td>
+								<td>
+									<a class="text-link" href={resolve(`/admin/facturas/${row.id}`)}>
+										{row.invoice_number}
+									</a>
+								</td>
+								<td>{row.case_number || '—'}</td>
+								<td>
+									<span class="reportes-ventas-client">{row.client_name}</span>
+									{#if row.client_clinica}
+										<span class="type-caption reportes-ventas-clinica">{row.client_clinica}</span>
+									{/if}
+								</td>
+								<td>{row.paciente_name || '—'}</td>
+								<td>{getInvoiceEstadoLabel(row.estado)}</td>
+								<td class="reportes-ventas-num">{formatCurrency(row.subtotal)}</td>
+								<td class="reportes-ventas-num">{formatCurrency(row.impuesto)}</td>
+								<td class="reportes-ventas-num type-body-strong">{formatCurrency(row.total)}</td>
+							</tr>
+						{/each}
+					</tbody>
+					<tfoot>
+						<tr>
+							<td colspan="6" class="type-body-strong">Total ({totals.count})</td>
+							<td class="reportes-ventas-num type-body-strong">{formatCurrency(totals.subtotal)}</td>
+							<td class="reportes-ventas-num type-body-strong">{formatCurrency(totals.impuesto)}</td>
+							<td class="reportes-ventas-num type-body-strong">{formatCurrency(totals.total)}</td>
+						</tr>
+					</tfoot>
+				</table>
+			</div>
+		{/if}
+	</section>
+</div>
+
+<style>
+	.reportes-ventas-toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: var(--spacing-md, 1rem);
+		margin-bottom: var(--spacing-lg, 1.25rem);
+	}
+
+	.reportes-ventas-toolbar__filters {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: var(--spacing-md, 1rem);
+	}
+
+	.reportes-ventas-toolbar__field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		min-width: 9rem;
+	}
+
+	.reportes-ventas-num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.reportes-ventas-client {
+		display: block;
+	}
+
+	.reportes-ventas-clinica {
+		display: block;
+		margin-top: 0.15rem;
+	}
+
+	.reportes-ventas-empty {
+		margin: 0;
+		padding: 0.5rem 0 0.25rem;
+	}
+</style>
