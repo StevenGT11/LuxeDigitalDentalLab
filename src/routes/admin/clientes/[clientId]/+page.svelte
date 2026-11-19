@@ -146,40 +146,61 @@
 		items: string;
 		costo: number | null;
 		estado: LabCase['estado'] | null;
+		fecha: string;
 		invoices: InvoiceListRow[];
 	};
 
-	let unifiedGroups = $derived.by(() => {
-		const groups: CaseInvoiceGroup[] = filteredCasos.map((caso) => ({
-			key: caso.id,
-			caso,
-			caseNumber: caso.case_number,
-			paciente: caso.paciente_name,
-			items: itemsLabel(caso),
-			costo: caso.costo,
-			estado: caso.estado,
-			invoices: showFinancial ? (invoicesByCaseId[caso.id] ?? []) : []
-		}));
-		if (!showFinancial) return groups;
+	function sortInvoicesByFecha(invoices: InvoiceListRow[]): InvoiceListRow[] {
+		return [...invoices].sort((a, b) => b.fecha_emision.localeCompare(a.fecha_emision));
+	}
 
-		const orphansByCase: Record<string, InvoiceListRow[]> = {};
-		for (const fac of filteredOrphanInvoices) {
-			(orphansByCase[fac.case_id] ??= []).push(fac);
-		}
-		for (const [caseId, invoices] of Object.entries(orphansByCase)) {
-			const first = invoices[0];
-			groups.push({
-				key: `orphan-${caseId}`,
-				caso: null,
-				caseNumber: first.case_number,
-				paciente: first.paciente_name,
-				items: '—',
-				costo: null,
-				estado: null,
+	function latestInvoiceFecha(invoices: InvoiceListRow[]): string {
+		if (invoices.length === 0) return '';
+		return invoices.reduce(
+			(latest, fac) => (fac.fecha_emision > latest ? fac.fecha_emision : latest),
+			invoices[0]!.fecha_emision
+		);
+	}
+
+	let unifiedGroups = $derived.by(() => {
+		const groups: CaseInvoiceGroup[] = filteredCasos.map((caso) => {
+			const invoices = showFinancial
+				? sortInvoicesByFecha(invoicesByCaseId[caso.id] ?? [])
+				: [];
+			return {
+				key: caso.id,
+				caso,
+				caseNumber: caso.case_number,
+				paciente: caso.paciente_name,
+				items: itemsLabel(caso),
+				costo: caso.costo,
+				estado: caso.estado,
+				fecha: caso.fecha_creacion,
 				invoices
-			});
+			};
+		});
+		if (showFinancial) {
+			const orphansByCase: Record<string, InvoiceListRow[]> = {};
+			for (const fac of filteredOrphanInvoices) {
+				(orphansByCase[fac.case_id] ??= []).push(fac);
+			}
+			for (const [caseId, invoicesRaw] of Object.entries(orphansByCase)) {
+				const invoices = sortInvoicesByFecha(invoicesRaw);
+				const first = invoices[0]!;
+				groups.push({
+					key: `orphan-${caseId}`,
+					caso: null,
+					caseNumber: first.case_number,
+					paciente: first.paciente_name,
+					items: '—',
+					costo: null,
+					estado: null,
+					fecha: latestInvoiceFecha(invoices),
+					invoices
+				});
+			}
 		}
-		return groups;
+		return groups.sort((a, b) => b.fecha.localeCompare(a.fecha));
 	});
 
 	let paginatedGroups = $derived.by(() => {
@@ -629,15 +650,14 @@
 									<th>Paciente</th>
 									<th>Ítems</th>
 									{#if showFinancial}
-										<th>Documento</th>
 										<th>Número</th>
 										<th>Monto</th>
 									{/if}
 									<th>Estado</th>
 									{#if showFinancial}
 										<th>FE Hacienda</th>
-										<th>Emisión</th>
 									{/if}
+									<th>Fecha</th>
 									<th></th>
 								</tr>
 							</thead>
@@ -673,7 +693,6 @@
 										<td>{group.paciente}</td>
 										<td class="type-caption">{group.items}</td>
 										{#if showFinancial}
-											<td class="type-caption">Caso</td>
 											<td class="type-caption">
 												{#if group.invoices.length > 0 && !invoicesOpen}
 													{group.invoices.length}
@@ -691,8 +710,8 @@
 										</td>
 										{#if showFinancial}
 											<td></td>
-											<td></td>
 										{/if}
+										<td>{group.fecha ? formatDate(group.fecha) : '—'}</td>
 										<td>
 											{#if group.caso}
 												<div class="client-case-row-actions">
@@ -721,7 +740,7 @@
 									{#if showFinancial && group.invoices.length === 0}
 										<tr class="client-doc-row--empty">
 											<td colspan="3"></td>
-											<td colspan="7" class="type-caption">Sin facturas</td>
+											<td colspan="6" class="type-caption">Sin facturas</td>
 										</tr>
 									{/if}
 									{#if showFinancial && invoicesOpen}
@@ -734,7 +753,6 @@
 												<td></td>
 												<td></td>
 												<td></td>
-												<td>Factura</td>
 												<td class="type-body-strong">
 													<a href="/admin/facturas/{fac.id}?from=cliente" class="text-link">
 														{fac.invoice_number}
@@ -828,8 +846,10 @@
 													<td></td>
 													<td></td>
 													<td></td>
-													<td class="client-doc-indent">{getFeTipoDocumentoLabel(nota.tipo_documento)}</td>
-													<td class="type-caption" title={nota.clave ?? ''}>{notaNumero(nota)}</td>
+													<td class="client-doc-indent type-caption" title={nota.clave ?? ''}>
+														{getFeTipoDocumentoLabel(nota.tipo_documento)}
+														{notaNumero(nota)}
+													</td>
 													<td>{notaMonto(nota)}</td>
 													<td class="type-caption">—</td>
 													<td>

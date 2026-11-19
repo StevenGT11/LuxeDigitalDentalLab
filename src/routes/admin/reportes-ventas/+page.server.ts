@@ -1,7 +1,11 @@
 import type { PageServerLoad } from './$types';
 import { requireFinancialProfile } from '$lib/auth/guards.server';
 import { fetchSalesReportDetails } from '$lib/lab/sales-report.server';
-import { sumSalesDetailRows } from '$lib/lab/sales-report';
+import {
+	filterSalesRowsByFe,
+	parseSalesReportFeFilter,
+	sumSalesDetailRows
+} from '$lib/lab/sales-report';
 
 function yearsList(currentYear: number): number[] {
 	return Array.from({ length: 6 }, (_, i) => currentYear - i);
@@ -31,9 +35,11 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 	const yearsAvailable = yearsList(currentYear);
 	const year = clampYear(url.searchParams.get('year'), currentYear, yearsAvailable);
 	const month = parseMonth(url.searchParams.get('month'));
+	const feFilter = parseSalesReportFeFilter(url.searchParams.get('fe'));
 
-	const rows = await fetchSalesReportDetails({ year, month });
+	const allRows = await fetchSalesReportDetails({ year, month });
+	const rows = filterSalesRowsByFe(allRows, feFilter);
 	const totals = sumSalesDetailRows(rows);
 
-	return { year, month, yearsAvailable, rows, totals };
+	return { year, month, feFilter, yearsAvailable, rows, totals };
 };

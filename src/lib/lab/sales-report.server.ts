@@ -1,7 +1,20 @@
 import { createSupabaseAdminClient } from '$lib/supabase/admin';
-import { isCountedSalesEstado, type SalesReportDetailRow } from './sales-report';
+import {
+	isCountedSalesEstado,
+	normalizeSalesMoneda,
+	type SalesReportDetailRow
+} from './sales-report';
 
-type DbSalesInvoiceRow = {
+type DbFeEmbed = {
+	tipo_documento: string | null;
+	estado: string | null;
+	moneda: string | null;
+	consecutivo: string | null;
+	clave: string | null;
+	fecha_emision: string | null;
+};
+
+type DbInvoiceSalesRow = {
 	id: string;
 	invoice_number: string;
 	fecha_emision: string;
@@ -13,6 +26,7 @@ type DbSalesInvoiceRow = {
 	subtotal: number | null;
 	impuesto: number | null;
 	total: number | null;
+	fe_comprobantes: DbFeEmbed[] | DbFeEmbed | null;
 };
 
 export type FetchSalesReportParams = {
@@ -21,7 +35,22 @@ export type FetchSalesReportParams = {
 	month: number | null;
 };
 
-/** Facturas facturadas/pagadas del periodo (detalle por factura). */
+function listFeEmbeds(raw: DbInvoiceSalesRow['fe_comprobantes']): DbFeEmbed[] {
+	if (!raw) return [];
+	return (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
+}
+
+/** Prefiere FE 01 aceptada; si no, cualquier FE 01. */
+function pickFe01(embeds: DbFeEmbed[]): DbFeEmbed | null {
+	const tipo01 = embeds.filter((f) => f.tipo_documento === '01');
+	if (tipo01.length === 0) return null;
+	return tipo01.find((f) => f.estado === 'aceptado') ?? tipo01[0] ?? null;
+}
+
+/**
+ * Reporte general de ventas: facturas facturadas/pagadas del periodo.
+ * Incluye con y sin FE. Montos = precio de la factura (libro USD).
+ */
 export async function fetchSalesReportDetails(
 	params: FetchSalesReportParams
 ): Promise<SalesReportDetailRow[]> {
@@ -41,11 +70,30 @@ export async function fetchSalesReportDetails(
 		toExclusive = `${year + 1}-01-01`;
 	}
 
-	/** Filtro de estado en JS: evita fallar si el enum remoto aún no tiene `facturado`. */
 	const { data, error } = await admin
 		.from('invoices')
 		.select(
-			'id, invoice_number, fecha_emision, estado, client_name, client_clinica, case_number, paciente_name, subtotal, impuesto, total'
+			`
+			id,
+			invoice_number,
+			fecha_emision,
+			estado,
+			client_name,
+			client_clinica,
+			case_number,
+			paciente_name,
+			subtotal,
+			impuesto,
+			total,
+			fe_comprobantes (
+				tipo_documento,
+				estado,
+				moneda,
+				consecutivo,
+				clave,
+				fecha_emision
+			)
+		`
 		)
 		.gte('fecha_emision', from)
 		.lt('fecha_emision', toExclusive)
@@ -55,24 +103,36 @@ export async function fetchSalesReportDetails(
 		throw new Error(error.message || 'No se pudieron cargar las facturas del reporte.');
 	}
 
-	return ((data ?? []) as DbSalesInvoiceRow[])
-		.filter((row) => isCountedSalesEstado(row.estado))
-		.map((row) => ({
-			id: row.id,
-			invoice_number: row.invoice_number,
-			fecha_emision: row.fecha_emision,
-			estado: row.estado === 'pagada' ? 'pagado' : row.estado,
-			client_name: row.client_name ?? '',
-			client_clinica: row.client_clinica ?? '',
-			case_number: row.case_number ?? '',
-			paciente_name: row.paciente_name ?? '',
-			subtotal: Number(row.subtotal ?? 0),
-			impuesto: Number(row.impuesto ?? 0),
-			total: Number(row.total ?? 0)
-		}))
-		.sort((a, b) => {
-			const byDate = a.fecha_emision.localeCompare(b.fecha_emision);
-			if (byDate !== 0) return byDate;
-			return a.invoice_number.localeCompare(b.invoice_number);
+	const rows: SalesReportDetailRow[] = [];
+
+	for (const inv of (data ?? []) as DbInvoiceSalesRow[]) {
+		if (!isCountedSalesEstado(inv.estado)) continue;
+
+		const fe = pickFe01(listFeEmbeds(inv.fe_comprobantes));
+		const tieneFe = fe?.estado === 'aceptado';
+
+		rows.push({
+			id: inv.id,
+			invoice_number: inv.invoice_number,
+			fecha_emision: inv.fecha_emision,
+			estado: inv.estado === 'pagada' ? 'pagado' : inv.estado,
+			client_name: inv.client_name ?? '',
+			client_clinica: inv.client_clinica ?? '',
+			case_number: inv.case_number ?? '',
+			paciente_name: inv.paciente_name ?? '',
+			tiene_fe: tieneFe,
+			fe_consecutivo: tieneFe ? (fe?.consecutivo ?? '') : '',
+			fe_clave: tieneFe ? (fe?.clave ?? '') : '',
+			fe_moneda: tieneFe ? normalizeSalesMoneda(fe?.moneda) : null,
+			subtotal: Number(inv.subtotal ?? 0),
+			impuesto: Number(inv.impuesto ?? 0),
+			total: Number(inv.total ?? 0)
 		});
+	}
+
+	return rows.sort((a, b) => {
+		const byDate = a.fecha_emision.localeCompare(b.fecha_emision);
+		if (byDate !== 0) return byDate;
+		return a.invoice_number.localeCompare(b.invoice_number);
+	});
 }

@@ -1,6 +1,8 @@
 import { getInvoiceEstadoLabel } from '$lib/lab/invoice-estado';
 
-/** Fila detallada de una factura en el reporte de ventas. */
+export type SalesReportMoneda = 'CRC' | 'USD';
+
+/** Fila detallada: montos del precio de la factura (libro USD). */
 export type SalesReportDetailRow = {
 	id: string;
 	invoice_number: string;
@@ -10,6 +12,13 @@ export type SalesReportDetailRow = {
 	client_clinica: string;
 	case_number: string;
 	paciente_name: string;
+	/** true si tiene FE tipo 01 aceptada */
+	tiene_fe: boolean;
+	fe_consecutivo: string;
+	fe_clave: string;
+	/** Moneda FE si existe; null = sin FE */
+	fe_moneda: SalesReportMoneda | null;
+	/** Montos del libro de factura (siempre USD). */
 	subtotal: number;
 	impuesto: number;
 	total: number;
@@ -21,6 +30,23 @@ export type SalesReportTotals = {
 	impuesto: number;
 	total: number;
 };
+
+/** Filtro de factura electrónica en el reporte. */
+export type SalesReportFeFilter = 'all' | 'con_fe' | 'sin_fe';
+
+export function parseSalesReportFeFilter(raw: string | null): SalesReportFeFilter {
+	if (raw === 'con_fe' || raw === 'sin_fe') return raw;
+	return 'all';
+}
+
+export function filterSalesRowsByFe(
+	rows: SalesReportDetailRow[],
+	feFilter: SalesReportFeFilter
+): SalesReportDetailRow[] {
+	if (feFilter === 'con_fe') return rows.filter((r) => r.tiene_fe);
+	if (feFilter === 'sin_fe') return rows.filter((r) => !r.tiene_fe);
+	return rows;
+}
 
 export const MONTH_NAMES_FULL = [
 	'Enero',
@@ -39,6 +65,19 @@ export const MONTH_NAMES_FULL = [
 
 export function isCountedSalesEstado(estado: string): boolean {
 	return estado === 'facturado' || estado === 'pagado' || estado === 'pagada';
+}
+
+export function normalizeSalesMoneda(raw: string | null | undefined): SalesReportMoneda {
+	return String(raw ?? '').toUpperCase() === 'CRC' ? 'CRC' : 'USD';
+}
+
+export function formatSalesMoney(amount: number): string {
+	return new Intl.NumberFormat('es-CR', {
+		style: 'currency',
+		currency: 'USD',
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2
+	}).format(amount);
 }
 
 export function sumSalesDetailRows(rows: SalesReportDetailRow[]): SalesReportTotals {
@@ -65,24 +104,32 @@ export function salesReportToSheetRows(
 	const header = [
 		'Fecha',
 		'Factura',
+		'FE',
+		'Consecutivo FE',
+		'Clave FE',
 		'Caso',
 		'Cliente',
 		'Clínica',
 		'Paciente',
-		'Estado',
-		'Subtotal',
-		'IVA',
-		'Total'
+		'Estado cobro',
+		'Moneda FE',
+		'Subtotal USD',
+		'IVA USD',
+		'Total USD'
 	];
 
 	const body = rows.map((row) => [
 		row.fecha_emision.slice(0, 10),
 		row.invoice_number,
+		row.tiene_fe ? 'Sí' : 'No',
+		row.fe_consecutivo || '—',
+		row.fe_clave || '—',
 		row.case_number || '—',
 		row.client_name,
 		row.client_clinica,
 		row.paciente_name || '—',
 		getInvoiceEstadoLabel(row.estado),
+		row.fe_moneda ?? '—',
 		roundMoney(row.subtotal),
 		roundMoney(row.impuesto),
 		roundMoney(row.total)
@@ -95,7 +142,11 @@ export function salesReportToSheetRows(
 		'',
 		'',
 		'',
+		'',
+		'',
+		'',
 		`Total (${totals.count})`,
+		'',
 		roundMoney(totals.subtotal),
 		roundMoney(totals.impuesto),
 		roundMoney(totals.total)

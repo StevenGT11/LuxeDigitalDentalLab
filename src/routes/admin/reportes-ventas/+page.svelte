@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { formatCurrency, formatDate } from '$lib/lab/helpers';
+	import { formatDate } from '$lib/lab/helpers';
 	import { getInvoiceEstadoLabel } from '$lib/lab/invoice-estado';
 	import {
 		MONTH_NAMES_FULL,
+		formatSalesMoney,
 		salesReportPeriodLabel,
 		salesReportToSheetRows
 	} from '$lib/lab/sales-report';
@@ -13,6 +14,7 @@
 
 	let year = $derived(data.year);
 	let month = $derived(data.month);
+	let feFilter = $derived(data.feFilter);
 	let rows = $derived(data.rows);
 	let totals = $derived(data.totals);
 	let yearsAvailable = $derived(data.yearsAvailable);
@@ -34,19 +36,26 @@
 			worksheet['!cols'] = [
 				{ wch: 12 },
 				{ wch: 14 },
+				{ wch: 6 },
+				{ wch: 18 },
+				{ wch: 28 },
 				{ wch: 12 },
-				{ wch: 24 },
 				{ wch: 22 },
 				{ wch: 20 },
+				{ wch: 18 },
 				{ wch: 12 },
+				{ wch: 10 },
 				{ wch: 12 },
 				{ wch: 12 },
 				{ wch: 12 }
 			];
 			const workbook = XLSX.utils.book_new();
 			XLSX.utils.book_append_sheet(workbook, worksheet, 'Ventas');
-			const suffix = month != null ? `${year}-${String(month).padStart(2, '0')}` : String(year);
-			XLSX.writeFile(workbook, `reporte-ventas-${suffix}.xlsx`);
+			const period =
+				month != null ? `${year}-${String(month).padStart(2, '0')}` : String(year);
+			const feSuffix =
+				feFilter === 'con_fe' ? '-solo-fe' : feFilter === 'sin_fe' ? '-sin-fe' : '';
+			XLSX.writeFile(workbook, `reporte-ventas-${period}${feSuffix}.xlsx`);
 		} finally {
 			exporting = false;
 		}
@@ -55,8 +64,8 @@
 
 <div class="dash-page">
 	<p class="dash-lead">
-		Detalle de ventas facturadas y pagadas — cada factura con subtotal, IVA y total. Filtre por mes
-		y exporte a Excel.
+		Reporte general de ventas (facturadas o pagadas). Filtre por mes y por FE; el Excel exporta lo
+		que está en pantalla. Montos del <strong>precio de la factura</strong> (USD).
 	</p>
 
 	<div class="dash-toolbar reportes-ventas-toolbar">
@@ -96,6 +105,20 @@
 					{/each}
 				</select>
 			</label>
+			<label class="reportes-ventas-toolbar__field">
+				<span class="type-caption">Factura electrónica</span>
+				<select
+					class="field-select"
+					name="fe"
+					value={feFilter}
+					onchange={onFilterChange}
+					aria-label="Filtro de factura electrónica"
+				>
+					<option value="all">Todas</option>
+					<option value="con_fe">Solo con FE</option>
+					<option value="sin_fe">Solo sin FE</option>
+				</select>
+			</label>
 		</form>
 		<button
 			type="button"
@@ -111,24 +134,30 @@
 	<section class="dash-stat-grid dash-stat-grid--compact">
 		<div class="dash-stat">
 			<p class="dash-stat__label">Subtotal — {periodLabel}</p>
-			<p class="dash-stat__value dash-stat__value--currency">{formatCurrency(totals.subtotal)}</p>
+			<p class="dash-stat__value dash-stat__value--currency">{formatSalesMoney(totals.subtotal)}</p>
 		</div>
 		<div class="dash-stat">
 			<p class="dash-stat__label">IVA — {periodLabel}</p>
-			<p class="dash-stat__value dash-stat__value--currency">{formatCurrency(totals.impuesto)}</p>
+			<p class="dash-stat__value dash-stat__value--currency">{formatSalesMoney(totals.impuesto)}</p>
 		</div>
 		<div class="dash-stat dash-stat--accent">
 			<p class="dash-stat__label">Total — {periodLabel}</p>
-			<p class="dash-stat__value dash-stat__value--currency">{formatCurrency(totals.total)}</p>
+			<p class="dash-stat__value dash-stat__value--currency">{formatSalesMoney(totals.total)}</p>
 			<p class="dash-stat__hint">{totals.count} factura{totals.count === 1 ? '' : 's'}</p>
 		</div>
 	</section>
 
 	<section class="dash-panel dash-panel--section">
-		<h2 class="dash-panel__section-title">Detalle de facturas</h2>
+		<h2 class="dash-panel__section-title">Detalle de ventas</h2>
 		{#if rows.length === 0}
 			<p class="type-caption reportes-ventas-empty">
-				No hay facturas facturadas o pagadas en este periodo.
+				{#if feFilter === 'con_fe'}
+					No hay facturas con FE aceptada en este periodo.
+				{:else if feFilter === 'sin_fe'}
+					No hay facturas sin FE en este periodo.
+				{:else}
+					No hay facturas facturadas o pagadas en este periodo.
+				{/if}
 			</p>
 		{:else}
 			<div class="data-table-wrap">
@@ -137,10 +166,11 @@
 						<tr>
 							<th>Fecha</th>
 							<th>Factura</th>
+							<th>FE</th>
 							<th>Caso</th>
 							<th>Cliente</th>
 							<th>Paciente</th>
-							<th>Estado</th>
+							<th>Moneda FE</th>
 							<th class="reportes-ventas-num">Subtotal</th>
 							<th class="reportes-ventas-num">IVA</th>
 							<th class="reportes-ventas-num">Total</th>
@@ -154,6 +184,18 @@
 									<a class="text-link" href={resolve(`/admin/facturas/${row.id}`)}>
 										{row.invoice_number}
 									</a>
+									<span class="type-caption reportes-ventas-estado">
+										{getInvoiceEstadoLabel(row.estado)}
+									</span>
+								</td>
+								<td>
+									{#if row.tiene_fe}
+										<span class="reportes-ventas-mono" title={row.fe_clave || undefined}>
+											{row.fe_consecutivo || 'Sí'}
+										</span>
+									{:else}
+										<span class="type-caption">Sin FE</span>
+									{/if}
 								</td>
 								<td>{row.case_number || '—'}</td>
 								<td>
@@ -163,19 +205,19 @@
 									{/if}
 								</td>
 								<td>{row.paciente_name || '—'}</td>
-								<td>{getInvoiceEstadoLabel(row.estado)}</td>
-								<td class="reportes-ventas-num">{formatCurrency(row.subtotal)}</td>
-								<td class="reportes-ventas-num">{formatCurrency(row.impuesto)}</td>
-								<td class="reportes-ventas-num type-body-strong">{formatCurrency(row.total)}</td>
+								<td>{row.fe_moneda ?? '—'}</td>
+								<td class="reportes-ventas-num">{formatSalesMoney(row.subtotal)}</td>
+								<td class="reportes-ventas-num">{formatSalesMoney(row.impuesto)}</td>
+								<td class="reportes-ventas-num type-body-strong">{formatSalesMoney(row.total)}</td>
 							</tr>
 						{/each}
 					</tbody>
 					<tfoot>
 						<tr>
-							<td colspan="6" class="type-body-strong">Total ({totals.count})</td>
-							<td class="reportes-ventas-num type-body-strong">{formatCurrency(totals.subtotal)}</td>
-							<td class="reportes-ventas-num type-body-strong">{formatCurrency(totals.impuesto)}</td>
-							<td class="reportes-ventas-num type-body-strong">{formatCurrency(totals.total)}</td>
+							<td colspan="7" class="type-body-strong">Total ({totals.count})</td>
+							<td class="reportes-ventas-num type-body-strong">{formatSalesMoney(totals.subtotal)}</td>
+							<td class="reportes-ventas-num type-body-strong">{formatSalesMoney(totals.impuesto)}</td>
+							<td class="reportes-ventas-num type-body-strong">{formatSalesMoney(totals.total)}</td>
 						</tr>
 					</tfoot>
 				</table>
@@ -217,9 +259,15 @@
 		display: block;
 	}
 
-	.reportes-ventas-clinica {
+	.reportes-ventas-clinica,
+	.reportes-ventas-estado {
 		display: block;
 		margin-top: 0.15rem;
+	}
+
+	.reportes-ventas-mono {
+		font-variant-numeric: tabular-nums;
+		font-size: 0.9em;
 	}
 
 	.reportes-ventas-empty {
