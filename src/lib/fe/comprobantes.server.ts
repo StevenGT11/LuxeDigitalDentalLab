@@ -27,7 +27,7 @@ type DbFe = {
 };
 
 const SUMMARY_COLS =
-	'id, invoice_id, clave, consecutivo, estado, hacienda_status, ultimo_error, enviado_at, resuelto_at';
+	'id, invoice_id, clave, consecutivo, estado, hacienda_status, ultimo_error, enviado_at, resuelto_at, moneda, subtotal, impuesto, total';
 
 function mapSummary(row: DbFe): FeComprobanteSummary {
 	return {
@@ -39,7 +39,11 @@ function mapSummary(row: DbFe): FeComprobanteSummary {
 		hacienda_status: row.hacienda_status,
 		ultimo_error: row.ultimo_error,
 		enviado_at: row.enviado_at,
-		resuelto_at: row.resuelto_at
+		resuelto_at: row.resuelto_at,
+		moneda: row.moneda ?? 'USD',
+		subtotal: Number(row.subtotal ?? 0),
+		impuesto: Number(row.impuesto ?? 0),
+		total: Number(row.total ?? 0)
 	};
 }
 

@@ -51,6 +51,8 @@ const LIST_SELECT = `
 		ultimo_error,
 		enviado_at,
 		resuelto_at,
+		subtotal,
+		impuesto,
 		total,
 		moneda
 	)
@@ -68,6 +70,8 @@ type FeEmbedRow = {
 	ultimo_error: string | null;
 	enviado_at: string | null;
 	resuelto_at: string | null;
+	subtotal?: number | null;
+	impuesto?: number | null;
 	total?: number | null;
 	moneda?: string | null;
 };
@@ -137,7 +141,11 @@ function mapFeEmbed(
 		hacienda_status: row.hacienda_status,
 		ultimo_error: row.ultimo_error,
 		enviado_at: row.enviado_at,
-		resuelto_at: row.resuelto_at
+		resuelto_at: row.resuelto_at,
+		moneda: row.moneda ?? 'USD',
+		subtotal: Number(row.subtotal ?? 0),
+		impuesto: Number(row.impuesto ?? 0),
+		total: Number(row.total ?? 0)
 	};
 }
 

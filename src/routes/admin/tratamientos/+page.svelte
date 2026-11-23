@@ -14,6 +14,7 @@
 		GUIA_PRECIOS_POR_IMPLANTES,
 		IMPLANTES_GUIA_OPTIONS
 	} from '$lib/lab/surgical-guide';
+	import { clearCatalogCache, getCatalogSnapshot } from '$lib/lab/catalog-cache.svelte';
 	import {
 		TREATMENT_CATEGORY_LABELS,
 		TREATMENT_CATEGORY_ORDER,
@@ -24,6 +25,7 @@
 		getTreatmentMaterials,
 		hydrateTreatmentsCatalogOnce,
 		slugifyMaterialKey,
+		updateCoronaSobreImplanteAddonInDb,
 		updateTreatment,
 		upsertTreatmentMaterialInDb,
 		type LabTreatment,
@@ -81,6 +83,47 @@
 	});
 
 	let rowErrors = $state<Record<string, string>>({});
+
+	/** Extra opcional al marcar «Sobre implante» (0 = sin recargo; el precio base ya lo incluye). */
+	let addonImplanteUsd = $state('0');
+	let addonImplanteCrc = $state('0');
+	let addonImplanteSaving = $state(false);
+	let addonImplanteError = $state('');
+	let addonImplanteSaved = $state(false);
+
+	function syncAddonImplanteDraft() {
+		const addon = getCatalogSnapshot().addons.get('corona_sobre_implante');
+		const usd =
+			(addon?.precio_diseno_usd ?? 0) + (addon?.precio_fresado_usd ?? 0);
+		const crc =
+			(addon?.precio_diseno_crc ?? 0) + (addon?.precio_fresado_crc ?? 0);
+		addonImplanteUsd = String(usd);
+		addonImplanteCrc = String(crc);
+		addonImplanteError = '';
+		addonImplanteSaved = false;
+	}
+
+	async function saveAddonImplante() {
+		const usd = parsePrice(addonImplanteUsd);
+		const crc = parsePrice(addonImplanteCrc, 0);
+		if (usd === null || crc === null) {
+			addonImplanteError = 'Indica montos válidos (≥ 0). Usa 0 si no quieres cobro extra.';
+			return;
+		}
+		addonImplanteSaving = true;
+		addonImplanteError = '';
+		addonImplanteSaved = false;
+		try {
+			await updateCoronaSobreImplanteAddonInDb({ precio_usd: usd, precio_crc: crc });
+			syncAddonImplanteDraft();
+			addonImplanteSaved = true;
+		} catch (err) {
+			addonImplanteError =
+				err instanceof Error ? err.message : 'No se pudo guardar el extra sobre implante.';
+		} finally {
+			addonImplanteSaving = false;
+		}
+	}
 
 	function applyCabysToFe(entry: CabysCatalogEntry): {
 		fe_cabys: string | null;
@@ -338,13 +381,16 @@
 		initializeLabStorage({ treatments: true });
 		loading = true;
 		try {
+			clearCatalogCache();
 			await hydrateTreatmentsCatalogOnce();
 			treatments = getAllTreatments();
 			syncMaterialDrafts(treatments);
+			syncAddonImplanteDraft();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'No se pudo cargar el catálogo';
 			treatments = getAllTreatments();
 			syncMaterialDrafts(treatments);
+			syncAddonImplanteDraft();
 		} finally {
 			loading = false;
 		}
@@ -697,6 +743,55 @@
 			Mostrando {visibleCount} de {treatments.length}
 		</p>
 	{/if}
+
+	<section class="dash-panel treatments-addon-panel" aria-labelledby="addon-implante-title">
+		<div class="treatments-addon-panel__head">
+			<h2 id="addon-implante-title" class="dash-panel__title">Extra · Sobre implante</h2>
+			<p class="type-caption treatments-addon-panel__lead">
+				El precio de la corona ya incluye ir sobre implante. Solo suma un extra si configuras un monto
+				mayor a 0. Con 0 no se cobra nada adicional al marcar la opción en el caso.
+			</p>
+		</div>
+		<div class="treatments-addon-panel__fields">
+			<label class="field">
+				<span class="field-label">Extra USD</span>
+				<input
+					type="number"
+					class="field-input"
+					min="0"
+					step="0.01"
+					inputmode="decimal"
+					bind:value={addonImplanteUsd}
+					disabled={addonImplanteSaving}
+				/>
+			</label>
+			<label class="field">
+				<span class="field-label">Extra CRC</span>
+				<input
+					type="number"
+					class="field-input"
+					min="0"
+					step="1"
+					inputmode="numeric"
+					bind:value={addonImplanteCrc}
+					disabled={addonImplanteSaving}
+				/>
+			</label>
+			<button
+				type="button"
+				class="btn-pearl-capsule"
+				onclick={saveAddonImplante}
+				disabled={addonImplanteSaving}
+			>
+				{addonImplanteSaving ? 'Guardando…' : 'Guardar extra'}
+			</button>
+		</div>
+		{#if addonImplanteError}
+			<p class="treatment-card__error" role="alert">{addonImplanteError}</p>
+		{:else if addonImplanteSaved}
+			<p class="type-caption treatments-addon-panel__ok" role="status">Extra guardado.</p>
+		{/if}
+	</section>
 
 	{#each grouped as group (group.categoria)}
 		<section
@@ -1466,6 +1561,36 @@
 {/if}
 
 <style>
+	.treatments-addon-panel {
+		margin-bottom: 1rem;
+	}
+
+	.treatments-addon-panel__head {
+		margin-bottom: 0.85rem;
+	}
+
+	.treatments-addon-panel__lead {
+		margin: 0.35rem 0 0;
+		max-width: 40rem;
+	}
+
+	.treatments-addon-panel__fields {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 0.75rem 1rem;
+	}
+
+	.treatments-addon-panel__fields .field {
+		min-width: 8rem;
+		max-width: 10rem;
+	}
+
+	.treatments-addon-panel__ok {
+		margin: 0.5rem 0 0;
+		color: var(--dash-muted);
+	}
+
 	.treatments-guia-lead {
 		margin: 0 0 1rem;
 	}

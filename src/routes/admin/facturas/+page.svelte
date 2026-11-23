@@ -16,7 +16,8 @@
 		getFeComprobanteEstadoClass,
 		getFeComprobanteEstadoLabel
 	} from '$lib/fe/constants';
-	import { formatCurrency, formatDate } from '$lib/lab/helpers';
+	import { formatDate } from '$lib/lab/helpers';
+	import { formatInvoiceListTotal } from '$lib/lab/invoice-money';
 	import { feRechazoSummaryLine, parseFeRechazoFromStored } from '$lib/fe/format-rechazo';
 	import {
 		INVOICE_LIST_PAGE_SIZES,
@@ -235,7 +236,7 @@
 								<a href="/admin/casos/{fac.case_id}" class="text-link">{fac.case_number}</a>
 								<br /><span class="type-fine-print">{fac.paciente_name}</span>
 							</td>
-							<td class="type-body-strong">{formatCurrency(fac.total)}</td>
+							<td class="type-body-strong">{formatInvoiceListTotal(fac.total, fac.fe)}</td>
 							<td>
 								<span class={getInvoiceEstadoClass(fac.estado, fe?.estado)}>
 									{getInvoiceEstadoLabel(fac.estado)}

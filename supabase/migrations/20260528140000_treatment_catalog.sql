@@ -122,10 +122,10 @@ values (
 	'corona_sobre_implante',
 	'Corona sobre implante',
 	'rest_corona',
-	15,
-	15,
-	7500,
-	7500
+	0,
+	0,
+	0,
+	0
 );
 
 alter table public.treatments enable row level security;

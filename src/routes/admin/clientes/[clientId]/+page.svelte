@@ -46,6 +46,7 @@
 	} from '$lib/fe/constants';
 	import TablePagination from '$lib/components/ui/TablePagination.svelte';
 	import { formatColones, formatCurrency, formatDate } from '$lib/lab/helpers';
+	import { formatInvoiceListTotal } from '$lib/lab/invoice-money';
 	import type { InvoiceListPageSize, InvoiceListRow } from '$lib/lab/invoices-list';
 	import type { LabCase, LabClient } from '$lib/lab/types';
 
@@ -767,7 +768,7 @@
 														</a>
 													{/if}
 												</td>
-												<td>{formatCurrency(fac.total)}</td>
+												<td>{formatInvoiceListTotal(fac.total, fac.fe)}</td>
 												<td>
 													<form
 														method="POST"

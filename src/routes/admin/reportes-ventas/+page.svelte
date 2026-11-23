@@ -6,7 +6,8 @@
 		MONTH_NAMES_FULL,
 		formatSalesMoney,
 		salesReportPeriodLabel,
-		salesReportToSheetRows
+		salesReportToSheetRows,
+		salesReportTotalCount
 	} from '$lib/lab/sales-report';
 	import { Download } from '@lucide/svelte';
 
@@ -19,6 +20,7 @@
 	let totals = $derived(data.totals);
 	let yearsAvailable = $derived(data.yearsAvailable);
 	let periodLabel = $derived(salesReportPeriodLabel(year, month));
+	let totalCount = $derived(salesReportTotalCount(totals));
 	let exporting = $state(false);
 
 	function onFilterChange(event: Event) {
@@ -44,7 +46,7 @@
 				{ wch: 20 },
 				{ wch: 18 },
 				{ wch: 12 },
-				{ wch: 10 },
+				{ wch: 8 },
 				{ wch: 12 },
 				{ wch: 12 },
 				{ wch: 12 }
@@ -64,8 +66,8 @@
 
 <div class="dash-page">
 	<p class="dash-lead">
-		Reporte general de ventas (facturadas o pagadas). Filtre por mes y por FE; el Excel exporta lo
-		que está en pantalla. Montos del <strong>precio de la factura</strong> (USD).
+		Reporte general de ventas (facturadas o pagadas). Con FE, los montos salen en la moneda del
+		comprobante (USD o CRC). Sin FE, en USD del libro. El Excel exporta lo filtrado en pantalla.
 	</p>
 
 	<div class="dash-toolbar reportes-ventas-toolbar">
@@ -132,19 +134,54 @@
 	</div>
 
 	<section class="dash-stat-grid dash-stat-grid--compact">
-		<div class="dash-stat">
-			<p class="dash-stat__label">Subtotal — {periodLabel}</p>
-			<p class="dash-stat__value dash-stat__value--currency">{formatSalesMoney(totals.subtotal)}</p>
-		</div>
-		<div class="dash-stat">
-			<p class="dash-stat__label">IVA — {periodLabel}</p>
-			<p class="dash-stat__value dash-stat__value--currency">{formatSalesMoney(totals.impuesto)}</p>
-		</div>
-		<div class="dash-stat dash-stat--accent">
-			<p class="dash-stat__label">Total — {periodLabel}</p>
-			<p class="dash-stat__value dash-stat__value--currency">{formatSalesMoney(totals.total)}</p>
-			<p class="dash-stat__hint">{totals.count} factura{totals.count === 1 ? '' : 's'}</p>
-		</div>
+		{#if totals.USD.count > 0}
+			<div class="dash-stat">
+				<p class="dash-stat__label">Subtotal USD — {periodLabel}</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatSalesMoney(totals.USD.subtotal, 'USD')}
+				</p>
+			</div>
+			<div class="dash-stat">
+				<p class="dash-stat__label">IVA USD — {periodLabel}</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatSalesMoney(totals.USD.impuesto, 'USD')}
+				</p>
+			</div>
+			<div class="dash-stat dash-stat--accent">
+				<p class="dash-stat__label">Total USD — {periodLabel}</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatSalesMoney(totals.USD.total, 'USD')}
+				</p>
+				<p class="dash-stat__hint">{totals.USD.count} factura{totals.USD.count === 1 ? '' : 's'}</p>
+			</div>
+		{/if}
+		{#if totals.CRC.count > 0}
+			<div class="dash-stat">
+				<p class="dash-stat__label">Subtotal CRC — {periodLabel}</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatSalesMoney(totals.CRC.subtotal, 'CRC')}
+				</p>
+			</div>
+			<div class="dash-stat">
+				<p class="dash-stat__label">IVA CRC — {periodLabel}</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatSalesMoney(totals.CRC.impuesto, 'CRC')}
+				</p>
+			</div>
+			<div class="dash-stat dash-stat--accent">
+				<p class="dash-stat__label">Total CRC — {periodLabel}</p>
+				<p class="dash-stat__value dash-stat__value--currency">
+					{formatSalesMoney(totals.CRC.total, 'CRC')}
+				</p>
+				<p class="dash-stat__hint">{totals.CRC.count} factura{totals.CRC.count === 1 ? '' : 's'}</p>
+			</div>
+		{/if}
+		{#if totalCount === 0}
+			<div class="dash-stat">
+				<p class="dash-stat__label">Facturas — {periodLabel}</p>
+				<p class="dash-stat__value">0</p>
+			</div>
+		{/if}
 	</section>
 
 	<section class="dash-panel dash-panel--section">
@@ -170,7 +207,7 @@
 							<th>Caso</th>
 							<th>Cliente</th>
 							<th>Paciente</th>
-							<th>Moneda FE</th>
+							<th>Moneda</th>
 							<th class="reportes-ventas-num">Subtotal</th>
 							<th class="reportes-ventas-num">IVA</th>
 							<th class="reportes-ventas-num">Total</th>
@@ -205,20 +242,44 @@
 									{/if}
 								</td>
 								<td>{row.paciente_name || '—'}</td>
-								<td>{row.fe_moneda ?? '—'}</td>
-								<td class="reportes-ventas-num">{formatSalesMoney(row.subtotal)}</td>
-								<td class="reportes-ventas-num">{formatSalesMoney(row.impuesto)}</td>
-								<td class="reportes-ventas-num type-body-strong">{formatSalesMoney(row.total)}</td>
+								<td>{row.moneda}</td>
+								<td class="reportes-ventas-num">{formatSalesMoney(row.subtotal, row.moneda)}</td>
+								<td class="reportes-ventas-num">{formatSalesMoney(row.impuesto, row.moneda)}</td>
+								<td class="reportes-ventas-num type-body-strong">
+									{formatSalesMoney(row.total, row.moneda)}
+								</td>
 							</tr>
 						{/each}
 					</tbody>
 					<tfoot>
-						<tr>
-							<td colspan="7" class="type-body-strong">Total ({totals.count})</td>
-							<td class="reportes-ventas-num type-body-strong">{formatSalesMoney(totals.subtotal)}</td>
-							<td class="reportes-ventas-num type-body-strong">{formatSalesMoney(totals.impuesto)}</td>
-							<td class="reportes-ventas-num type-body-strong">{formatSalesMoney(totals.total)}</td>
-						</tr>
+						{#if totals.USD.count > 0}
+							<tr>
+								<td colspan="7" class="type-body-strong">Total USD ({totals.USD.count})</td>
+								<td class="reportes-ventas-num type-body-strong">
+									{formatSalesMoney(totals.USD.subtotal, 'USD')}
+								</td>
+								<td class="reportes-ventas-num type-body-strong">
+									{formatSalesMoney(totals.USD.impuesto, 'USD')}
+								</td>
+								<td class="reportes-ventas-num type-body-strong">
+									{formatSalesMoney(totals.USD.total, 'USD')}
+								</td>
+							</tr>
+						{/if}
+						{#if totals.CRC.count > 0}
+							<tr>
+								<td colspan="7" class="type-body-strong">Total CRC ({totals.CRC.count})</td>
+								<td class="reportes-ventas-num type-body-strong">
+									{formatSalesMoney(totals.CRC.subtotal, 'CRC')}
+								</td>
+								<td class="reportes-ventas-num type-body-strong">
+									{formatSalesMoney(totals.CRC.impuesto, 'CRC')}
+								</td>
+								<td class="reportes-ventas-num type-body-strong">
+									{formatSalesMoney(totals.CRC.total, 'CRC')}
+								</td>
+							</tr>
+						{/if}
 					</tfoot>
 				</table>
 			</div>

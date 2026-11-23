@@ -196,6 +196,7 @@ export {
 	deleteTreatmentMaterialInDb,
 	hydrateTreatmentsCatalog,
 	setTreatmentActiveInDb as setTreatmentActive,
+	updateCoronaSobreImplanteAddonInDb,
 	updateTreatmentInDb as updateTreatment,
 	upsertRestorationPriceInDb as upsertRestorationPrice,
 	upsertTreatmentMaterialInDb

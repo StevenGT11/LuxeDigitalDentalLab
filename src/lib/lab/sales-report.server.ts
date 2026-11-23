@@ -2,13 +2,17 @@ import { createSupabaseAdminClient } from '$lib/supabase/admin';
 import {
 	isCountedSalesEstado,
 	normalizeSalesMoneda,
-	type SalesReportDetailRow
+	type SalesReportDetailRow,
+	type SalesReportMoneda
 } from './sales-report';
 
 type DbFeEmbed = {
 	tipo_documento: string | null;
 	estado: string | null;
 	moneda: string | null;
+	subtotal: number | null;
+	impuesto: number | null;
+	total: number | null;
 	consecutivo: string | null;
 	clave: string | null;
 	fecha_emision: string | null;
@@ -49,7 +53,7 @@ function pickFe01(embeds: DbFeEmbed[]): DbFeEmbed | null {
 
 /**
  * Reporte general de ventas: facturas facturadas/pagadas del periodo.
- * Incluye con y sin FE. Montos = precio de la factura (libro USD).
+ * Con FE: montos/moneda del comprobante. Sin FE: libro USD.
  */
 export async function fetchSalesReportDetails(
 	params: FetchSalesReportParams
@@ -89,6 +93,9 @@ export async function fetchSalesReportDetails(
 				tipo_documento,
 				estado,
 				moneda,
+				subtotal,
+				impuesto,
+				total,
 				consecutivo,
 				clave,
 				fecha_emision
@@ -110,6 +117,19 @@ export async function fetchSalesReportDetails(
 
 		const fe = pickFe01(listFeEmbeds(inv.fe_comprobantes));
 		const tieneFe = fe?.estado === 'aceptado';
+		const feMoneda = tieneFe ? normalizeSalesMoneda(fe?.moneda) : null;
+
+		let moneda: SalesReportMoneda = 'USD';
+		let subtotal = Number(inv.subtotal ?? 0);
+		let impuesto = Number(inv.impuesto ?? 0);
+		let total = Number(inv.total ?? 0);
+
+		if (tieneFe && fe && fe.total != null && Number.isFinite(Number(fe.total))) {
+			moneda = feMoneda ?? 'USD';
+			subtotal = Number(fe.subtotal ?? 0);
+			impuesto = Number(fe.impuesto ?? 0);
+			total = Number(fe.total ?? 0);
+		}
 
 		rows.push({
 			id: inv.id,
@@ -123,10 +143,11 @@ export async function fetchSalesReportDetails(
 			tiene_fe: tieneFe,
 			fe_consecutivo: tieneFe ? (fe?.consecutivo ?? '') : '',
 			fe_clave: tieneFe ? (fe?.clave ?? '') : '',
-			fe_moneda: tieneFe ? normalizeSalesMoneda(fe?.moneda) : null,
-			subtotal: Number(inv.subtotal ?? 0),
-			impuesto: Number(inv.impuesto ?? 0),
-			total: Number(inv.total ?? 0)
+			fe_moneda: feMoneda,
+			moneda,
+			subtotal,
+			impuesto,
+			total
 		});
 	}
 

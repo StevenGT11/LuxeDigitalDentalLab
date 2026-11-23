@@ -30,7 +30,12 @@
 		getInvoiceEstadoLabel,
 		invoiceCobroSelectOptions
 	} from '$lib/lab/invoice-estado';
-	import { formatCurrency, formatDate } from '$lib/lab/helpers';
+	import { formatDate } from '$lib/lab/helpers';
+	import {
+		formatInvoiceMoney,
+		normalizeInvoiceMoneda,
+		scaleLedgerLinesToFeCrc
+	} from '$lib/lab/invoice-money';
 	import { clientFeAddressRowToForm, formatClientFeAddressLabel } from '$lib/fe/client-fiscal-address';
 	import { computeInvoiceTaxTotals } from '$lib/lab/invoice-tax';
 	import type { CasePriceItem, InvoiceLineDetail } from '$lib/lab/invoice-detail.server';
@@ -286,6 +291,26 @@
 			}))
 		)
 	);
+
+	/** Cuando la FE está aceptada en CRC, mostrar montos del comprobante (como el PDF). */
+	const displayMoneda = $derived(
+		fe && !canEditLinePrices ? normalizeInvoiceMoneda(fe.moneda) : ('USD' as const)
+	);
+	const showFeCrcAmounts = $derived(displayMoneda === 'CRC' && Boolean(fe));
+
+	const displayLineRows = $derived.by(() => {
+		if (!showFeCrcAmounts || !fe) return computedLineRows;
+		return scaleLedgerLinesToFeCrc(computedLineRows, invoice.subtotal, fe.subtotal);
+	});
+
+	const displayTotals = $derived.by(() => {
+		if (!showFeCrcAmounts || !fe) return computedTotals;
+		return {
+			subtotal: Number(fe.subtotal) || 0,
+			impuesto: Number(fe.impuesto) || 0,
+			total: Number(fe.total) || 0
+		};
+	});
 
 	const mediosModalTotal = $derived(
 		mediosModalMode === 'nota' ? (fe?.total ?? computedTotals.total) : computedTotals.total
@@ -756,7 +781,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each computedLineRows as line (line.id)}
+					{#each displayLineRows as line (line.id)}
 						<tr>
 							<td>{line.descripcion}</td>
 							<td class="invoice-detail__num">{line.cantidad}</td>
@@ -773,26 +798,26 @@
 										bind:value={priceDrafts[line.id]}
 									/>
 								{:else}
-									{formatCurrency(line.precio_unitario)}
+									{formatInvoiceMoney(line.precio_unitario, displayMoneda)}
 								{/if}
 							</td>
-							<td class="invoice-detail__num">{formatCurrency(line.subtotal)}</td>
+							<td class="invoice-detail__num">{formatInvoiceMoney(line.subtotal, displayMoneda)}</td>
 						</tr>
 					{/each}
 				</tbody>
 				<tfoot class="invoice-detail__totals">
 					<tr>
 						<td colspan="6" class="invoice-detail__totals-label">Subtotal</td>
-						<td class="invoice-detail__num">{formatCurrency(computedTotals.subtotal)}</td>
+						<td class="invoice-detail__num">{formatInvoiceMoney(displayTotals.subtotal, displayMoneda)}</td>
 					</tr>
 					<tr>
 						<td colspan="6" class="invoice-detail__totals-label">Impuesto (IVA)</td>
-						<td class="invoice-detail__num">{formatCurrency(computedTotals.impuesto)}</td>
+						<td class="invoice-detail__num">{formatInvoiceMoney(displayTotals.impuesto, displayMoneda)}</td>
 					</tr>
 					<tr class="invoice-detail__totals-row--total">
 						<td colspan="6" class="invoice-detail__totals-label">Total</td>
 						<td class="invoice-detail__num invoice-detail__totals-total">
-							{formatCurrency(computedTotals.total)}
+							{formatInvoiceMoney(displayTotals.total, displayMoneda)}
 						</td>
 					</tr>
 				</tfoot>
@@ -893,9 +918,9 @@
 				<div><dt>Moneda</dt><dd>{feDisplay.moneda}</dd></div>
 				<div><dt>Enviado</dt><dd>{feDisplay.enviado_at ? formatDate(feDisplay.enviado_at) : '—'}</dd></div>
 				<div><dt>Resuelto</dt><dd>{feDisplay.resuelto_at ? formatDate(feDisplay.resuelto_at) : '—'}</dd></div>
-				<div><dt>Subtotal FE</dt><dd>{formatCurrency(feDisplay.subtotal)}</dd></div>
-				<div><dt>Impuesto FE</dt><dd>{formatCurrency(feDisplay.impuesto)}</dd></div>
-				<div><dt>Total FE</dt><dd>{formatCurrency(feDisplay.total)}</dd></div>
+				<div><dt>Subtotal FE</dt><dd>{formatInvoiceMoney(feDisplay.subtotal, feDisplay.moneda)}</dd></div>
+				<div><dt>Impuesto FE</dt><dd>{formatInvoiceMoney(feDisplay.impuesto, feDisplay.moneda)}</dd></div>
+				<div><dt>Total FE</dt><dd>{formatInvoiceMoney(feDisplay.total, feDisplay.moneda)}</dd></div>
 			</dl>
 
 			{#if feRechazo}
@@ -1133,7 +1158,7 @@
 									<td class="invoice-detail__mono" title={nota.clave ?? ''}>
 										{nota.clave ? `…${nota.clave.slice(-10)}` : '—'}
 									</td>
-									<td>{formatCurrency(nota.total)}</td>
+									<td>{formatInvoiceMoney(nota.total, nota.moneda)}</td>
 									<td>{nota.enviado_at ? formatDate(nota.enviado_at) : '—'}</td>
 									<td class="invoice-detail__nota-actions">
 										{#if feComprobanteNeedsEnviar(nota.estado)}

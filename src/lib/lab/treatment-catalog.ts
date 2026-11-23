@@ -3,9 +3,13 @@ import type { ToothSelectionMode } from './tooth-selection-mode';
 /** Versión del catálogo — incrementar para volver a cargar tarifas por defecto */
 export const TREATMENT_CATALOG_VERSION = 14;
 
-/** Recargo corona sobre implante (add-on dentro de Corona) */
-export const PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD = 15;
-export const PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC = 7_500;
+/**
+ * Extra opcional al marcar «Sobre implante».
+ * Por defecto 0: el precio de la corona ya incluye ir sobre implante.
+ * Si en catálogo (pricing_addons) se configura un valor > 0, se suma solo entonces.
+ */
+export const PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_USD = 0;
+export const PRECIO_ADDON_CORONA_SOBRE_IMPLANTE_CRC = 0;
 
 /** Diseño CAD por pieza (unidad de restauración) */
 export const PRECIO_DISENO_UNIDAD_RESTAURACION_USD = 8;

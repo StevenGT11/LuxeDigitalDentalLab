@@ -1,23 +1,36 @@
 <script lang="ts">
-	import { invoicePdfFilename, invoicePdfHref } from '$lib/lab/invoice-pdf';
+	import {
+		invoicePdfFilename,
+		invoicePdfHref,
+		type InvoicePdfPortal
+	} from '$lib/lab/invoice-pdf';
 	import { untrack } from 'svelte';
 
 	interface Props {
 		open?: boolean;
 		invoiceId: string;
 		invoiceNumber: string;
+		/** Quién descarga el PDF: admin (default) o portal cliente. */
+		portal?: InvoicePdfPortal;
 	}
 
 	type PreviewPage = { src: string; width: number; height: number };
 
-	let { open = $bindable(false), invoiceId, invoiceNumber }: Props = $props();
+	let {
+		open = $bindable(false),
+		invoiceId,
+		invoiceNumber,
+		portal = 'admin'
+	}: Props = $props();
 
 	let dialogEl = $state<HTMLDialogElement | null>(null);
 
-	const downloadHref = $derived(invoiceId ? invoicePdfHref(invoiceId, { download: true }) : '');
+	const downloadHref = $derived(
+		invoiceId ? invoicePdfHref(invoiceId, { download: true, portal }) : ''
+	);
 	const downloadName = $derived(invoicePdfFilename(invoiceNumber || 'factura'));
 	const previewPromise = $derived(
-		open && invoiceId ? loadPreviewPages(invoicePdfHref(invoiceId)) : null
+		open && invoiceId ? loadPreviewPages(invoicePdfHref(invoiceId, { portal })) : null
 	);
 
 	function close() {

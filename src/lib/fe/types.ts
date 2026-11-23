@@ -18,6 +18,11 @@ export interface FeComprobanteSummary {
 	ultimo_error: string | null;
 	enviado_at: string | null;
 	resuelto_at: string | null;
+	/** Moneda del comprobante FE (USD/CRC). */
+	moneda: string;
+	subtotal: number;
+	impuesto: number;
+	total: number;
 }
 
 export interface FeEmisorConfigRow {

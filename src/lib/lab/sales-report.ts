@@ -1,8 +1,9 @@
 import { getInvoiceEstadoLabel } from '$lib/lab/invoice-estado';
+import { formatInvoiceMoney } from '$lib/lab/invoice-money';
 
 export type SalesReportMoneda = 'CRC' | 'USD';
 
-/** Fila detallada: montos del precio de la factura (libro USD). */
+/** Fila detallada: montos en la moneda de visualización (FE si hay; si no, libro USD). */
 export type SalesReportDetailRow = {
 	id: string;
 	invoice_number: string;
@@ -18,7 +19,8 @@ export type SalesReportDetailRow = {
 	fe_clave: string;
 	/** Moneda FE si existe; null = sin FE */
 	fe_moneda: SalesReportMoneda | null;
-	/** Montos del libro de factura (siempre USD). */
+	/** Moneda de los montos de esta fila */
+	moneda: SalesReportMoneda;
 	subtotal: number;
 	impuesto: number;
 	total: number;
@@ -29,6 +31,11 @@ export type SalesReportTotals = {
 	subtotal: number;
 	impuesto: number;
 	total: number;
+};
+
+export type SalesReportTotalsByMoneda = {
+	USD: SalesReportTotals;
+	CRC: SalesReportTotals;
 };
 
 /** Filtro de factura electrónica en el reporte. */
@@ -71,35 +78,37 @@ export function normalizeSalesMoneda(raw: string | null | undefined): SalesRepor
 	return String(raw ?? '').toUpperCase() === 'CRC' ? 'CRC' : 'USD';
 }
 
-export function formatSalesMoney(amount: number): string {
-	return new Intl.NumberFormat('es-CR', {
-		style: 'currency',
-		currency: 'USD',
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2
-	}).format(amount);
+export function formatSalesMoney(amount: number, moneda: SalesReportMoneda = 'USD'): string {
+	return formatInvoiceMoney(amount, moneda);
 }
 
-export function sumSalesDetailRows(rows: SalesReportDetailRow[]): SalesReportTotals {
-	return rows.reduce(
-		(acc, row) => ({
-			count: acc.count + 1,
-			subtotal: acc.subtotal + (Number(row.subtotal) || 0),
-			impuesto: acc.impuesto + (Number(row.impuesto) || 0),
-			total: acc.total + (Number(row.total) || 0)
-		}),
-		{ count: 0, subtotal: 0, impuesto: 0, total: 0 }
-	);
+export function sumSalesDetailRows(rows: SalesReportDetailRow[]): SalesReportTotalsByMoneda {
+	const empty = (): SalesReportTotals => ({ count: 0, subtotal: 0, impuesto: 0, total: 0 });
+	const out: SalesReportTotalsByMoneda = { USD: empty(), CRC: empty() };
+
+	for (const row of rows) {
+		const bucket = out[row.moneda];
+		bucket.count += 1;
+		bucket.subtotal += Number(row.subtotal) || 0;
+		bucket.impuesto += Number(row.impuesto) || 0;
+		bucket.total += Number(row.total) || 0;
+	}
+
+	return out;
+}
+
+export function salesReportTotalCount(totals: SalesReportTotalsByMoneda): number {
+	return totals.USD.count + totals.CRC.count;
 }
 
 function roundMoney(value: number): number {
 	return Math.round(value * 100) / 100;
 }
 
-/** Matriz para armar un .xlsx (encabezados + filas + totales). */
+/** Matriz para armar un .xlsx (encabezados + filas + totales por moneda). */
 export function salesReportToSheetRows(
 	rows: SalesReportDetailRow[],
-	totals: SalesReportTotals
+	totals: SalesReportTotalsByMoneda
 ): (string | number)[][] {
 	const header = [
 		'Fecha',
@@ -112,10 +121,10 @@ export function salesReportToSheetRows(
 		'Clínica',
 		'Paciente',
 		'Estado cobro',
-		'Moneda FE',
-		'Subtotal USD',
-		'IVA USD',
-		'Total USD'
+		'Moneda',
+		'Subtotal',
+		'IVA',
+		'Total'
 	];
 
 	const body = rows.map((row) => [
@@ -129,30 +138,35 @@ export function salesReportToSheetRows(
 		row.client_clinica,
 		row.paciente_name || '—',
 		getInvoiceEstadoLabel(row.estado),
-		row.fe_moneda ?? '—',
+		row.moneda,
 		roundMoney(row.subtotal),
 		roundMoney(row.impuesto),
 		roundMoney(row.total)
 	]);
 
-	const footer = [
-		'',
-		'',
-		'',
-		'',
-		'',
-		'',
-		'',
-		'',
-		'',
-		`Total (${totals.count})`,
-		'',
-		roundMoney(totals.subtotal),
-		roundMoney(totals.impuesto),
-		roundMoney(totals.total)
-	];
+	const footers: (string | number)[][] = [];
+	for (const moneda of ['USD', 'CRC'] as const) {
+		const t = totals[moneda];
+		if (t.count === 0) continue;
+		footers.push([
+			'',
+			'',
+			'',
+			'',
+			'',
+			'',
+			'',
+			'',
+			'',
+			`Total ${moneda} (${t.count})`,
+			moneda,
+			roundMoney(t.subtotal),
+			roundMoney(t.impuesto),
+			roundMoney(t.total)
+		]);
+	}
 
-	return [header, ...body, footer];
+	return [header, ...body, ...footers];
 }
 
 export function salesReportPeriodLabel(year: number, month: number | null): string {

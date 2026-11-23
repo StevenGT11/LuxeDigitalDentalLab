@@ -4,7 +4,7 @@
 	import { signOut } from '$lib/auth/auth';
 	import LuxeLogo from '$lib/components/ui/LuxeLogo.svelte';
 	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
-	import { ClipboardList, LogOut, PlusCircle, User } from '@lucide/svelte';
+	import { ClipboardList, FileText, LogOut, PlusCircle, User } from '@lucide/svelte';
 
 	interface NavItem {
 		href: string;
@@ -15,12 +15,14 @@
 
 	const navItems: NavItem[] = [
 		{ href: '/client', label: 'Mis casos', icon: ClipboardList, exact: true },
+		{ href: '/client/facturas', label: 'Mis facturas', icon: FileText },
 		{ href: '/client/nuevo', label: 'Enviar caso', icon: PlusCircle },
 		{ href: '/client/perfil', label: 'Mi perfil', icon: User }
 	];
 
 	const pageTitles: Record<string, string> = {
 		'/client': 'Mis casos',
+		'/client/facturas': 'Mis facturas',
 		'/client/nuevo': 'Enviar nuevo caso',
 		'/client/perfil': 'Mi perfil'
 	};

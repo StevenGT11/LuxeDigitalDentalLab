@@ -368,3 +368,24 @@ export async function updateSurgicalGuidePriceInDb(
 	if (error) throw error;
 	await fetchCatalogFromDb();
 }
+
+/** Extra opcional al marcar «Sobre implante». Si ambos USD/CRC quedan en 0, no hay recargo. */
+export async function updateCoronaSobreImplanteAddonInDb(input: {
+	precio_usd: number;
+	precio_crc: number;
+}): Promise<void> {
+	const supabase = createSupabaseBrowserClient();
+	const usd = Math.max(0, input.precio_usd);
+	const crc = Math.max(0, input.precio_crc);
+	const { error } = await supabase
+		.from('pricing_addons')
+		.update({
+			precio_diseno_usd: 0,
+			precio_fresado_usd: usd,
+			precio_diseno_crc: 0,
+			precio_fresado_crc: crc
+		})
+		.eq('code', 'corona_sobre_implante');
+	if (error) throw error;
+	await fetchCatalogFromDb();
+}

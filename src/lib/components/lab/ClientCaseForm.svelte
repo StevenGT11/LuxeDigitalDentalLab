@@ -663,9 +663,9 @@
 								<div class="case-item-draft__subtotal case-item-draft__subtotal--wide">
 									<span class="type-fine-print">Subtotal ítem</span>
 									<span class="case-item-draft__subtotal-value">{formatCurrency(itemCost(row))}</span>
-									{#if row.corona_sobre_implante}
+									{#if row.corona_sobre_implante && getCoronaSobreImplanteAddonUsd() > 0}
 										<span class="case-item-draft__subtotal-detail">
-											Incluye {formatCurrency(getCoronaSobreImplanteAddonUsd() * itemPiezas(row))} por ir sobre implante
+											Incluye {formatCurrency(getCoronaSobreImplanteAddonUsd() * itemPiezas(row))} extra por ir sobre implante
 										</span>
 									{/if}
 								</div>
